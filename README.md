@@ -180,41 +180,66 @@ telemetry-apps/
 
 ---
 
+---
+
+## ⚙️ Environment Configuration (`.env`)
+
+The workspace uses `.env` files for central API routing and client configuration. A template is provided in [`.env.example`](file:///.env.example):
+
+```bash
+# Copy example configuration to active .env
+cp .env.example .env
+cp .env.example admin-client/.env
+```
+
+| Variable | Default Value | Description |
+|:---|:---|:---|
+| `TELEMETRY_API_URL` | `http://localhost:8080/api/v1` | Central backend API URL for worker telemetry ingestion |
+| `ADMIN_API_URL` | `http://localhost:8080/api/v1` | Backend API URL for admin authentication and worker CRUD |
+| `VITE_API_URL` | `http://localhost:8080/api/v1` | Frontend API URL exposed to React via Vite |
+| `WORKER_ROLE` | `OFFICE` | Default worker role (`OFFICE` or `FIELD`) |
+| `WORKER_FLUSH_INTERVAL` | `30` | Ingestion dispatch interval in seconds |
+
+---
+
 ## 🚀 Development & Execution Guide
 
 ### 1. Running the Worker Agent (`agent`)
 
-The worker runs as an ultra-lightweight daemon on employee workstations.
+The worker runs as an ultra-lightweight daemon with a **native egui / eframe desktop window**:
 
 ```bash
-# Run the worker in debug mode with structured logging
-RUST_LOG=info cargo run -p agent
+# Launch worker with native GUI window
+cargo run -p agent
 
-# Run with verbose trace logging (inspect buffer and collector ticks)
-RUST_LOG=debug cargo run -p agent
+# Launch in headless background daemon mode (for servers or background services)
+cargo run -p agent -- --headless
 ```
 
 #### What happens on startup:
-1. Generates or loads the canonical **64-character SHA-256 device identifier** from hardware UUID.
-2. Initializes the double buffer (`MetricsBuffer`) in volatile memory.
-3. Dispatches an immediate desktop notification alerting the user that monitoring is active.
-4. Starts a background timer that repeats the **transparency notification every 1 hour**.
-5. Connects collectors ($O(1)$ block-free keystroke counters, 30s system samples).
-6. Initializes the local offline queue in SQLite (`offline.db`).
+1. Loads environment variables from `.env` via `dotenvy`.
+2. Generates or loads the canonical **64-character SHA-256 device identifier** from hardware UUID.
+3. Initializes the double buffer (`MetricsBuffer`) in volatile memory.
+4. Opens the **Transparencia Activa GUI** (`500x680` px):
+   - **Semáforo de Estado:** 🟢 Monitoreo Activo / 🟡 Fuera de Horario / 🔴 Desconectado.
+   - **Enrolamiento:** Permite pegar el paquete JSON generado por el Admin para vincular la clave pública maestra.
+   - **Consentimientos:** Toggles independientes para las 6 categorías (GPS bloqueado para `OFFICE`).
+   - **Diagnóstico en Vivo:** Contador de teclas/clics $O(1)$, métricas del sistema y botón de envío instantáneo.
+5. Spawns background worker thread:
+   - Dispatches desktop notification alerting the user that monitoring is active.
+   - Schedules **transparency notification every 1 hour** via `notify-rust`.
+   - Flushes double buffer every 30s using `std::mem::take` (<50ns lock) and delivers via HTTP or SQLite WAL queue.
 
 ---
 
 ### 2. Running the Admin Desktop Console (`admin-client`)
 
-The admin app consists of a Vite/React frontend orchestrated by the Tauri 2.0 Rust runtime.
+The admin app is an executive control center powered by **Tauri 2.0** and **React 18**:
 
 #### Option A: Full Tauri Desktop Mode (Recommended)
 ```bash
 # Navigate to the admin-client folder
 cd admin-client
-
-# Install frontend dependencies
-npm install
 
 # Launch Tauri development mode (starts Vite server and native desktop window)
 npm run tauri dev
@@ -223,15 +248,15 @@ npm run tauri dev
 #### Option B: Standalone Web Frontend Development
 ```bash
 cd admin-client
-npm install
 npm run dev
 # Open http://localhost:5173 in any browser to inspect the UI and charts
 ```
 
-#### Option C: Native Backend Headless Testing
-```bash
-cargo run -p admin-client-core
-```
+#### Features included:
+1. **Pantalla de Autenticación & Registro (`AuthView`):** Login, registro de administradores, configuración de URL de API y Modo Autónomo Local / Diagnóstico.
+2. **Bóveda Criptográfica OS Keystore:** Generación y custodia de clave privada X25519 en el Keychain del SO.
+3. **Generador de Paquetes de Enrolamiento:** Genera paquetes JSON con la clave pública real para aprovisionar workers.
+4. **Motor Rayon de Descifrado Paralelo:** Botón interactivo para probar el descifrado HPKE en tiempo real con la clave privada de la bóveda.
 
 ---
 
