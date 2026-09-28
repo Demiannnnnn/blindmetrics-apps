@@ -1,0 +1,19 @@
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+
+# Node / Web Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# SQLite & local databases
+*.db
+*.db-shm
+*.db-wal
+
+# OS files
+.DS_Store
+Thumbs.db
