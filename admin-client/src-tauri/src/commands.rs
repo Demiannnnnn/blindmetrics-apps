@@ -60,6 +60,41 @@ pub fn decrypt_records_parallel(
 }
 
 #[tauri::command]
+pub async fn admin_login(email: String, password: String, api_url: Option<String>) -> Result<crate::client::AdminProfile, String> {
+    let client = crate::client::get_api_client();
+    if let Some(url) = api_url {
+        client.set_base_url(url);
+    }
+    client.login(&email, &password).await
+}
+
+#[tauri::command]
+pub async fn admin_register(
+    name: String,
+    email: String,
+    password: String,
+    organization: String,
+    api_url: Option<String>,
+) -> Result<crate::client::AdminProfile, String> {
+    let client = crate::client::get_api_client();
+    if let Some(url) = api_url {
+        client.set_base_url(url);
+    }
+    client.register(&name, &email, &password, &organization).await
+}
+
+#[tauri::command]
+pub fn admin_logout() -> Result<(), String> {
+    crate::client::get_api_client().logout();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn admin_get_session() -> Result<Option<crate::client::AdminProfile>, String> {
+    Ok(crate::client::get_api_client().get_current_user())
+}
+
+#[tauri::command]
 pub fn admin_generate_keypair() -> Result<String, String> {
     generate_and_save_master_keys()
 }
@@ -76,8 +111,43 @@ pub fn admin_decrypt_records(records: Vec<EncryptedRecordDto>) -> Result<Vec<Dec
 }
 
 #[tauri::command]
+pub fn admin_simulate_and_decrypt() -> Result<DecryptedRecordDto, String> {
+    let pub_b64 = match get_admin_public_key() {
+        Ok(k) => k,
+        Err(_) => generate_and_save_master_keys()?,
+    };
+
+    let sample = serde_json::json!({
+        "device_identifier": "macbook-air-m2-corporate-node",
+        "worker_name": "Carlos Valenzuela",
+        "cpu_usage_pct": 28.5,
+        "ram_usage_pct": 64.2,
+        "keystrokes_per_minute": 142,
+        "clicks_per_minute": 38,
+        "active_window": "VS Code — telemetry-apps/agent",
+        "top_fqdns": ["github.com", "crates.io", "docs.rs"],
+        "encrypted_at": chrono::Utc::now().to_rfc3339()
+    });
+
+    let envelope = telemetry_crypto_core::encrypt_telemetry_batch(&sample, &pub_b64)
+        .map_err(|e| format!("Encryption error: {}", e))?;
+
+    let priv_key = load_admin_private_key().map_err(|e| format!("Keystore error: {}", e))?;
+    let records = vec![EncryptedRecordDto {
+        id: format!("sim-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap()),
+        client_timestamp: chrono::Utc::now(),
+        ephemeral_public_key: envelope.ephemeral_public_key,
+        encrypted_payload: envelope.encrypted_payload,
+    }];
+
+    let mut decrypted = decrypt_records_parallel(&priv_key, records)?;
+    decrypted.pop().ok_or_else(|| "Decryption produced no output".to_string())
+}
+
+#[tauri::command]
 pub fn admin_lock_and_flush_memory() -> Result<(), String> {
     tracing::info!("Admin lock invoked: In-memory session flushed");
+    crate::client::get_api_client().logout();
     Ok(())
 }
 
@@ -142,5 +212,20 @@ mod tests {
 
         let result = decrypt_records_parallel(&admin_priv, records);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_admin_session_lifecycle() {
+        let client = crate::client::get_api_client();
+        assert!(client.get_current_user().is_none());
+
+        admin_logout().expect("Logout failed");
+        assert!(admin_get_session().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_admin_lock_and_flush() {
+        let res = admin_lock_and_flush_memory();
+        assert!(res.is_ok());
     }
 }

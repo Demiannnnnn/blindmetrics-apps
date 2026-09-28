@@ -8,8 +8,20 @@ import {
   ShieldCheck,
   Lock,
   ChevronDown,
+  LogOut,
+  Server,
+  User,
 } from 'lucide-react';
-import { WorkerItem, getWorkersList, lockAndFlushMemory } from './api/tauri-bridge';
+import {
+  WorkerItem,
+  AdminProfile,
+  getWorkersList,
+  lockAndFlushMemory,
+  getAdminSession,
+  adminLogout,
+  getApiBaseUrl,
+} from './api/tauri-bridge';
+import { AuthView } from './components/AuthView';
 import { Dashboard } from './components/Dashboard';
 import { ActivityChart } from './components/ActivityChart';
 import { NetworkExplorer } from './components/NetworkExplorer';
@@ -19,26 +31,35 @@ import { ConsentSettings } from './components/ConsentSettings';
 import { AutoLockModal } from './components/AutoLockModal';
 
 export const App: React.FC = () => {
+  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'system' | 'network' | 'productivity' | 'location' | 'compliance'>('dashboard');
   const [selectedWorker, setSelectedWorker] = useState<WorkerItem | null>(null);
   const [allWorkers, setAllWorkers] = useState<WorkerItem[]>([]);
   const [isLocked, setIsLocked] = useState<boolean>(false);
 
   useEffect(() => {
-    getWorkersList().then(list => {
-      setAllWorkers(list);
-      if (list.length > 0 && !selectedWorker) {
-        setSelectedWorker(list[0]);
-      }
+    getAdminSession().then(sess => {
+      if (sess) setAdminProfile(sess);
     });
   }, []);
+
+  useEffect(() => {
+    if (adminProfile) {
+      getWorkersList().then(list => {
+        setAllWorkers(list);
+        if (list.length > 0 && !selectedWorker) {
+          setSelectedWorker(list[0]);
+        }
+      });
+    }
+  }, [adminProfile]);
 
   // Inactivity Auto-Lock Timer (5 minutes)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
 
     const resetTimer = () => {
-      if (isLocked) return;
+      if (isLocked || !adminProfile) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
         setIsLocked(true);
@@ -54,7 +75,17 @@ export const App: React.FC = () => {
       events.forEach(e => window.removeEventListener(e, resetTimer));
       clearTimeout(timer);
     };
-  }, [isLocked]);
+  }, [isLocked, adminProfile]);
+
+  const handleLogout = async () => {
+    await adminLogout();
+    setAdminProfile(null);
+  };
+
+  // If not logged in, render the login / register view
+  if (!adminProfile) {
+    return <AuthView onLoginSuccess={(profile) => setAdminProfile(profile)} />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
@@ -66,7 +97,7 @@ export const App: React.FC = () => {
         <div>
           {/* Logo / Header */}
           <div className="p-5 border-b border-slate-800 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-600/30">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-emerald-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-600/30 ring-1 ring-white/20">
               T
             </div>
             <div>
@@ -86,7 +117,7 @@ export const App: React.FC = () => {
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
-              <span>Tablero Principal & CRUD</span>
+              <span>Tablero Principal & Enrolamiento</span>
             </button>
 
             <button
@@ -153,18 +184,47 @@ export const App: React.FC = () => {
 
         {/* User Session & Lock Button */}
         <div className="p-3 border-t border-slate-800 space-y-2">
-          <button
-            onClick={() => {
-              setIsLocked(true);
-              lockAndFlushMemory();
-            }}
-            className="w-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 px-3 py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition"
-          >
-            <Lock className="w-3.5 h-3.5 text-amber-400" />
-            <span>Bloquear Sesión Ahora</span>
-          </button>
-          <div className="text-[11px] text-slate-500 font-mono text-center">
-            Organización: Acme SpA
+          {/* Active Admin User Card */}
+          <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-800 text-xs">
+            <div className="flex items-center gap-2 text-slate-200 font-semibold truncate">
+              <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">{adminProfile.name}</span>
+            </div>
+            <div className="text-[11px] text-slate-400 truncate mt-0.5">{adminProfile.email}</div>
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono">
+              <span>{adminProfile.organization}</span>
+              <span className="flex items-center gap-1 text-emerald-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                Autenticado
+              </span>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setIsLocked(true);
+                lockAndFlushMemory();
+              }}
+              className="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 px-2.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+              title="Bloquear sesión por inactividad"
+            >
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Bloquear</span>
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="p-2 bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-700/80 rounded-xl transition"
+              title="Cerrar Sesión"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="text-[10px] text-slate-500 font-mono text-center flex items-center justify-center gap-1">
+            <Server className="w-3 h-3 text-slate-600" />
+            <span className="truncate max-w-[200px]">{getApiBaseUrl()}</span>
           </div>
         </div>
       </aside>
