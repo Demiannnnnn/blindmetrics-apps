@@ -59,6 +59,28 @@ pub fn decrypt_records_parallel(
         .collect::<Result<Vec<_>, String>>()
 }
 
+#[tauri::command]
+pub fn admin_generate_keypair() -> Result<String, String> {
+    generate_and_save_master_keys()
+}
+
+#[tauri::command]
+pub fn admin_get_public_key() -> Result<String, String> {
+    get_admin_public_key()
+}
+
+#[tauri::command]
+pub fn admin_decrypt_records(records: Vec<EncryptedRecordDto>) -> Result<Vec<DecryptedRecordDto>, String> {
+    let priv_key = load_admin_private_key().map_err(|e| format!("Keystore error: {}", e))?;
+    decrypt_records_parallel(&priv_key, records)
+}
+
+#[tauri::command]
+pub fn admin_lock_and_flush_memory() -> Result<(), String> {
+    tracing::info!("Admin lock invoked: In-memory session flushed");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

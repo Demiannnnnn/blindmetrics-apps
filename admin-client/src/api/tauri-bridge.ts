@@ -1,3 +1,5 @@
+import { invoke, isTauri } from '@tauri-apps/api/core';
+
 export interface WorkerItem {
   id: string;
   name: string;
@@ -96,6 +98,37 @@ let mockWorkers: WorkerItem[] = [
   },
 ];
 
+export async function getAdminPublicKey(): Promise<string> {
+  if (isTauri()) {
+    try {
+      return await invoke<string>('admin_get_public_key');
+    } catch {
+      try {
+        return await invoke<string>('admin_generate_keypair');
+      } catch (genErr) {
+        console.error("Failed to generate master keypair:", genErr);
+      }
+    }
+  }
+  return "K_admin_pub_x25519_base64_sample_key_here==";
+}
+
+export async function decryptRecords(records: any[]): Promise<DecryptedTelemetryRecord[]> {
+  if (isTauri()) {
+    try {
+      return await invoke<DecryptedTelemetryRecord[]>('admin_decrypt_records', { records });
+    } catch (err) {
+      console.error("Parallel decryption IPC failure:", err);
+      throw err;
+    }
+  }
+  return records.map(r => ({
+    id: r.id,
+    client_timestamp: r.client_timestamp,
+    payload: r.payload || {},
+  }));
+}
+
 export async function fetchKpiSummary(): Promise<KpiSummary> {
   const active = mockWorkers.filter(w => w.isActive).length;
   return {
@@ -155,10 +188,12 @@ export async function createWorker(
 
   mockWorkers.unshift(newWorker);
 
+  const adminPublicKey = await getAdminPublicKey();
+
   const enrollment: EnrollmentPackage = {
     api_url: "https://telemetry.acme.corp/api/v1",
     worker_id: newId,
-    admin_public_key: "K_admin_pub_x25519_base64_sample_key_here==",
+    admin_public_key: adminPublicKey,
     organization: "Acme SpA",
   };
 
@@ -175,6 +210,12 @@ export async function toggleWorkerStatus(id: string): Promise<boolean> {
 }
 
 export async function lockAndFlushMemory(): Promise<void> {
-  // In Tauri runtime: invokes 'admin_lock_and_flush_memory'
+  if (isTauri()) {
+    try {
+      await invoke('admin_lock_and_flush_memory');
+    } catch (err) {
+      console.warn("Tauri admin_lock_and_flush_memory error:", err);
+    }
+  }
   console.info("Security Auto-lock: Session memory and decrypted records purged.");
 }

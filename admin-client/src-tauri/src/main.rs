@@ -1,6 +1,13 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 pub mod client;
 pub mod commands;
 pub mod keystore;
+
+use commands::{
+    admin_decrypt_records, admin_generate_keypair, admin_get_public_key,
+    admin_lock_and_flush_memory,
+};
 
 fn main() {
     tracing_subscriber::fmt()
@@ -10,4 +17,14 @@ fn main() {
         .init();
 
     tracing::info!("Telemetry Admin Desktop Core initialized");
+
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            admin_generate_keypair,
+            admin_get_public_key,
+            admin_decrypt_records,
+            admin_lock_and_flush_memory,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
