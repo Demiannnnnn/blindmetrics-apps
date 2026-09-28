@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "telemetry-crypto-core",
+    "agent",
+    "admin-client/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Telemetry Team <security@telemetry.local>"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Internal shared cryptographic crate
+telemetry-crypto-core = { path = "telemetry-crypto-core" }
+
+# Cryptography
+x25519-dalek = { version = "2.0", features = ["static_secrets", "zeroize"] }
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+zeroize = { version = "1.8", features = ["derive"] }
+base64 = "0.22"
+
+# Serialization and utilities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.8", features = ["v4", "v7", "serde"] }
+tokio = { version = "1.37", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5.0"
