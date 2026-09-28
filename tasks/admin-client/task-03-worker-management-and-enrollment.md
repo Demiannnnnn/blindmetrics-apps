@@ -7,6 +7,9 @@
 | **Dependencias** | [`TASK-ADMIN-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-01-tauri-foundations-and-keystore.md), [`TASK-ADMIN-02`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-02-auth-session-and-api-client.md) |
 | **Prioridad** | Alta / P1 |
 
+
+> ⚠️ **Parcialmente reemplazada (2026-09-28).** El alta de trabajadores (RF-ADMIN-03-2) y el *Paquete de Enrolamiento* JSON (RF-ADMIN-03-3: `{api_url, worker_id, admin_public_key, organization}`) quedan **obsoletos**: el alta ahora incluye consentimiento descrito y el enrollment usa código de un solo uso + QR con compromiso → ver [`TASK-ADMIN-08`](task-08-enrollment-and-worker-lifecycle.md). Esta tarea conserva el listado, los filtros, la edición y la baja. La ruta `commands/workers.rs` es la estructura objetivo (hoy todo está en `commands.rs`) y la UI actual corre sobre `mockWorkers`.
+
 ---
 
 ## 1. Contexto y Arquitectura

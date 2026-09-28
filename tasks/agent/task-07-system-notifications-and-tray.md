@@ -7,6 +7,9 @@
 | **Dependencias** | [`TASK-AGENT-06`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-06-egui-transparency-ui-and-consent.md) |
 | **Prioridad** | Media / P2 |
 
+
+> ⚠️ **Ajuste (2026-09-28).** Se elimina la acción de bandeja *Pausar Monitoreo (15 min)* del trabajador: pausar es una acción del admin (`PATCH /workers/:id/status`); el control del trabajador es *Retirar consentimiento* (DP-10). La bandeja hoy no existe (`ui/tray.rs` es solo un struct de estado): implementarla con `tray-icon`. Ver [`docs/worker-app-spec.md` §3–4](../../docs/worker-app-spec.md) para el menú y el catálogo de notificaciones.
+
 ---
 
 ## 1. Contexto y Arquitectura

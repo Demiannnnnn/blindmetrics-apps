@@ -7,6 +7,9 @@
 | **Dependencias** | Ninguna (Tarea Base del Agente) |
 | **Prioridad** | Crítica / P0 |
 
+
+> ⚠️ **Parcialmente reemplazada (2026-09-28).** Guardar `admin_public_key`, `worker_id` y tokens en `config.json` (RF-AGENT-01-2) queda **prohibido** (SEC-05): pasan al keystore del SO vía `credentials.rs` en [`TASK-AGENT-08`](task-08-enrollment-consent-and-lifecycle.md). La ruta real de configuración es `<config_dir>/telemetry-worker/config.json` en los tres SO. En Windows, `wmic` está deprecado: usar `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`.
+
 ---
 
 ## 1. Contexto y Arquitectura

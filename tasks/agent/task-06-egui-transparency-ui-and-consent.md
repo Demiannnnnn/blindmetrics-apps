@@ -7,6 +7,9 @@
 | **Dependencias** | [`TASK-AGENT-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-01-agent-foundations-and-device-id.md), [`TASK-AGENT-05`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-05-offline-queue-and-transport.md) |
 | **Prioridad** | Alta / P1 |
 
+
+> ⚠️ **Parcialmente reemplazada (2026-09-28).** Los *toggles granulares por categoría* (RF-AGENT-06-1/2) y el `PATCH /consent` con la matriz de flags quedan **obsoletos**: el trabajador acepta o rechaza el paquete completo definido por el admin y puede retirarlo → ver [`TASK-AGENT-08`](task-08-enrollment-consent-and-lifecycle.md) y [`docs/worker-app-spec.md`](../../docs/worker-app-spec.md). Esta tarea conserva el semáforo, el horario y el portal ARCO (que hoy **no llama a la API**; debe usar `POST /workers/me/data-request` y `/data-deletion`).
+
 ---
 
 ## 1. Contexto y Arquitectura
