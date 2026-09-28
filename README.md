@@ -1,398 +1,127 @@
-# Telemetry Apps — Zero-Knowledge Desktop Ecosystem
+# Telemetry Apps
 
-![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange?logo=rust)
-![Tauri](https://img.shields.io/badge/Tauri-2.0-blue?logo=tauri)
-![React](https://img.shields.io/badge/React-18-cyan?logo=react)
-![Security](https://img.shields.io/badge/Security-Zero--Knowledge%20E2E-emerald)
-![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-green)
+Desktop clients for the Telemetry system: an **Admin** console and a **Worker** agent, sharing one crypto crate. They talk to [`telemetry-api`](../telemetry-api), a **zero-knowledge** server that stores only ciphertext.
 
-The **Telemetry Apps** monorepo hosts the production desktop applications and shared cryptographic core for the Telemetry enterprise ecosystem. Engineered with **Rust**, **Tauri 2.0**, and **egui**, the system enforces an uncompromising **Zero-Knowledge** and **Privacy by Design** architecture under international compliance standards (**GDPR** and **Chilean Law 19.628 / 21.719**).
+> **Project status (2026-09-28):** the crypto core is complete and tested. Both apps build and run, but they do **not** yet work end-to-end against the real API, and several screens run on mock data. See [`.ai-context/implementation-status.md`](.ai-context/implementation-status.md) and the roadmap in [`tasks/README.md`](tasks/README.md).
 
----
+## What the system does
 
-## 📑 Table of Contents
-1. [Architectural Overview & Security Model](#-architectural-overview--security-model)
-2. [Monorepo Composition & Directory Structure](#-monorepo-composition--directory-structure)
-3. [Prerequisites & System Requirements](#-prerequisites--system-requirements)
-4. [Development & Execution Guide](#-development--execution-guide)
-5. [Testing Suite](#-testing-suite)
-6. [Generating Production Executables & Installers](#-generating-production-executables--installers)
-7. [Enrollment & Configuration Protocol](#-enrollment--configuration-protocol)
-8. [Data Minimization & Compliance Standards](#-data-minimization--compliance-standards)
-9. [Branching & Contribution Strategy](#-branching--contribution-strategy)
+1. The **admin** installs the admin app, creates an account and generates an X25519 keypair. The private key stays in the OS keystore; the public key is registered on the server.
+2. The admin creates a worker, chooses which data categories to collect and **writes in plain language what each one means**. The server returns a single-use enrollment code.
+3. The admin app shows a **QR** (code + cryptographic commitment) and a short code, which the admin gives to the employee in person.
+4. The **employee** installs the agent and scans the QR or types the code. The agent receives its credentials, the admin's public key and the consent request. It **verifies them against the QR commitment**, so a compromised server cannot swap the key, then pins the key.
+5. The employee sees exactly what will be collected and **accepts or rejects the whole package**. They can withdraw at any time.
+6. While `ACTIVE`, the agent collects only the accepted categories, encrypts each batch to the pinned key (ephemeral X25519 + HKDF-SHA256 + AES-256-GCM) and sends it. The server stores blobs it cannot read.
+7. The admin app downloads the ciphertext, **decrypts it locally in parallel**, visualizes it and wipes it on auto-lock.
 
----
-
-## 🛡️ Architectural Overview & Security Model
-
-The backend Axum / PostgreSQL server operates as a **blind encrypted relay**. It stores binary blobs (`BYTEA`) and ephemeral public keys, but **never** has access to plaintext telemetry data, symmetric keys, or master private keys.
+Full design: [`.ai-context/domain.md`](.ai-context/domain.md) · enrollment protocol: `telemetry-api/ENROLLMENT.md`.
 
 ```mermaid
-flowchart TB
-    subgraph Monorepo["telemetry-apps (Cargo Workspace)"]
-        CryptoCore["telemetry-crypto-core\n(HPKE: X25519 + HKDF-SHA256 + AES-256-GCM + Zeroize)"]
-        WorkerApp["agent (telemetry-worker)\n(Lightweight Engine + egui + notify-rust)"]
-        AdminApp["admin-client (telemetry-admin)\n(Tauri 2.0 Core + React/TS/ECharts Web UI)"]
-
-        WorkerApp -->|Depends on| CryptoCore
-        AdminApp -->|Depends on| CryptoCore
+flowchart LR
+    subgraph Admin["admin-client (Tauri 2)"]
+        UI[React UI] -- IPC --> RS[Rust core]
+        RS --> KS[(OS keystore<br/>K_admin_priv)]
     end
-
-    subgraph Server["Telemetry Backend (Blind Server)"]
-        API["Axum REST Gateway (TLS 1.3)"]
-        DB[("PostgreSQL 16\n[Encrypted BYTEA + K_eph_pub]")]
-        API <--> DB
+    subgraph Worker["agent (egui)"]
+        AG[Collectors → encrypt → send/queue]
     end
-
-    WorkerApp -- "1. Ingestion: POST /telemetry/*\n{ ephemeral_public_key, encrypted_payload }" --> API
-    AdminApp -- "2. Fetch: GET /telemetry/*\nRetrieves encrypted records" --> API
-    AdminApp -- "3. Parallel Rayon Decryption\nLocal RAM only (Server never decrypts)" --> AdminApp
+    API[(telemetry-api<br/>ciphertext only)]
+    RS -- "HTTPS: manage workers, fetch ciphertext" --> API
+    AG -- "HTTPS: enroll, consent, ingest" --> API
+    Admin -. "QR / code in person" .-> Worker
 ```
 
-### Hybrid Public Key Encryption (HPKE - RFC 9180) Flow
+## Repository layout
 
-1. **Admin Master Setup:** The Admin application generates an asymmetric X25519 keypair ($K_{admin\_priv}$, $K_{admin\_pub}$). The private key is securely committed to the **OS Keystore** (Apple Keychain, Windows Credential Manager, or Linux Secret Service via DBus) and never leaves the machine.
-2. **Worker Ephemeral Encryption:**
-   - Every batch generates a fresh ephemeral X25519 keypair ($k_{eph\_priv}$, $K_{eph\_pub}$).
-   - Computes Shared Secret: $SS = \text{ECDH}(k_{eph\_priv}, K_{admin\_pub})$.
-   - Derives Data Encryption Key: $\text{DEK} = \text{HKDF-SHA256}(SS, \text{salt}=\text{"telemetry-v1"}, \text{info}=\text{"aes256gcm"})$.
-   - Encrypts payload with **AES-256-GCM** using a cryptographically secure 12-byte Nonce.
-   - Wraps ciphertext into the binary envelope:
-     ```
-     +-------------------+--------------------+--------------------------------+
-     | Nonce (12 bytes)  | Auth Tag (16 bytes)| Ciphertext (N bytes)           |
-     +-------------------+--------------------+--------------------------------+
-     |<---------------------- encrypted_payload ----------------------------->|
-     ```
-   - **Zeroize:** Immediately overwrites $k_{eph\_priv}$, $SS$, and $\text{DEK}$ from RAM using the `zeroize` crate.
-3. **Admin Multithreaded Decryption:**
-   - Retrieves encrypted envelopes and $K_{eph\_pub}$.
-   - Loads $K_{admin\_priv}$ from the OS Keystore.
-   - Distributes batch decryption across all CPU cores using **`rayon::into_par_iter()`**.
-   - Authenticates Poly1305/GCM tag and deserializes JSON into volatile memory.
-   - Zeroizes derived keys and flushes plaintext upon inactivity auto-lock.
+| Path | Package | What it is |
+|:-----|:--------|:-----------|
+| `telemetry-crypto-core/` | `telemetry-crypto-core` | Envelope encryption (X25519, HKDF-SHA256, AES-256-GCM, zeroize). Enrollment commitment (planned, CRYPTO-02). |
+| `agent/` | `agent` | Worker app: egui window, background collectors, SQLite offline queue, notifications. |
+| `admin-client/src-tauri/` | `admin-client-core` | Admin app Rust backend: keystore, API client, parallel decryption. |
+| `admin-client/src/` | `telemetry-admin-ui` (npm) | Admin UI: React 18, TypeScript, Tailwind, ECharts, Leaflet. |
+| `docs/` | — | Functional specs ([admin](docs/admin-app-spec.md), [worker](docs/worker-app-spec.md)) and [plaintext payload schemas](docs/telemetry-payloads.md). |
+| `.ai-context/` | — | Architecture, domain, constraints, security model, API contract, implementation status. **Start here.** |
+| `tasks/` | — | Implementation tasks with requirements, DoD and tests. |
+| `AGENTS.md` | — | Rules for AI assistants and contributors. |
 
----
+## Prerequisites
 
-## 📦 Monorepo Composition & Directory Structure
-
-```
-telemetry-apps/
-├── Cargo.toml                  # Workspace root (declares members and shared dependencies)
-├── .cargo/
-│   └── config.toml             # Optimization flags, LTO, and cross-compilation profiles
-├── .gitignore                  # Git ignore rules for build artifacts and databases
-├── README.md                   # Master engineering documentation
-├── AGENTS.md                   # Strict architectural directives for AI agents
-├── telemetry-crypto-core/      # Shared Zero-Knowledge Cryptographic Crate
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs              # High-level encrypt_telemetry_batch & decrypt_telemetry_record
-│       ├── asymmetric.rs       # X25519 keypair generation, Base64 encoding, and ECDH
-│       ├── kdf.rs              # HKDF-SHA256 key derivation with domain separation
-│       ├── symmetric.rs        # AES-256-GCM AEAD encryption/decryption with Nonce+Tag framing
-│       └── error.rs            # Strongly typed CryptoError hierarchy
-├── agent/                      # Worker Desktop Daemon & Consent Client
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs             # Application entrypoint & runtime bootstrap
-│       ├── config.rs           # Persistent settings & consent flags
-│       ├── device.rs           # Deterministic SHA-256 hardware identifier
-│       ├── errors.rs           # AgentError hierarchy
-│       ├── notifications.rs    # notify-rust dispatcher (hourly alerts, screenshot warnings)
-│       ├── core/
-│       │   ├── buffer.rs       # Double buffering engine via std::mem::take (<50ns hold)
-│       │   ├── metrics.rs      # System, Network, Productivity, File, and Location models
-│       │   └── collectors/     # Background telemetry collectors
-│       │       ├── keystroke_counter.rs # O(1) AtomicU64 key & click counters (zero lag)
-│       │       ├── idle_time.rs         # Non-intrusive polling loop
-│       │       └── active_window.rs     # Foreground process and window title inspection
-│       ├── io/
-│       │   ├── encryption.rs   # Integration with telemetry-crypto-core
-│       │   ├── system_hooks.rs # OS hook abstractions
-│       │   └── transport.rs    # SQLite offline queue (WAL mode) & async HTTP client
-│       ├── background/
-│       │   └── worker.rs       # Background collection loop & hourly notification scheduler
-│       └── ui/
-│           ├── mod.rs          # WorkerUIState & traffic light indicator
-│           ├── settings.rs     # Consent toggle rules & role restriction validation
-│           ├── onboarding.rs   # Enrollment package parser
-│           └── tray.rs         # System tray menu and pause controller
-└── admin-client/               # Executive Admin Console (Tauri 2.0 + React)
-    ├── package.json            # Web dependencies (React 18, Vite, ECharts, Lucide, Tailwind)
-    ├── vite.config.ts          # Frontend bundler configuration
-    ├── tsconfig.json           # TypeScript configuration with vite/client types
-    ├── src/                    # Web Frontend Interface
-    │   ├── App.tsx             # Executive sidebar layout & 5-minute auto-lock trigger
-    │   ├── main.tsx            # React DOM mounting
-    │   ├── index.css           # Tailwind CSS directives
-    │   ├── api/
-    │   │   └── tauri-bridge.ts # IPC bridge, data models & mock/live fallback
-    │   └── components/
-    │       ├── Dashboard.tsx         # KPI summary cards, deep filtering & worker CRUD
-    │       ├── EmployeeCard.tsx      # Worker card with consent badges & enrollment action
-    │       ├── ActivityChart.tsx     # ECharts dual-axis CPU/RAM/KPM timeline
-    │       ├── NetworkExplorer.tsx   # Top FQDNs pie chart & GDPR compliance auditor
-    │       ├── ScreenshotGallery.tsx # Productivity gallery with Privacy Blur mode
-    │       ├── FieldMap.tsx          # Leaflet GPS breadcrumb tracker & geofencing
-    │       ├── ConsentSettings.tsx   # Organization privacy compliance overview
-    │       └── AutoLockModal.tsx     # Inactivity lock screen with RAM memory purge
-    └── src-tauri/              # Native Rust Backend for Tauri
-        ├── Cargo.toml
-        ├── build.rs            # Tauri build script (tauri_build::build())
-        ├── tauri.conf.json     # Tauri 2.0 window geometry, permissions & bundle metadata
-        ├── icons/              # Multi-platform app icons (icns, ico, png)
-        └── src/
-            ├── main.rs         # Tauri core initialization, commands & tracing
-            ├── keystore.rs     # Apple Keychain / DPAPI / SecretService vault
-            ├── client.rs       # Authenticated HTTP client with token refresh
-            └── commands.rs     # Rayon parallel batch decryption pipeline
-```
-
----
-
-## 💻 Prerequisites & System Requirements
-
-### Cross-Platform Toolchains
-- **Rust Toolchain:** Version `1.75.0` or newer (`rustc`, `cargo`).
-- **Node.js:** Version `18.x` or `20.x` LTS + `npm` (v10+).
-
-### Platform-Specific Native Dependencies
-
-#### macOS (macOS 12 Monterey+)
-- Xcode Command Line Tools:
+- Rust ≥ 1.75 (`rustup`), Node.js 18/20 LTS + npm.
+- **macOS:** `xcode-select --install`.
+- **Linux (Debian/Ubuntu):**
   ```bash
-  xcode-select --install
+  sudo apt install -y build-essential libwebkit2gtk-4.1-dev libssl-dev \
+      libayatana-appindicator3-dev librsvg2-dev libxdo-dev pkg-config
   ```
+- **Windows:** Visual Studio C++ Build Tools. WebView2 ships with Windows 10/11.
+- A running `telemetry-api` with PostgreSQL (see its README) for anything beyond UI work.
 
-#### Linux (Ubuntu 22.04+ / Debian 12+ / Fedora / Arch)
-- WebKitGTK and build tools for Tauri:
-  ```bash
-  # Debian / Ubuntu:
-  sudo apt update
-  sudo apt install -y build-essential libwebkit2gtk-4.1-dev curl wget file \
-      libssl-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev pkg-config
-  ```
-
-#### Windows (Windows 10/11)
-- Microsoft Visual Studio C++ Build Tools (with C++ Desktop Development workload).
-- Microsoft Edge WebView2 (pre-installed on Windows 10/11).
-
----
-
----
-
-## ⚙️ Environment Configuration (`.env`)
-
-The workspace uses `.env` files for central API routing and client configuration. A template is provided in [`.env.example`](file:///.env.example):
+## Configuration
 
 ```bash
-# Copy example configuration to active .env
 cp .env.example .env
 cp .env.example admin-client/.env
 ```
 
-| Variable | Default Value | Description |
-|:---|:---|:---|
-| `TELEMETRY_API_URL` | `http://localhost:8080/api/v1` | Central backend API URL for worker telemetry ingestion |
-| `ADMIN_API_URL` | `http://localhost:8080/api/v1` | Backend API URL for admin authentication and worker CRUD |
-| `VITE_API_URL` | `http://localhost:8080/api/v1` | Frontend API URL exposed to React via Vite |
-| `WORKER_ROLE` | `OFFICE` | Default worker role (`OFFICE` or `FIELD`) |
-| `WORKER_FLUSH_INTERVAL` | `30` | Ingestion dispatch interval in seconds |
+| Variable | Used by | Default | Notes |
+|:---------|:--------|:--------|:------|
+| `TELEMETRY_API_URL` | agent | `http://localhost:8080/api/v1` | Dev only; in production the URL comes from the enrollment QR. |
+| `WORKER_FLUSH_INTERVAL` | agent | `30` | Seconds between flushes (minimum 5 today, 15 planned). |
+| `ADMIN_API_URL` | admin (Rust) | `http://localhost:8080/api/v1` | |
+| `VITE_API_URL` | admin (UI) | `http://localhost:8080/api/v1` | Display/default only; the UI never calls the API directly (target). |
+| `ADMIN_AUTO_LOCK_MINUTES` | admin | `5` | Not yet read by the code (ADMIN-07). |
+| `WORKER_ROLE`, `WORKER_ORGANIZATION` | agent | — | **Deprecated.** Role and organization come from the server after enrollment (AGENT-08). |
 
----
+Agent local state: `<config_dir>/telemetry-worker/` (`config.json`, `offline.db`), where `<config_dir>` is `~/Library/Application Support` on macOS, `%APPDATA%` on Windows and `~/.config` on Linux. Today `config.json` still contains tokens in plaintext; moving them to the OS keystore is AGENT-08.
 
-## 🚀 Development & Execution Guide
-
-### 1. Running the Worker Agent (`agent`)
-
-The worker runs as an ultra-lightweight daemon with a **native egui / eframe desktop window**:
+## Running
 
 ```bash
-# Launch worker with native GUI window
-cargo run -p agent
+# Worker agent
+cargo run -p agent                 # window + background engine
+cargo run -p agent -- --headless   # background engine only
 
-# Launch in headless background daemon mode (for servers or background services)
-cargo run -p agent -- --headless
-```
-
-#### What happens on startup:
-1. Loads environment variables from `.env` via `dotenvy`.
-2. Generates or loads the canonical **64-character SHA-256 device identifier** from hardware UUID.
-3. Initializes the double buffer (`MetricsBuffer`) in volatile memory.
-4. Opens the **Transparencia Activa GUI** (`500x680` px):
-   - **Semáforo de Estado:** 🟢 Monitoreo Activo / 🟡 Fuera de Horario / 🔴 Desconectado.
-   - **Enrolamiento:** Permite pegar el paquete JSON generado por el Admin para vincular la clave pública maestra.
-   - **Consentimientos:** Toggles independientes para las 6 categorías (GPS bloqueado para `OFFICE`).
-   - **Diagnóstico en Vivo:** Contador de teclas/clics $O(1)$, métricas del sistema y botón de envío instantáneo.
-5. Spawns background worker thread:
-   - Dispatches desktop notification alerting the user that monitoring is active.
-   - Schedules **transparency notification every 1 hour** via `notify-rust`.
-   - Flushes double buffer every 30s using `std::mem::take` (<50ns lock) and delivers via HTTP or SQLite WAL queue.
-
----
-
-### 2. Running the Admin Desktop Console (`admin-client`)
-
-The admin app is an executive control center powered by **Tauri 2.0** and **React 18**:
-
-#### Option A: Full Tauri Desktop Mode (Recommended)
-```bash
-# Navigate to the admin-client folder
+# Admin app
 cd admin-client
-
-# Launch Tauri development mode (starts Vite server and native desktop window)
-npm run tauri dev
+npm install
+npm run tauri dev                  # desktop app (Vite + Tauri)
+npm run dev                        # UI only in a browser (mock data)
 ```
 
-#### Option B: Standalone Web Frontend Development
-```bash
-cd admin-client
-npm run dev
-# Open http://localhost:5173 in any browser to inspect the UI and charts
-```
-
-#### Features included:
-1. **Pantalla de Autenticación & Registro (`AuthView`):** Login, registro de administradores, configuración de URL de API y Modo Autónomo Local / Diagnóstico.
-2. **Bóveda Criptográfica OS Keystore:** Generación y custodia de clave privada X25519 en el Keychain del SO.
-3. **Generador de Paquetes de Enrolamiento:** Genera paquetes JSON con la clave pública real para aprovisionar workers.
-4. **Motor Rayon de Descifrado Paralelo:** Botón interactivo para probar el descifrado HPKE en tiempo real con la clave privada de la bóveda.
-
----
-
-## 🧪 Testing Suite
-
-The repository contains an exhaustive test suite covering cryptographic integrity, concurrency stress tests, memory isolation, and UI state validation.
-
-### Run All Workspace Tests
-```bash
-cargo test --workspace
-```
-
-### Testing Specific Components
-
-#### 1. Cryptographic Core (`telemetry-crypto-core`)
-```bash
-cargo test -p telemetry-crypto-core
-```
-- `test_admin_keypair_generation`: Validates X25519 derivation and Base64 format.
-- `test_roundtrip_encryption_decryption`: Verifies full HPKE cycle with arbitrary JSON.
-- `test_tampered_ciphertext_fails`: Validates that altering 1 bit in ciphertext triggers `AeadError`.
-- `test_tampered_tag_fails`: Validates that altering 1 bit in Poly1305/GCM tag rejects decryption.
-- `test_payload_too_short`: Asserts that payloads $< 28$ bytes are immediately rejected.
-
-#### 2. Worker Agent (`agent`)
-```bash
-cargo test -p agent
-```
-- `test_atomic_counters_record_and_reset`: Asserts $O(1)$ lock-free keystroke/click counters.
-- `test_buffer_push_drain_and_fifo_eviction`: Validates `std::mem::take` and 1,000-item FIFO cap.
-- `test_device_identifier_format_and_determinism`: Tests deterministic 64-char hex hardware hash.
-- `test_offline_queue_fifo_order_and_deletion`: Verifies SQLite transaction isolation and FIFO delivery.
-- `test_encryption_pipeline_integration`: Validates crypto-core batch wrapping.
-- `test_office_worker_cannot_enable_location`: Enforces compliance: `OFFICE` workers cannot turn on GPS.
-- `test_field_worker_can_enable_location`: Allows GPS for verified `FIELD` workers.
-- `test_notifications_do_not_panic`: Ensures headless resilience for `notify-rust`.
-- `test_traffic_light_states`: Validates 🟢/🟡/🔴 state transitions.
-
-#### 3. Admin Core Backend (`admin-client-core`)
-```bash
-cargo test -p admin-client-core
-```
-- `test_parallel_decryption_pipeline`: Verifies that `rayon::into_par_iter()` decrypts 50 records concurrently across CPU cores.
-- `test_corrupted_record_fails_in_parallel_pool`: Validates that tampered records are rejected safely.
-
-#### 4. Frontend Typechecking & Bundle Verification
-```bash
-cd admin-client
-npm run build
-```
-- Executes `tsc` followed by `vite build` to guarantee zero TypeScript or asset resolution errors.
-
----
-
-## 📦 Generating Production Executables & Installers
-
-### 1. Worker Agent Optimized Binary (`agent`)
-
-The release profile enables Link-Time Optimization (**LTO**), abort-on-panic, maximum optimization (`opt-level = 3`), and binary symbol stripping.
+## Testing & quality gates
 
 ```bash
-cargo build --release -p agent
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace             # crypto-core, agent, admin-client-core
+cd admin-client && npm run build   # tsc + vite
 ```
-The resulting standalone executable is generated at:
-```
-target/release/agent
-```
-- **Windows:** `target/release/agent.exe`
-- **macOS / Linux:** `target/release/agent`
-- Typical footprint: $< 15\text{ MB}$, memory usage: $< 25\text{ MB}$ RAM.
 
----
+Current coverage: crypto roundtrip and tamper detection; agent counters, buffer, device id, offline queue, config serialization and role rule; admin parallel decryption. No test yet exercises the real API contract (INT-01).
 
-### 2. Admin Desktop App Installers (`admin-client`)
+> `ui::tests::test_traffic_light_states` writes to your real agent `config.json`. Back it up before running the tests until INT-01 fixes this.
 
-Tauri bundles the React frontend and Rust backend into native, signed operating system installers:
+## Building releases
 
 ```bash
-cd admin-client
-npm run tauri build
+cargo build --release -p agent                 # target/release/agent(.exe)
+cd admin-client && npm run tauri build         # .dmg/.app, .msi/.exe, .deb/.AppImage under src-tauri/target/release/bundle/
 ```
 
-The resulting packages are located at `admin-client/src-tauri/target/release/bundle/`:
+The release profile uses LTO, `strip`, `panic = "abort"` and `opt-level = 3`. Code signing and notarization are not configured yet.
 
-| Operating System | Generated Installer Format | Location |
-|:---|:---|:---|
-| **macOS (Apple Silicon & Intel)** | `.dmg` installer & `.app` bundle | `target/release/bundle/dmg/*.dmg` |
-| **Windows 10/11** | `.msi` (WiX) & `.exe` (NSIS installer) | `target/release/bundle/msi/*.msi` |
-| **Linux (Ubuntu/Debian)** | `.deb` package | `target/release/bundle/deb/*.deb` |
-| **Linux (Cross-distro)** | `.AppImage` standalone binary | `target/release/bundle/appimage/*.AppImage` |
+## Privacy guarantees (by design)
 
----
+| Category | Collected | Never collected |
+|:---------|:----------|:----------------|
+| System | Foreground app & title, idle time, CPU/RAM, USB events | Screen content |
+| Network | Domain names (FQDN) + counts | URLs, paths, queries, page content |
+| Productivity | Keystrokes and clicks **per minute**; screenshots only if explicitly requested and accepted, each one notified | Which keys were pressed, any text |
+| Files | Create/modify/delete/rename events in designated folders | File contents, other folders |
+| Location | GPS, `FIELD` role only, work hours only | Anything for `OFFICE` workers or off-hours |
 
-## 🔑 Enrollment & Configuration Protocol
+Nothing is collected before the employee accepts, while the admin has the worker paused, or after withdrawal or revocation. Full rules with IDs: [`.ai-context/constraints.md`](.ai-context/constraints.md). Legal context: GDPR, Chilean Law 19.628 / 21.719. Whether consent is a valid legal basis in an employment relationship must be validated by counsel.
 
-1. **Admin Keypair Generation:**
-   On first launch of `admin-client`, navigate to **Bóveda & Cumplimiento**. The app calls `generate_and_save_master_keys()`, storing $K_{admin\_priv}$ in Keychain/DPAPI and exposing $K_{admin\_pub}$.
-2. **Worker Registration:**
-   The admin opens **Nuevo Trabajador**, enters the worker's name, email, role (`OFFICE` vs `FIELD`), work hours (e.g. `09:00 - 18:00`), and timezone (`America/Santiago`).
-3. **Enrollment Package:**
-   The admin console generates an enrollment JSON package:
-   ```json
-   {
-     "api_url": "https://telemetry.acme.corp/api/v1",
-     "worker_id": "01912345-6789-7abc-def0-123456789def",
-     "admin_public_key": "K_admin_pub_x25519_base64_encoded_here==",
-     "organization": "Acme Corp"
-   }
-   ```
-4. **Worker Provisioning:**
-   The employee provides the JSON package to `agent`. The agent validates $K_{admin\_pub}$ via `decode_public_key()` and saves its configuration locally in:
-   - **macOS:** `~/Library/Application Support/telemetry-worker/config.json`
-   - **Windows:** `%APPDATA%\telemetry-worker\config.json`
-   - **Linux:** `~/.config/telemetry-worker/config.json`
+## Contributing
 
----
-
-## ⚖️ Data Minimization & Compliance Standards
-
-| Privacy Requirement | Technical Implementation | Regulatory Baseline |
-|:---|:---|:---|
-| **No Keystroke Logging** | Callback increments an `AtomicU64` with `Ordering::Relaxed`. Key codes are never captured. | GDPR Art. 5.1.c, Chilean Law 19.628 |
-| **Network Privacy** | Captures passive DNS / SNI **FQDNs only** (e.g., `github.com`). Full URLs, query strings, and HTTP bodies are discarded. | GDPR Art. 5.1.c |
-| **File Privacy** | Watches corporate directories via `notify`. Logs only `Created`, `Modified`, `Deleted`, `Renamed` and extensions. File contents are never opened or read. | Confidentiality of Communications |
-| **Location Protection** | GPS is **hardware & software locked** for `OFFICE` workers. For `FIELD` workers, GPS is **automatically suspended** outside `work_hours_start` and `work_hours_end`. | Chilean Law 21.719 (Right to Disconnect) |
-| **Active Transparency** | Dispatches desktop notification at startup and **recurrently every 1 hour** confirming telemetry collection. Alerts on screenshots. | Anti-Spyware Transparency |
-| **Inactivity Auto-Lock** | Admin app auto-locks after 5 minutes of inactivity, immediately executing `zeroize` to flush plaintext records and tokens from RAM. | GDPR Art. 32 (Security of Processing) |
-
----
-
-## 🌿 Branching & Contribution Strategy
-
-To protect codebase stability and adhere to repository governance rules:
-
-- **`dev`**: Integration branch (**Strictly Protected** — do not commit directly).
-- **`dev-architecture`**: Core workspace configuration, Cargo setup, shared crates, and baseline documentation.
-- **`dev-features`**: Cross-cutting feature developments across applications.
-- **`dev-admin/*`**: Specific developments for the Tauri Admin desktop console.
-- **`dev-agent/*`**: Specific developments for the Rust Worker daemon.
+Branches: `dev` (protected) · `dev-architecture` · `dev-features` · `dev-admin/<topic>` · `dev-agent/<topic>`. Conventional commits. Read [`AGENTS.md`](AGENTS.md) and pick a task from [`tasks/README.md`](tasks/README.md); every PR updates the task checkboxes and `implementation-status.md`.
