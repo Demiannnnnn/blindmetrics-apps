@@ -24,3 +24,5 @@ reqwest.workspace = true
 rusqlite = { version = "0.31", features = ["bundled"] }
 sysinfo = "0.30"
 notify-rust = "4"
+dotenvy.workspace = true
+eframe = { version = "0.27", default-features = false, features = ["default_fonts", "glow"] }

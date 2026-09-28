@@ -51,30 +51,54 @@ impl WorkerConfig {
     }
 
     pub fn load_or_init() -> Self {
+        let _ = dotenvy::dotenv();
         let path = Self::config_path();
-        if let Ok(data) = std::fs::read_to_string(&path) {
-            if let Ok(cfg) = serde_json::from_str(&data) {
-                return cfg;
+        let mut cfg = if let Ok(data) = std::fs::read_to_string(&path) {
+            serde_json::from_str(&data).unwrap_or_else(|_| Self::default_config())
+        } else {
+            Self::default_config()
+        };
+
+        // Override or initialize from environment variables if present
+        if let Ok(env_url) = std::env::var("TELEMETRY_API_URL") {
+            if !env_url.trim().is_empty() {
+                cfg.api_base_url = env_url.trim().to_string();
+            }
+        }
+        if let Ok(env_role) = std::env::var("WORKER_ROLE") {
+            let role_upper = env_role.trim().to_uppercase();
+            if role_upper == "FIELD" || role_upper == "OFFICE" {
+                cfg.worker_role = role_upper;
+            }
+        }
+        if let Ok(env_flush) = std::env::var("WORKER_FLUSH_INTERVAL") {
+            if let Ok(secs) = env_flush.trim().parse::<u64>() {
+                if secs >= 5 {
+                    cfg.flush_interval_secs = secs;
+                }
             }
         }
 
-        let default_cfg = Self {
-            api_base_url: "https://telemetry.local/api/v1".to_string(),
+        cfg.save().ok();
+        cfg
+    }
+
+    fn default_config() -> Self {
+        Self {
+            api_base_url: std::env::var("TELEMETRY_API_URL")
+                .unwrap_or_else(|_| "http://localhost:8080/api/v1".to_string()),
             worker_id: None,
             admin_public_key: None,
             access_token: None,
             refresh_token: None,
             device_identifier: get_device_identifier(),
-            worker_role: "OFFICE".to_string(),
+            worker_role: std::env::var("WORKER_ROLE").unwrap_or_else(|_| "OFFICE".to_string()),
             work_hours_start: "09:00".to_string(),
             work_hours_end: "18:00".to_string(),
             timezone: "America/Santiago".to_string(),
-            flush_interval_secs: 120,
+            flush_interval_secs: 30,
             consents: ConsentSettings::default(),
-        };
-
-        default_cfg.save().ok();
-        default_cfg
+        }
     }
 
     pub fn save(&self) -> Result<(), std::io::Error> {

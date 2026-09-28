@@ -21,6 +21,15 @@ impl KeystrokeCollector {
         CLICK_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Reads the current instantaneous counters without modifying them.
+    #[inline(always)]
+    pub fn get_current_counts() -> (u64, u64) {
+        (
+            KEYSTROKE_COUNT.load(Ordering::Relaxed),
+            CLICK_COUNT.load(Ordering::Relaxed),
+        )
+    }
+
     /// Takes a snapshot of current frequency counters and resets them to zero atomically.
     pub fn snapshot_and_reset() -> ProductivityMetric {
         let kpm = KEYSTROKE_COUNT.swap(0, Ordering::Relaxed);
