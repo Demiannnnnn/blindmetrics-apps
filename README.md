@@ -122,7 +122,6 @@ telemetry-apps/
     ├── package.json            # Web dependencies (React 18, Vite, ECharts, Lucide, Tailwind)
     ├── vite.config.ts          # Frontend bundler configuration
     ├── tsconfig.json           # TypeScript configuration with vite/client types
-    ├── tauri.conf.json         # Tauri 2.0 window geometry, permissions & bundle metadata
     ├── src/                    # Web Frontend Interface
     │   ├── App.tsx             # Executive sidebar layout & 5-minute auto-lock trigger
     │   ├── main.tsx            # React DOM mounting
@@ -140,8 +139,11 @@ telemetry-apps/
     │       └── AutoLockModal.tsx     # Inactivity lock screen with RAM memory purge
     └── src-tauri/              # Native Rust Backend for Tauri
         ├── Cargo.toml
+        ├── build.rs            # Tauri build script (tauri_build::build())
+        ├── tauri.conf.json     # Tauri 2.0 window geometry, permissions & bundle metadata
+        ├── icons/              # Multi-platform app icons (icns, ico, png)
         └── src/
-            ├── main.rs         # Tauri core initialization & tracing
+            ├── main.rs         # Tauri core initialization, commands & tracing
             ├── keystore.rs     # Apple Keychain / DPAPI / SecretService vault
             ├── client.rs       # Authenticated HTTP client with token refresh
             └── commands.rs     # Rayon parallel batch decryption pipeline
