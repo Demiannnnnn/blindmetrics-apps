@@ -4,6 +4,8 @@ pub mod core;
 pub mod device;
 pub mod errors;
 pub mod io;
+pub mod notifications;
+pub mod ui;
 
 use std::sync::Arc;
 use config::WorkerConfig;
@@ -30,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Initialize metrics buffer
     let buffer = Arc::new(MetricsBuffer::new(1000));
 
-    // 4. Start background collection and dispatch loop
+    // 4. Start background collection, periodic notification, and dispatch loop
     let engine = BackgroundEngine::new(config, buffer);
     engine.run().await;
 

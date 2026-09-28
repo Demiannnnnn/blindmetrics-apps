@@ -23,3 +23,4 @@ tracing-subscriber.workspace = true
 reqwest.workspace = true
 rusqlite = { version = "0.31", features = ["bundled"] }
 sysinfo = "0.30"
+notify-rust = "4"

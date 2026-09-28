@@ -8,6 +8,7 @@ use crate::core::collectors::SystemCollector;
 use crate::core::metrics::MetricPayload;
 use crate::io::encryption::EncryptionPipeline;
 use crate::io::transport::{OfflineQueue, TelemetryTransport};
+use crate::notifications::NotificationDispatcher;
 
 pub struct BackgroundEngine {
     config: WorkerConfig,
@@ -19,14 +20,26 @@ impl BackgroundEngine {
         Self { config, buffer }
     }
 
-    /// Spawns the collection and dispatch loop.
+    /// Spawns the collection, periodic notification, and dispatch loops.
     pub async fn run(self) {
         tracing::info!("Telemetry Worker Background Engine started");
+
+        // Initial transparency notification on startup
+        NotificationDispatcher::notify_periodic_active();
 
         let buffer = self.buffer.clone();
         let flush_interval = Duration::from_secs(self.config.flush_interval_secs);
 
-        // 1. Collector thread (samples system & productivity every 30s)
+        // 1. Periodic hourly transparency notification (every 1 hour)
+        tokio::spawn(async move {
+            let one_hour = Duration::from_secs(3600);
+            loop {
+                sleep(one_hour).await;
+                NotificationDispatcher::notify_periodic_active();
+            }
+        });
+
+        // 2. Collector thread (samples system & productivity every 30s)
         let collector_buffer = buffer.clone();
         tokio::spawn(async move {
             let mut sys_collector = SystemCollector::new();
@@ -43,7 +56,7 @@ impl BackgroundEngine {
             }
         });
 
-        // 2. Dispatcher loop (flushes double buffer and dispatches over HTTP or offline SQLite)
+        // 3. Dispatcher loop (flushes double buffer and dispatches over HTTP or offline SQLite)
         let mut db_path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         db_path.push("telemetry-worker");
         std::fs::create_dir_all(&db_path).ok();
