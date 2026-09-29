@@ -127,7 +127,7 @@ Leyenda: 🟢 Completada · 🟡 Parcial (existe con defectos o partes faltantes
 | **ADMIN-05** | [`admin-client/task-05-telemetry-analytics-dashboard.md`](admin-client/task-05-telemetry-analytics-dashboard.md) | Vistas especializadas (Sistema, Red, Productividad/Capturas, Archivos) con datos reales descifrados, LTTB, modo blur y selector global de contexto. | 🟢 |
 | **ADMIN-06** | [`admin-client/task-06-field-worker-map-tracking.md`](admin-client/task-06-field-worker-map-tracking.md) | Mapa Leaflet con polilínea cronológica, geocercas, popups interactivos, bloqueo para OFFICE y auditoría de jornada. | 🟢 |
 | **ADMIN-07** | [`admin-client/task-07-security-hardening-and-autolock.md`](admin-client/task-07-security-hardening-and-autolock.md) | Hook `useAutoLock` configurable (5-30 min), zeroize de `access_token` en RAM, re-autenticación y revocación tras 5 fallos. | 🟢 |
-| **ADMIN-08** | [`admin-client/task-08-enrollment-and-worker-lifecycle.md`](admin-client/task-08-enrollment-and-worker-lifecycle.md) | Registro de llave, alta con descripciones, QR con compromiso, acciones de ciclo de vida, evidencia. | 🟢 |
+| **ADMIN-08** | [`admin-client/task-08-enrollment-and-worker-lifecycle.md`](admin-client/task-08-enrollment-and-worker-lifecycle.md) | Registro de llave, alta con descripciones, QR con compromiso, detalle W4 con acciones de ciclo de vida, edición de consentimiento y evidencia CSV. Falta: alertas de rechazos / sin datos 24 h (la API no expone `last_seen`). | 🟡 |
 
 ---
 

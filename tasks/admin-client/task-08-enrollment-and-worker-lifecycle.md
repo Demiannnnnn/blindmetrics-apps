@@ -54,6 +54,7 @@ sequenceDiagram
 - **RF-ADMIN-08-7 (Detalle y acciones):** W4 con acciones según estado: pausar/reanudar (`PATCH /status`, motivo opcional), revocar (confirmación escribiendo el nombre), eliminar, regenerar código, editar consentimiento (`PUT /consent-config`, mostrando si requiere reaceptación).
 - **RF-ADMIN-08-8 (Evidencia):** tabla de `GET /workers/:id/consent-records` y exportación CSV.
 - **RF-ADMIN-08-9 (Dashboard):** KPIs por estado y alertas: códigos por vencer (< 2 h), rechazos, workers `ACTIVE` sin datos en 24 h.
+  > Estado 2026-09-29: KPIs por estado, llave K2 y códigos por vencer implementados. **Rechazos** y **`ACTIVE` sin datos en 24 h** quedan bloqueados por la API: `WorkerResponse` no expone `last_seen` ni la última decisión de consentimiento, y derivarlos exigiría N llamadas por worker. Requiere ampliar `GET /workers` en `telemetry-api`.
 
 ---
 
@@ -147,3 +148,6 @@ export interface EnrollmentView { qr_payload: string; code: string; safety_code:
 - `test_register_public_key_on_login_when_missing`.
 - `test_server_key_mismatch_blocks_worker_creation`.
 - `test_enrollment_qr_cross_app_compatibility`: el QR del admin se verifica con el mismo manifiesto que construye el agent desde la respuesta de enroll (integración en `tests/` del workspace).
+- `test_workers_set_status_non_admin_target_rejected`, `test_workers_set_status_sends_normalized_body`, `test_workers_set_status_surfaces_invalid_transition`.
+- `test_workers_consent_config_missing_description_rejected`, `test_workers_consent_config_drops_disabled_descriptions`.
+- `admin-client/test/workers.test.mjs`: validación de horario/zona, defaults DP-08, descripciones y CSV de evidencia (importa el módulo real).

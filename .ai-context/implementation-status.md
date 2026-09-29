@@ -56,6 +56,8 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | **Browser-mode `fetch`** | ✅ | Direct API calls from JS removed; demo mocks strictly guarded behind `VITE_DEMO_MODE=true` (SEC-06). | INT-01 |
 | Workers list / edit / pause / delete | ✅ | Server pagination + debounced search, role/status filters, `workers_update` (`PUT /workers/:id`), pause/resume from real status, typed-name soft delete. No mock workers outside demo mode. | ADMIN-03 |
 | Worker creation (W2) | ✅ | `CreateWorkerModal`: consent toggles default false (DP-08), descriptions 10–500 chars, location locked for OFFICE, live C1 preview, TTL 1–72 h; shows the real `EnrollmentView`. | ADMIN-08 |
+| Worker detail (W4) | ✅ | Pause/resume with reason, typed-name revoke, delete, regenerate/move device, consent editor → `PUT /consent-config` with re-acceptance notice, `/consent-records` table + CSV export. | ADMIN-08 |
+| Dashboard KPIs & alerts | 🟡 | Counts per status from API pagination totals, real keystore state, K2 mismatch, codes expiring < 2 h. Missing: rejections and "ACTIVE without data 24 h" — API exposes no `last_seen`/last decision. | ADMIN-08 |
 | Enrollment modal | ✅ | `QRCodeSVG` from `EnrollmentQr`, 12-char Crockford code, 12-digit safety code, expiry countdown, Save PNG, ephemeral warning (SEC-05). Regenerate asks before unlinking a bound device. | ADMIN-08 |
 | Parallel decryption | ✅ | `rayon` pipeline in memory, tolerant to tampered/corrupted records, tested with 1,000 records in <100ms. | ADMIN-04 |
 | Fetch telemetry from API | ✅ | `fetch_and_decrypt_telemetry` IPC command downloads batches from `GET /telemetry/{category}` and decrypts in memory. | ADMIN-04 |
