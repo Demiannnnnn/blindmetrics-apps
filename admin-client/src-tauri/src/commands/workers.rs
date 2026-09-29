@@ -138,57 +138,7 @@ impl CreateWorkerForm {
             }
         }
 
-        // Validate descriptions: required for active flags, 10..=500 chars (RF-ADMIN-08-2)
-        let check_desc =
-            |flag: bool, desc: Option<&str>, cat_name: &str| -> Result<(), CommandError> {
-                if flag {
-                    // Count characters, not bytes: accented text must match the UI limit.
-                    let len = desc.unwrap_or("").trim().chars().count();
-                    if !(10..=500).contains(&len) {
-                        return Err(CommandError {
-                            code: "VALIDATION_ERROR".into(),
-                            message: format!(
-                                "Description for '{}' must be between 10 and 500 characters",
-                                cat_name
-                            ),
-                        });
-                    }
-                }
-                Ok(())
-            };
-
-        check_desc(
-            self.consent_flags.system_activity,
-            self.consent_descriptions.system_activity.as_deref(),
-            "system_activity",
-        )?;
-        check_desc(
-            self.consent_flags.network_activity,
-            self.consent_descriptions.network_activity.as_deref(),
-            "network_activity",
-        )?;
-        check_desc(
-            self.consent_flags.productivity_basic,
-            self.consent_descriptions.productivity_basic.as_deref(),
-            "productivity_basic",
-        )?;
-        check_desc(
-            self.consent_flags.productivity_screenshots,
-            self.consent_descriptions
-                .productivity_screenshots
-                .as_deref(),
-            "productivity_screenshots",
-        )?;
-        check_desc(
-            self.consent_flags.file_activity,
-            self.consent_descriptions.file_activity.as_deref(),
-            "file_activity",
-        )?;
-        check_desc(
-            self.consent_flags.location,
-            self.consent_descriptions.location.as_deref(),
-            "location",
-        )?;
+        validate_consent_descriptions(&self.consent_flags, &self.consent_descriptions)?;
 
         Ok(())
     }
@@ -286,6 +236,58 @@ pub fn validate_timezone(tz: &str) -> Result<(), CommandError> {
             tz
         )))
     }
+}
+
+/// Every enabled category needs a 10–500 character description (RF-ADMIN-08-2).
+pub fn validate_consent_descriptions(
+    flags: &ConsentFlags,
+    descriptions: &ConsentDescriptions,
+) -> Result<(), CommandError> {
+    // Validate descriptions: required for active flags, 10..=500 chars (RF-ADMIN-08-2)
+    let check_desc = |flag: bool, desc: Option<&str>, cat_name: &str| -> Result<(), CommandError> {
+        if flag {
+            // Count characters, not bytes: accented text must match the UI limit.
+            let len = desc.unwrap_or("").trim().chars().count();
+            if !(10..=500).contains(&len) {
+                return Err(CommandError {
+                    code: "VALIDATION_ERROR".into(),
+                    message: format!(
+                        "Description for '{}' must be between 10 and 500 characters",
+                        cat_name
+                    ),
+                });
+            }
+        }
+        Ok(())
+    };
+
+    check_desc(
+        flags.system_activity,
+        descriptions.system_activity.as_deref(),
+        "system_activity",
+    )?;
+    check_desc(
+        flags.network_activity,
+        descriptions.network_activity.as_deref(),
+        "network_activity",
+    )?;
+    check_desc(
+        flags.productivity_basic,
+        descriptions.productivity_basic.as_deref(),
+        "productivity_basic",
+    )?;
+    check_desc(
+        flags.productivity_screenshots,
+        descriptions.productivity_screenshots.as_deref(),
+        "productivity_screenshots",
+    )?;
+    check_desc(
+        flags.file_activity,
+        descriptions.file_activity.as_deref(),
+        "file_activity",
+    )?;
+    check_desc(flags.location, descriptions.location.as_deref(), "location")?;
+    Ok(())
 }
 
 fn validate_role(role: &str) -> Result<String, CommandError> {
@@ -457,10 +459,7 @@ pub async fn workers_list(
         })?;
 
     if !resp.status().is_success() {
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", resp.status().as_u16()),
-            message: "Failed to list workers".into(),
-        });
+        return Err(api_error(resp, "Failed to list workers").await);
     }
 
     let collection: CollectionResponse<WorkerResponse> =
@@ -485,10 +484,7 @@ pub async fn workers_get(id: String) -> Result<WorkerResponse, CommandError> {
         })?;
 
     if !resp.status().is_success() {
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", resp.status().as_u16()),
-            message: format!("Failed to get worker {}", id),
-        });
+        return Err(api_error(resp, &format!("Failed to get worker {}", id)).await);
     }
 
     let wrapped: SingleResponse<WorkerResponse> = resp.json().await.map_err(|e| CommandError {
@@ -547,12 +543,7 @@ pub async fn workers_create_with_client(
         })?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let err_text = resp.text().await.unwrap_or_default();
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", status.as_u16()),
-            message: err_text,
-        });
+        return Err(api_error(resp, "Failed to create worker").await);
     }
 
     let wrapped: SingleResponse<CreateWorkerApiResponse> =
@@ -599,21 +590,38 @@ pub async fn workers_create_with_client(
     })
 }
 
+/// Admin-driven transitions only; the server is the authority on which are valid.
+const ADMIN_STATUS_TARGETS: [&str; 3] = ["ACTIVE", "PAUSED", "REVOKED"];
+
 #[tauri::command]
 pub async fn workers_set_status(
     id: String,
     status: String,
     reason: Option<String>,
 ) -> Result<WorkerResponse, CommandError> {
-    let client = get_api_client();
-    let endpoint = format!("/workers/{}/status", id);
-    let body = serde_json::json!({
-        "status": status,
-        "reason": reason
-    });
+    workers_set_status_with_client(get_api_client(), &id, &status, reason).await
+}
+
+pub async fn workers_set_status_with_client(
+    client: &AdminApiClient,
+    id: &str,
+    status: &str,
+    reason: Option<String>,
+) -> Result<WorkerResponse, CommandError> {
+    let status = status.trim().to_uppercase();
+    if !ADMIN_STATUS_TARGETS.contains(&status.as_str()) {
+        return Err(validation_error(format!(
+            "Status must be one of ACTIVE, PAUSED or REVOKED (got '{}')",
+            status
+        )));
+    }
+    let reason = reason
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty());
+    let body = serde_json::json!({ "status": status, "reason": reason });
 
     let resp = client
-        .patch_with_auth(&endpoint, &body)
+        .patch_with_auth(&format!("/workers/{}/status", id), &body)
         .await
         .map_err(|e| CommandError {
             code: "NETWORK_ERROR".into(),
@@ -621,17 +629,18 @@ pub async fn workers_set_status(
         })?;
 
     if !resp.status().is_success() {
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", resp.status().as_u16()),
-            message: format!("Failed to update worker status to {}", status),
-        });
+        return Err(api_error(
+            resp,
+            &format!("Failed to update worker status to {}", status),
+        )
+        .await);
     }
 
     let wrapped: SingleResponse<WorkerResponse> = resp.json().await.map_err(|e| CommandError {
         code: "DESERIALIZATION_ERROR".into(),
         message: e.to_string(),
     })?;
-
+    tracing::info!(worker_id = %id, to = %status, "Worker status changed");
     Ok(wrapped.data)
 }
 
@@ -655,10 +664,7 @@ pub async fn workers_regenerate_token(
         })?;
 
     if !resp.status().is_success() {
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", resp.status().as_u16()),
-            message: "Failed to regenerate enrollment token".into(),
-        });
+        return Err(api_error(resp, "Failed to regenerate enrollment token").await);
     }
 
     let token_wrapped: SingleResponse<EnrollmentTokenResponse> =
@@ -701,8 +707,24 @@ pub async fn workers_update_consent_config(
     consent_flags: ConsentFlags,
     consent_descriptions: ConsentDescriptions,
 ) -> Result<ConsentConfigResponse, CommandError> {
-    let client = get_api_client();
-    let endpoint = format!("/workers/{}/consent-config", id);
+    workers_update_consent_config_with_client(
+        get_api_client(),
+        &id,
+        consent_flags,
+        consent_descriptions,
+    )
+    .await
+}
+
+/// `PUT /workers/:id/consent-config`. A new version must be re-accepted by the
+/// worker before collection resumes (`requires_worker_acceptance`).
+pub async fn workers_update_consent_config_with_client(
+    client: &AdminApiClient,
+    id: &str,
+    consent_flags: ConsentFlags,
+    consent_descriptions: ConsentDescriptions,
+) -> Result<ConsentConfigResponse, CommandError> {
+    validate_consent_descriptions(&consent_flags, &consent_descriptions)?;
     let mut normalized_desc = consent_descriptions;
     normalized_desc.retain_enabled(&consent_flags);
 
@@ -712,7 +734,7 @@ pub async fn workers_update_consent_config(
     });
 
     let resp = client
-        .put_with_auth(&endpoint, &body)
+        .put_with_auth(&format!("/workers/{}/consent-config", id), &body)
         .await
         .map_err(|e| CommandError {
             code: "NETWORK_ERROR".into(),
@@ -720,10 +742,7 @@ pub async fn workers_update_consent_config(
         })?;
 
     if !resp.status().is_success() {
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", resp.status().as_u16()),
-            message: "Failed to update consent configuration".into(),
-        });
+        return Err(api_error(resp, "Failed to update consent configuration").await);
     }
 
     let wrapped: SingleResponse<ConsentConfigResponse> =
@@ -731,16 +750,19 @@ pub async fn workers_update_consent_config(
             code: "DESERIALIZATION_ERROR".into(),
             message: e.to_string(),
         })?;
-
+    tracing::info!(
+        worker_id = %id,
+        consent_version = wrapped.data.consent_version,
+        requires_acceptance = wrapped.data.requires_worker_acceptance,
+        "Consent configuration updated"
+    );
     Ok(wrapped.data)
 }
 
 #[tauri::command]
 pub async fn workers_get_consent_records(id: String) -> Result<Vec<ConsentRecord>, CommandError> {
-    let client = get_api_client();
-    let endpoint = format!("/workers/{}/consent-records", id);
-    let resp = client
-        .get_with_auth(&endpoint)
+    let resp = get_api_client()
+        .get_with_auth(&format!("/workers/{}/consent-records", id))
         .await
         .map_err(|e| CommandError {
             code: "NETWORK_ERROR".into(),
@@ -748,10 +770,7 @@ pub async fn workers_get_consent_records(id: String) -> Result<Vec<ConsentRecord
         })?;
 
     if !resp.status().is_success() {
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", resp.status().as_u16()),
-            message: "Failed to fetch consent records".into(),
-        });
+        return Err(api_error(resp, "Failed to fetch consent records").await);
     }
 
     let wrapped: CollectionResponse<ConsentRecord> =
@@ -1544,5 +1563,119 @@ mod tests {
         let client = AdminApiClient::new(server.uri());
         client.set_access_token_for_test(Some("tok".into()));
         workers_delete_with_client(&client, "w-1").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_workers_set_status_non_admin_target_rejected() {
+        let client = AdminApiClient::new("http://127.0.0.1:9".into());
+        let err = workers_set_status_with_client(&client, "w-1", "PENDING_CONSENT", None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn test_workers_set_status_sends_normalized_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/workers/w-1/status"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "status": "PAUSED", "reason": null }),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": worker_json("Ana") })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        workers_set_status_with_client(&client, "w-1", "paused", Some("   ".into()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_workers_set_status_surfaces_invalid_transition() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/workers/w-1/status"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "CONFLICT",
+                    "message": "Cannot resume a worker without consent",
+                    "details": { "reason": "INVALID_STATUS_TRANSITION" }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        let err = workers_set_status_with_client(&client, "w-1", "ACTIVE", None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "INVALID_STATUS_TRANSITION");
+    }
+
+    #[tokio::test]
+    async fn test_workers_consent_config_missing_description_rejected() {
+        let client = AdminApiClient::new("http://127.0.0.1:9".into());
+        let flags = ConsentFlags {
+            file_activity: true,
+            ..Default::default()
+        };
+        let err = workers_update_consent_config_with_client(
+            &client,
+            "w-1",
+            flags,
+            ConsentDescriptions::default(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn test_workers_consent_config_drops_disabled_descriptions() {
+        let flags = ConsentFlags {
+            system_activity: true,
+            ..Default::default()
+        };
+        let desc = ConsentDescriptions {
+            system_activity: Some("Aplicaciones en uso en horario".into()),
+            network_activity: Some("Texto de una categoría desactivada".into()),
+            ..Default::default()
+        };
+        let mut expected_desc = desc.clone();
+        expected_desc.retain_enabled(&flags);
+
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/workers/w-1/consent-config"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "consent_flags": flags,
+                "consent_descriptions": expected_desc,
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "consent_version": 2,
+                    "requires_worker_acceptance": true,
+                    "worker": worker_json("Ana")
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        let resp = workers_update_consent_config_with_client(&client, "w-1", flags, desc)
+            .await
+            .unwrap();
+        assert_eq!(resp.consent_version, 2);
+        assert!(resp.requires_worker_acceptance);
     }
 }
