@@ -40,7 +40,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Lifecycle polling (`GET /workers/me`), key pinning | ✅ | `ApiClient::get_me`, `derive_run_mode`, pinned key integrity check (Halted on mismatch), revocation wipe on 401. | AGENT-08 |
 | Data subject rights | ✅ | Solicitudes ARCO reales (`POST /workers/me/data-request` y `/data-deletion`) conectadas a la API con diálogo de confirmación, ID de solicitud, estado y copy correcto ("cifrado con la clave de su empleador"). | AGENT-06 |
 | Notifications | ✅ | Catálogo completo (inicio, recordatorio horario, capturas DP-05, jornada laboral, cambios de consentimiento/admin, desvinculación, alteración de clave) vía `notify-rust` sin bloquear UI. | AGENT-07 |
-| System tray | ✅ | `SystemTrayManager` con `tray-icon` + `muda`, sincronización de color según estado (🟢/🟡/⚪/🔴), menú contextual y minimizado a la bandeja al pulsar cerrar ventana. | AGENT-07 |
+| System tray | ✅ | `SystemTrayManager` con `tray-icon` + `muda`, sincronización de color según estado (🟢/🟡/⚪/🔴), menú contextual y minimizado a la bandeja al pulsar cerrar ventana. Linux: tray owned by a dedicated GTK thread (`gtk::init` + `gtk::main`, updates via channel) because eframe's winit loop does not pump GTK; without display/AppIndicator it degrades to unavailable instead of panicking. | AGENT-07 |
 | Panic safety | ✅ | Replaced `expect`/`unwrap` in production paths (runtime creation, sqlite disk/memory fallback, client build). | INT-01 |
 | Tests isolation | ✅ | `WorkerConfig::load_or_init_at` with `tempfile`; real `config.json` is protected. | INT-01 |
 
