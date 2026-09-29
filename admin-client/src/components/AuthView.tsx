@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { ShieldCheck, KeyRound, Server, User, Building, ArrowRight, AlertTriangle, Sparkles } from 'lucide-react';
-import { adminLogin, adminRegister, AdminProfile, getApiBaseUrl } from '../api/tauri-bridge';
+import { adminLogin, adminRegister, AdminProfile, getApiBaseUrl, isDemoMode } from '../api/tauri-bridge';
+
+/** Tauri commands reject with a serialized CommandError { code, message }. */
+function errorText(err: any): string {
+  return (typeof err === 'string' ? err : err?.message) || 'Error al autenticar';
+}
 
 interface AuthViewProps {
   onLoginSuccess: (profile: AdminProfile) => void;
@@ -30,23 +35,21 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
         onLoginSuccess(profile);
       }
     } catch (err: any) {
-      setErrorMessage(err?.toString() || 'Error al autenticar');
+      setErrorMessage(errorText(err));
     } finally {
       setLoading(false);
     }
   };
 
+  // Only reachable in VITE_DEMO_MODE builds (docs/admin-app-spec.md §A1).
   const handleDemoAccess = async () => {
     setLoading(true);
+    setErrorMessage(null);
     try {
-      const demoProfile: AdminProfile = {
-        id: 'admin-local-master',
-        name: 'Administrador Principal',
-        email: 'security@telemetry.corp',
-        organization: 'Acme SpA',
-      };
-      await adminLogin(demoProfile.email, 'demo-pass', apiUrl);
-      onLoginSuccess(demoProfile);
+      const profile = await adminLogin('demo@telemetry.local', 'demo-pass', apiUrl);
+      onLoginSuccess(profile);
+    } catch (err: any) {
+      setErrorMessage(errorText(err));
     } finally {
       setLoading(false);
     }
@@ -197,20 +200,22 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
           </button>
         </form>
 
-        <div className="mt-6 pt-5 border-t border-slate-800">
-          <button
-            type="button"
-            onClick={handleDemoAccess}
-            disabled={loading}
-            className="w-full py-2 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 rounded-lg text-xs text-slate-300 flex items-center justify-center gap-2 transition-all"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Entrar en Modo Autónomo / Diagnóstico Local</span>
-          </button>
-          <p className="text-[11px] text-slate-500 text-center mt-2">
-            Permite probar el enrolamiento de agentes y el descifrado Rayon aún sin backend iniciado.
-          </p>
-        </div>
+        {isDemoMode && (
+          <div className="mt-6 pt-5 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={handleDemoAccess}
+              disabled={loading}
+              className="w-full py-2 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 rounded-lg text-xs text-slate-300 flex items-center justify-center gap-2 transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Entrar en Modo Demo</span>
+            </button>
+            <p className="text-[11px] text-slate-500 text-center mt-2">
+              Solo para demostraciones: usa datos ficticios, sin servidor.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
