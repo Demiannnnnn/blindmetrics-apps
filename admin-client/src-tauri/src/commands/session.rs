@@ -95,16 +95,22 @@ pub fn admin_is_locked() -> Result<bool, CommandError> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_admin_session_lifecycle() {
+    // logout() deletes the refresh token: hold the keystore mutex and use the
+    // in-memory vault so these tests neither race others nor touch the OS keystore.
+    #[tokio::test]
+    async fn test_admin_session_lifecycle() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
         let client = get_api_client();
         client.logout();
         assert!(admin_get_session().unwrap().is_none());
         assert!(admin_logout().is_ok());
     }
 
-    #[test]
-    fn test_admin_lock_and_flush() {
+    #[tokio::test]
+    async fn test_admin_lock_and_flush() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
         let client = get_api_client();
         client.set_access_token_for_test(Some("sensitive-access-token-12345".to_string()));
 
