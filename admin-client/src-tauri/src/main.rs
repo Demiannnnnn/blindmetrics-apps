@@ -17,7 +17,7 @@ use commands::telemetry::{
 };
 use commands::workers::{
     workers_create, workers_delete, workers_get, workers_get_consent_records, workers_list,
-    workers_regenerate_token, workers_set_status, workers_update_consent_config,
+    workers_regenerate_token, workers_set_status, workers_update, workers_update_consent_config,
 };
 
 fn main() {
@@ -55,6 +55,7 @@ fn main() {
             workers_create,
             workers_set_status,
             workers_regenerate_token,
+            workers_update,
             workers_update_consent_config,
             workers_get_consent_records,
             workers_delete,
