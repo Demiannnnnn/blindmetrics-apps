@@ -192,10 +192,10 @@ impl WorkerConfig {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] `get_device_identifier()` genera un identificador consistente e idéntico entre reinicios sucesivos de la aplicación.
-2. [ ] `WorkerConfig` se serializa y deserializa correctamente desde el directorio de configuración del SO correspondiente.
-3. [ ] El fallback de UUID garantiza que la aplicación arranca aún en entornos de pruebas sin hardware id accesible.
-4. [ ] Pruebas unitarias pasan con `cargo test -p agent`.
+1. [x] `get_device_identifier()` genera un identificador consistente e idéntico entre reinicios sucesivos de la aplicación.
+2. [x] `WorkerConfig` se serializa y deserializa correctamente desde el directorio de configuración del SO correspondiente.
+3. [x] El fallback de UUID garantiza que la aplicación arranca aún en entornos de pruebas sin hardware id accesible.
+4. [x] Pruebas unitarias pasan con `cargo test -p agent`.
 
 ---
 

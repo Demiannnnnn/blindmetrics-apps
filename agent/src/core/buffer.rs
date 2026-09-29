@@ -147,6 +147,9 @@ mod tests {
             h.join().unwrap();
         }
         let drained_count = flusher_handle.join().unwrap();
-        assert!(drained_count > 0, "Concurrent flusher must drain items without deadlock");
+        assert!(
+            drained_count > 0,
+            "Concurrent flusher must drain items without deadlock"
+        );
     }
 }

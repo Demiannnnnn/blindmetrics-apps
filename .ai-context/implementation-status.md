@@ -16,7 +16,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 
 | Capability | State | Notes | Task |
 |:-----------|:-----:|:------|:-----|
-| Device identifier | 🟡 | macOS `ioreg`, Linux `machine-id`, Windows `wmic` (deprecated/removed on Windows 11 24H2 → use registry `MachineGuid`). | AGENT-01 |
+| Device identifier | ✅ | macOS `ioreg`, Linux `machine-id`, Windows `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` (wmic fallback), persistent fallback UUID. Deterministic. | AGENT-01 |
 | Config persistence | ✅ | Secrets moved to `CredentialStore` (keyring/in-memory); `config.json` never writes tokens or admin keys (SEC-05). Role/work-hours from server. | AGENT-08 |
 | **Consent defaults** | ✅ | `ConsentSettings::default()` is all false (DP-08). | AGENT-08 |
 | **Consent UI** | ✅ | All-or-nothing consent screen (C1), withdrawal confirmation (W) with instant purge (DP-09); per-category toggles removed. | AGENT-08 |
