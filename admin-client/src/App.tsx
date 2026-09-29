@@ -11,6 +11,8 @@ import {
   LogOut,
   Server,
   User,
+  FileText,
+  Calendar,
 } from 'lucide-react';
 import {
   WorkerItem,
@@ -20,22 +22,32 @@ import {
   getAdminSession,
   adminLogout,
   getApiBaseUrl,
+  TimeRangeFilter,
+  TimeRangePreset,
 } from './api/tauri-bridge';
 import { AuthView } from './components/AuthView';
 import { Dashboard } from './components/Dashboard';
 import { ActivityChart } from './components/ActivityChart';
 import { NetworkExplorer } from './components/NetworkExplorer';
 import { ScreenshotGallery } from './components/ScreenshotGallery';
+import { FileActivity } from './components/FileActivity';
 import { FieldMap } from './components/FieldMap';
 import { ConsentSettings } from './components/ConsentSettings';
 import { AutoLockModal } from './components/AutoLockModal';
 
 export const App: React.FC = () => {
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'system' | 'network' | 'productivity' | 'location' | 'compliance'>('dashboard');
+  const [activeTab, setActiveTab] = useState<
+    'dashboard' | 'system' | 'network' | 'productivity' | 'files' | 'location' | 'compliance'
+  >('dashboard');
   const [selectedWorker, setSelectedWorker] = useState<WorkerItem | null>(null);
   const [allWorkers, setAllWorkers] = useState<WorkerItem[]>([]);
   const [isLocked, setIsLocked] = useState<boolean>(false);
+
+  // RF-ADMIN-05-1: Global Time Range Context Filter
+  const [timeRange, setTimeRange] = useState<TimeRangeFilter>({ preset: 'today' });
+  const [customFrom, setCustomFrom] = useState<string>('');
+  const [customTo, setCustomTo] = useState<string>('');
 
   useEffect(() => {
     getAdminSession().then(sess => {
@@ -82,9 +94,36 @@ export const App: React.FC = () => {
     setAdminProfile(null);
   };
 
+  const handlePresetChange = (preset: TimeRangePreset) => {
+    if (preset === 'custom') {
+      const todayStr = new Date().toISOString().split('T')[0];
+      setCustomFrom(todayStr);
+      setCustomTo(todayStr);
+      setTimeRange({
+        preset: 'custom',
+        from: new Date(`${todayStr}T00:00:00`).toISOString(),
+        to: new Date(`${todayStr}T23:59:59`).toISOString(),
+      });
+    } else {
+      setTimeRange({ preset });
+    }
+  };
+
+  const handleCustomDateChange = (fromStr: string, toStr: string) => {
+    setCustomFrom(fromStr);
+    setCustomTo(toStr);
+    if (fromStr && toStr) {
+      setTimeRange({
+        preset: 'custom',
+        from: new Date(`${fromStr}T00:00:00`).toISOString(),
+        to: new Date(`${toStr}T23:59:59`).toISOString(),
+      });
+    }
+  };
+
   // If not logged in, render the login / register view
   if (!adminProfile) {
-    return <AuthView onLoginSuccess={(profile) => setAdminProfile(profile)} />;
+    return <AuthView onLoginSuccess={profile => setAdminProfile(profile)} />;
   }
 
   return (
@@ -154,6 +193,18 @@ export const App: React.FC = () => {
             >
               <Camera className="w-4 h-4" />
               <span>Productividad & Capturas</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('files')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+                activeTab === 'files'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Actividad de Archivos</span>
             </button>
 
             <button
@@ -231,27 +282,67 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Global Context Header */}
+        {/* RF-ADMIN-05-1: Global Context Header with Worker and Time Range Selectors */}
         <header className="h-16 border-b border-slate-800 px-6 flex items-center justify-between flex-shrink-0 bg-slate-900/60 backdrop-blur">
-          {/* Worker Selector Dropdown */}
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-medium text-slate-400">Trabajador Seleccionado:</span>
-            <div className="relative">
-              <select
-                value={selectedWorker?.id ?? ''}
-                onChange={e => {
-                  const w = allWorkers.find(item => item.id === e.target.value);
-                  if (w) setSelectedWorker(w);
-                }}
-                className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-indigo-500 cursor-pointer"
-              >
-                {allWorkers.map(w => (
-                  <option key={w.id} value={w.id}>
-                    {w.name} ({w.role}) {w.isActive ? '🟢' : '🔴'}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Worker Selector Dropdown */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-400">Trabajador:</span>
+              <div className="relative">
+                <select
+                  value={selectedWorker?.id ?? ''}
+                  onChange={e => {
+                    const w = allWorkers.find(item => item.id === e.target.value);
+                    if (w) setSelectedWorker(w);
+                  }}
+                  className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  {allWorkers.map(w => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} ({w.role}) {w.isActive ? '🟢' : '🔴'}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Time Range Selector (RF-ADMIN-05-1) */}
+            <div className="flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-xs font-medium text-slate-400">Rango:</span>
+              <div className="relative">
+                <select
+                  value={timeRange.preset}
+                  onChange={e => handlePresetChange(e.target.value as TimeRangePreset)}
+                  className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium rounded-lg pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="today">Hoy</option>
+                  <option value="yesterday">Ayer</option>
+                  <option value="7days">Últimos 7 días</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+
+              {/* Custom Date Inputs */}
+              {timeRange.preset === 'custom' && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={e => handleCustomDateChange(e.target.value, customTo)}
+                    className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                  <span className="text-slate-500">-</span>
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={e => handleCustomDateChange(customFrom, e.target.value)}
+                    className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -260,8 +351,8 @@ export const App: React.FC = () => {
             <span className="bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 px-2.5 py-1 rounded-md">
               X25519-AES256GCM
             </span>
-            <span className="text-slate-400">
-              Zona Horaria: {selectedWorker?.timezone ?? 'America/Santiago'}
+            <span className="text-slate-400 hidden sm:inline">
+              {selectedWorker?.timezone ?? 'America/Santiago'}
             </span>
           </div>
         </header>
@@ -278,15 +369,36 @@ export const App: React.FC = () => {
           )}
 
           {activeTab === 'system' && (
-            <ActivityChart workerName={selectedWorker?.name ?? 'Empleado'} />
+            <ActivityChart
+              workerId={selectedWorker?.id}
+              workerName={selectedWorker?.name ?? 'Empleado'}
+              timeRange={timeRange}
+            />
           )}
 
           {activeTab === 'network' && (
-            <NetworkExplorer workerName={selectedWorker?.name ?? 'Empleado'} />
+            <NetworkExplorer
+              workerId={selectedWorker?.id}
+              workerName={selectedWorker?.name ?? 'Empleado'}
+              timeRange={timeRange}
+            />
           )}
 
           {activeTab === 'productivity' && (
-            <ScreenshotGallery workerName={selectedWorker?.name ?? 'Empleado'} />
+            <ScreenshotGallery
+              workerId={selectedWorker?.id}
+              workerName={selectedWorker?.name ?? 'Empleado'}
+              adminProfile={adminProfile}
+              timeRange={timeRange}
+            />
+          )}
+
+          {activeTab === 'files' && (
+            <FileActivity
+              workerId={selectedWorker?.id}
+              workerName={selectedWorker?.name ?? 'Empleado'}
+              timeRange={timeRange}
+            />
           )}
 
           {activeTab === 'location' && (

@@ -174,10 +174,10 @@ export const ScreenshotGallery: React.FC<{ items: Screenshot[] }> = ({ items }) 
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] Los gráficos de ECharts se renderizan fluidamente con miles de muestras temporales.
-2. [ ] El modo Blur en la galería de capturas oculta texto sensible por defecto.
-3. [ ] Los filtros por fecha y empleado actualizan inmediatamente las cuatro vistas.
-4. [ ] La lista de dominios visitados no muestra rutas ni URLs completas.
+1. [x] Los gráficos de ECharts se renderizan fluidamente con miles de muestras temporales.
+2. [x] El modo Blur en la galería de capturas oculta texto sensible por defecto.
+3. [x] Los filtros por fecha y empleado actualizan inmediatamente las cuatro vistas.
+4. [x] La lista de dominios visitados no muestra rutas ni URLs completas.
 
 ---
 

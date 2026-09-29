@@ -65,7 +65,56 @@ export interface KpiSummary {
   systemAlerts: number;
 }
 
-const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
+export type TimeRangePreset = 'today' | 'yesterday' | '7days' | 'custom';
+
+export interface TimeRangeFilter {
+  preset: TimeRangePreset;
+  from?: string;
+  to?: string;
+}
+
+export function getTimeRangeIso(filter: TimeRangeFilter): { from?: string; to?: string } {
+  const now = new Date();
+  if (filter.preset === 'today') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    return { from: start.toISOString(), to: now.toISOString() };
+  } else if (filter.preset === 'yesterday') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+    return { from: start.toISOString(), to: end.toISOString() };
+  } else if (filter.preset === '7days') {
+    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { from: start.toISOString(), to: now.toISOString() };
+  } else {
+    return { from: filter.from, to: filter.to };
+  }
+}
+
+export function sanitizeHtmlText(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+export function validateFqdnPrivacy(fqdn: string): { isValid: boolean; sanitized: string } {
+  const hasForbiddenChars = /[\/?:#@]/.test(fqdn);
+  let clean = fqdn.trim().toLowerCase();
+  clean = clean.replace(/^[a-z]+:\/\//, '');
+  clean = clean.split('@').pop() || clean;
+  clean = clean.split('/')[0];
+  clean = clean.split('?')[0];
+  clean = clean.split('#')[0];
+  clean = clean.split(':')[0];
+  return {
+    isValid: !hasForbiddenChars && clean === fqdn.trim().toLowerCase(),
+    sanitized: clean,
+  };
+}
+
+export const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
 
 // Demo store strictly guarded behind VITE_DEMO_MODE=true
 let mockWorkers: WorkerItem[] = isDemoMode ? [
