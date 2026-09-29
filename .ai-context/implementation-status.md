@@ -9,7 +9,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Capability | State | Notes | Task |
 |:-----------|:-----:|:------|:-----|
 | X25519 keygen, ECDH, HKDF, AES-256-GCM, envelope framing | ✅ | Tested (roundtrip, tamper, short payload). `unwrap`s are in tests only. | CRYPTO-01 |
-| Enrollment manifest / commitment / safety code / fingerprint | ❌ | | CRYPTO-02 |
+| Enrollment manifest / commitment / safety code / fingerprint / QR | ✅ | Canonical manifest, SHA-256 commitment, constant-time verification, Crockford Base32 QR format, fixed vector tested. | CRYPTO-02 |
 | Encrypted backup of `K_admin_priv` | ❌ | | ADMIN-01 |
 
 ## 2. `agent`

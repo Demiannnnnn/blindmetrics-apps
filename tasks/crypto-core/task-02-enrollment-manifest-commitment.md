@@ -132,16 +132,16 @@ El crate no loguea. Los llamadores pueden loguear el compromiso truncado (primer
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] `enrollment.rs` expone `EnrollmentManifest`, `ConsentFlags`, `ConsentDescriptions`, `manifest_commitment`, `verify_commitment`, `safety_code`, `public_key_fingerprint`, `EnrollmentQr`.
-2. [ ] Test de vector fijo documentado en este archivo y en `security-model.md`.
-3. [ ] Los payloads de texto plano viven en el crate (RF-8), o INT-01 los mueve.
-4. [ ] `cargo test -p telemetry-crypto-core` y clippy sin advertencias.
+1. [x] `enrollment.rs` expone `EnrollmentManifest`, `ConsentFlags`, `ConsentDescriptions`, `manifest_commitment`, `verify_commitment`, `safety_code`, `public_key_fingerprint`, `EnrollmentQr`.
+2. [x] Test de vector fijo documentado en este archivo y en `security-model.md`.
+3. [x] Los payloads de texto plano viven en el crate (RF-8), o INT-01 los mueve.
+4. [x] `cargo test -p telemetry-crypto-core` y clippy sin advertencias.
 
 ---
 
 ## 8. Especificación de Pruebas
 
-- `test_enrollment_commitment_fixed_vector`: manifiesto fijo (llave = base64 de `[9u8; 32]`, versión 1, flags system+network, descripciones `"a…"`) → hex esperado hardcodeado. Si cambia, es un **breaking change** del protocolo.
+- `test_enrollment_commitment_fixed_vector`: manifiesto fijo (llave = base64 de `[9u8; 32]`, versión 1, flags system+network, descripciones `"System activity monitoring"`, `"Network domain monitoring"`) → hex esperado: `472eb081f962210500e25b6fe56327e86e8596cdbbb8c839265b7a50d1202bd1`.
 - `test_enrollment_commitment_changes_when_key_changes`.
 - `test_enrollment_commitment_changes_when_any_flag_or_description_changes` (iterar las 6 categorías).
 - `test_enrollment_disabled_category_description_is_ignored`: flag `false` con y sin descripción → mismo compromiso.

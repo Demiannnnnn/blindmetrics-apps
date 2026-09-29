@@ -19,4 +19,19 @@ pub enum CryptoError {
 
     #[error("Serialization failed: {0}")]
     SerializationError(#[from] serde_json::Error),
+
+    #[error("Serialization failed: {0}")]
+    Serialization(String),
+
+    #[error("Invalid commitment hash: expected 64-hex string")]
+    InvalidCommitment,
+
+    #[error("Invalid enrollment QR payload: {0}")]
+    InvalidQr(String),
+
+    #[error("Invalid public key")]
+    InvalidPublicKey,
+
+    #[error("Invalid consent version: must be >= 1")]
+    InvalidConsentVersion,
 }

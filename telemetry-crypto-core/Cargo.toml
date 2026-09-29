@@ -19,3 +19,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+hex.workspace = true
+subtle.workspace = true
