@@ -30,7 +30,6 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Network (FQDN) collector | ✅ | Passive domain aggregation, RFC 1035 sanitization (DP-02), path/query/private IP stripping. | AGENT-03 |
 | File activity collector | ✅ | Reactive `notify` watcher on corporate folder, metadata only (DP-03: actions + extensions, zero content read), filters `.git` and temp files. | AGENT-03 |
 | Location collector | ✅ | FIELD-only GPS querying during work hours with active consent (DP-04); permanently disabled for OFFICE workers. | AGENT-03 |
-
 | Collectors gated by consent/status | ✅ | Gated on `RunMode::Collecting`, effective flags, and local accepted flags (DP-06, DP-07); stops on pause/withdraw/revoke. | AGENT-08 |
 | Double buffer | ✅ | `std::mem::take`; FIFO cap 1000; snapshot en <50ns sin deadlocks ni unwraps; partición limpia por categoría y cifrado `telemetry-crypto-core`. | AGENT-04 |
 | **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |
@@ -55,8 +54,9 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Register | ✅ | Reads `{data}` from `POST /auth/register`, sets session and saves refresh token. | INT-01 |
 | Refresh token handling | ✅ | Stored in keystore (`admin_refresh_token`), rotación transparente en 401 en `send_with_auth`, revocación de sesión en fallo. | ADMIN-02 |
 | **Browser-mode `fetch`** | ✅ | Direct API calls from JS removed; demo mocks strictly guarded behind `VITE_DEMO_MODE=true` (SEC-06). | INT-01 |
-| **Workers list / create / toggle / KPIs** | ✅ | Full IPC commands (`workers_list`, `workers_create`, `workers_set_status`, `workers_regenerate_token`, etc.) connected in UI; no mock workers outside demo mode. | ADMIN-08 |
-| Enrollment modal | ✅ | Interactive `QRCodeSVG` from `EnrollmentQr`, 12-char Crockford code, 12-digit safety code, ephemeral warning (SEC-05). | ADMIN-08 |
+| Workers list / edit / pause / delete | ✅ | Server pagination + debounced search, role/status filters, `workers_update` (`PUT /workers/:id`), pause/resume from real status, typed-name soft delete. No mock workers outside demo mode. | ADMIN-03 |
+| Worker creation (W2) | ✅ | `CreateWorkerModal`: consent toggles default false (DP-08), descriptions 10–500 chars, location locked for OFFICE, live C1 preview, TTL 1–72 h; shows the real `EnrollmentView`. | ADMIN-08 |
+| Enrollment modal | ✅ | `QRCodeSVG` from `EnrollmentQr`, 12-char Crockford code, 12-digit safety code, expiry countdown, Save PNG, ephemeral warning (SEC-05). Regenerate asks before unlinking a bound device. | ADMIN-08 |
 | Parallel decryption | ✅ | `rayon` pipeline in memory, tolerant to tampered/corrupted records, tested with 1,000 records in <100ms. | ADMIN-04 |
 | Fetch telemetry from API | ✅ | `fetch_and_decrypt_telemetry` IPC command downloads batches from `GET /telemetry/{category}` and decrypts in memory. | ADMIN-04 |
 | Charts, network explorer, screenshot gallery, files | ✅ | Vistas especializadas sobre datos reales descifrados en RAM con muestreo LTTB, minimización FQDN, modo blur y selector global de contexto. | ADMIN-05 |

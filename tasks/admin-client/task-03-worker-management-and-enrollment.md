@@ -8,7 +8,7 @@
 | **Prioridad** | Alta / P1 |
 
 
-> ⚠️ **Parcialmente reemplazada (2026-09-28).** El alta de trabajadores (RF-ADMIN-03-2) y el *Paquete de Enrolamiento* JSON (RF-ADMIN-03-3: `{api_url, worker_id, admin_public_key, organization}`) quedan **obsoletos**: el alta ahora incluye consentimiento descrito y el enrollment usa código de un solo uso + QR con compromiso → ver [`TASK-ADMIN-08`](task-08-enrollment-and-worker-lifecycle.md). Esta tarea conserva el listado, los filtros, la edición y la baja. La ruta `commands/workers.rs` es la estructura objetivo (hoy todo está en `commands.rs`) y la UI actual corre sobre `mockWorkers`.
+> ⚠️ **Parcialmente reemplazada (2026-09-28).** El alta de trabajadores (RF-ADMIN-03-2) y el *Paquete de Enrolamiento* JSON (RF-ADMIN-03-3: `{api_url, worker_id, admin_public_key, organization}`) quedan **obsoletos**: el alta ahora incluye consentimiento descrito y el enrollment usa código de un solo uso + QR con compromiso → ver [`TASK-ADMIN-08`](task-08-enrollment-and-worker-lifecycle.md). Esta tarea conserva el listado, los filtros, la edición y la baja. Estado 2026-09-29: implementada en `commands/workers.rs` y `Dashboard.tsx`; `mockWorkers` solo existe tras `VITE_DEMO_MODE=true`.
 
 ---
 
@@ -191,14 +191,19 @@ export const EmployeeCard: React.FC<WorkerProps> = ({ worker, onSelect, onDeacti
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] El listado de trabajadores muestra correctamente los datos paginados y los filtros por rol/estado funcionan.
-2. [ ] El modal de creación valida todos los campos y produce el JSON de enrolamiento.
-3. [ ] El código QR se genera y puede ser escaneado por el agente.
-4. [ ] La desactivación de un trabajador cambia su badge a Inactivo inmediatamente.
-
----
+1. [x] El listado de trabajadores muestra correctamente los datos paginados y los filtros por rol/estado funcionan (`WorkerListQuery::to_endpoint`, paginación en `Dashboard.tsx`).
+2. [x] ~~El modal de creación valida todos los campos y produce el JSON de enrolamiento.~~ Reemplazado por ADMIN-08: `CreateWorkerModal` valida identidad, horario, zona IANA, vigencia y descripciones, y muestra el `EnrollmentView` (QR con compromiso).
+3. [x] ~~El código QR se genera y puede ser escaneado por el agente.~~ Cubierto por ADMIN-08 (`test_enrollment_qr_cross_app_compatibility`).
+4. [x] La pausa/baja de un trabajador cambia su badge inmediatamente (`replaceWorker` con la respuesta de `PATCH /status`; baja con confirmación por nombre).
+5. [x] Edición (`workers_update` → `PUT /workers/:id`) solo con los campos modificados.
 
 ## 8. Especificación de Pruebas
 
-- `test_enrollment_package_structure`: Comprobar que el paquete de enrolamiento serializado contiene todas las claves requeridas y la clave pública en Base64.
-- `test_work_hours_format_validation`: Verificar que horarios malformados como `"25:99"` son rechazados en el cliente antes de la llamada HTTP.
+Implementadas en `admin-client/src-tauri/src/commands/workers.rs`:
+
+- ~~`test_enrollment_package_structure`~~: obsoleto (el paquete JSON fue reemplazado por el QR con compromiso de ADMIN-08).
+- `test_workers_work_hours_malformed_rejected`: `"25:99"`, `"24:00"`, vacíos y `start >= end` rechazados antes de la llamada HTTP.
+- `test_workers_work_hour_normalized_to_seconds`, `test_workers_timezone_iana_format_validated`.
+- `test_workers_list_query_builds_encoded_filters`, `test_workers_list_query_short_search_and_empty_omitted`, `test_workers_list_query_invalid_status_rejected`.
+- `test_workers_update_body_contains_only_provided_fields`, `test_workers_update_invalid_forms_rejected`, `test_workers_update_sends_put_and_returns_worker`, `test_workers_update_surfaces_server_reason`.
+- `test_workers_delete_sends_soft_delete`.
