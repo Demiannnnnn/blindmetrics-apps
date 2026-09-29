@@ -95,6 +95,7 @@ dependencies = [
  "dirs 5.0.1",
  "dotenvy",
  "eframe",
+ "gtk",
  "image 0.25.10",
  "keyring",
  "notify",

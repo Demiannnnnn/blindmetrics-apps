@@ -19,9 +19,9 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Device identifier | ✅ | macOS `ioreg`, Linux `machine-id`, Windows `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` (wmic fallback), persistent fallback UUID. Deterministic. | AGENT-01 |
 | Config persistence | ✅ | Secrets moved to `CredentialStore` (keyring/in-memory); `config.json` never writes tokens or admin keys (SEC-05). Role/work-hours from server. | AGENT-08 |
 | **Consent defaults** | ✅ | `ConsentSettings::default()` is all false (DP-08). | AGENT-08 |
-| **Consent UI** | ✅ | All-or-nothing consent screen (C1), withdrawal confirmation (W) with instant purge (DP-09); per-category toggles removed. | AGENT-08 |
-| **Enrollment** | ✅ | QR commitment verification, manual safety code, pinned key, tamper alert (E1–E3), logout on mismatch. | AGENT-08 |
-| **Authentication** | ✅ | Worker obtains JWT and refresh tokens via `POST /workers/enroll`, stores in OS keystore, rotates on 401. | AGENT-08 |
+| **Consent UI** | ✅ | All-or-nothing C1; ACCEPT/REJECT/WITHDRAW sent as `PATCH /workers/:id/consent` with the real `consent_version` and the displayed manifest's commitment as `manifest_hash` (LEG-02); accepted package stored only after the server records it. C1 is rebuilt from `/workers/me` + pinned key for new versions. (Before 2026-09-29 decisions were never sent and WITHDRAW used a hardcoded version/hash.) | AGENT-08 |
+| **Enrollment** | ✅ | E1 accepts a pasted QR payload (server URL from the QR, commitment verified automatically) or manual code + URL (safety code E2); pinned key, tamper alert E3 discards the redeem (logout), actionable error copy (invalid/expired, 429, already enrolled, network). No camera/image QR decoding yet (no decoder dependency). | AGENT-08 |
+| **Authentication** | ✅ | Worker obtains JWT and refresh tokens via `POST /workers/enroll`, stores them in the OS keystore; `session::with_access_token` rotates on 401 (new refresh token persisted before use), 401 on refresh ⇒ revoked. | AGENT-08 |
 | Keystroke/click counters | ✅ | `AtomicU64` O(1) non-blocking counters hooked via `rdev` thread, zero keylogging (DP-01), dynamically gated by consent. | AGENT-02 |
 | Active window | ✅ | Real foreground window and process detection via `xcap::Window::all()`, zero fake data (PLAT-02: returns None if unavailable). | AGENT-02 |
 | Idle time | ✅ | Native idle detection via CoreGraphics on macOS (`CGEventSourceSecondsSinceLastEventType`) and `GetLastInputInfo` on Windows. | AGENT-02 |
@@ -34,13 +34,14 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Double buffer | ✅ | `std::mem::take`; FIFO cap 1000; snapshot en <50ns sin deadlocks ni unwraps; partición limpia por categoría y cifrado `telemetry-crypto-core`. | AGENT-04 |
 | **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |
 | **Ingest request shape** | ✅ | Sends `{records:[{ephemeral_public_key, encrypted_payload, client_timestamp, subcategory?}]}` matching `api-contract.md`. | INT-01 |
-| Token refresh | ✅ | Deserializes `data.access_token` and `data.refresh_token`. | INT-01 |
+| Token refresh | ✅ | Transport reads/rotates tokens in the `CredentialStore` (it used the always-empty `WorkerConfig` fields, so every ingest got 401). | INT-01 |
 | Offline queue | ✅ | SQLite WAL + retención 7 días, límite 5MB por payload, tope 100MB, cuarentena a 10 reintentos, backoff exponencial con jitter (+/-20%) y auto-renovación JWT transparente (DP-09, RF-AGENT-05). | AGENT-05 |
-| Lifecycle polling (`GET /workers/me`), key pinning | ✅ | `ApiClient::get_me`, `derive_run_mode`, pinned key integrity check (Halted on mismatch), revocation wipe on 401. | AGENT-08 |
-| Data subject rights | ✅ | Solicitudes ARCO reales (`POST /workers/me/data-request` y `/data-deletion`) conectadas a la API con diálogo de confirmación, ID de solicitud, estado y copy correcto ("cifrado con la clave de su empleador"). | AGENT-06 |
+| Lifecycle polling (`GET /workers/me`), key pinning | ✅ | Engine polls every 5 min and on UI demand, derives `RunMode` (new consent version holds collection), halts on fingerprint mismatch, wipes credentials + buffer + on-disk queue on revocation. (Before 2026-09-29 the engine never left `Unenrolled`, so nothing was collected.) | AGENT-08 |
+| Data subject rights | ✅ | Solicitudes ARCO reales (`POST /workers/me/data-request` y `/data-deletion`) ejecutadas en el runtime del motor con refresh de token, diálogo de confirmación, ID de solicitud, estado y copy correcto. | AGENT-06 |
 | Notifications | ✅ | Catálogo completo (inicio, recordatorio horario, capturas DP-05, jornada laboral, cambios de consentimiento/admin, desvinculación, alteración de clave) vía `notify-rust` sin bloquear UI. | AGENT-07 |
-| System tray | ✅ | `SystemTrayManager` con `tray-icon` + `muda`, sincronización de color según estado (🟢/🟡/⚪/🔴), menú contextual y minimizado a la bandeja al pulsar cerrar ventana. | AGENT-07 |
+| System tray | ✅ | `SystemTrayManager` con `tray-icon` + `muda`, sincronización de color según estado (🟢/🟡/⚪/🔴), menú contextual y minimizado a la bandeja al pulsar cerrar ventana. Linux: tray owned by a dedicated GTK thread (`gtk::init` + `gtk::main`, updates via channel) because eframe's winit loop does not pump GTK; without display/AppIndicator it degrades to unavailable instead of panicking. | AGENT-07 |
 | Panic safety | ✅ | Replaced `expect`/`unwrap` in production paths (runtime creation, sqlite disk/memory fallback, client build). | INT-01 |
+| UI ↔ engine bridge | ✅ | egui never blocks: async work is spawned on the engine runtime (`EngineHandle`) and results return over a channel; commands (`SyncNow`, `Enrolled`, `Withdraw`) go over `mpsc`, state comes back over `watch`. Withdraw purges the real on-disk queue (DP-09). Previously `Handle::current()` on the UI thread panicked on enroll, ARCO and withdraw. | AGENT-08 |
 | Tests isolation | ✅ | `WorkerConfig::load_or_init_at` with `tempfile`; real `config.json` is protected. | INT-01 |
 
 ## 3. `admin-client`

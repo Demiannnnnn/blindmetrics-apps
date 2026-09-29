@@ -2,6 +2,7 @@ pub mod api;
 pub mod app;
 pub mod background;
 pub mod config;
+pub mod consent;
 pub mod core;
 pub mod credentials;
 pub mod device;
@@ -10,13 +11,16 @@ pub mod errors;
 pub mod io;
 pub mod notifications;
 pub mod pipeline;
+pub mod session;
 pub mod state;
 pub mod ui;
 
 use app::WorkerDesktopApp;
+use background::worker::EngineHandle;
 use background::BackgroundEngine;
 use config::WorkerConfig;
 use core::buffer::MetricsBuffer;
+use credentials::{CredentialStore, KeyringCredentialStore};
 use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,20 +48,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 5. Check if running in headless mode (--headless)
     let is_headless = std::env::args().any(|arg| arg == "--headless");
 
-    // 6. Spawn the background engine in a dedicated tokio runtime
+    // 6. Spawn the background engine in a dedicated tokio runtime. The UI gets
+    //    an EngineHandle to spawn work on that runtime; it never blocks on it.
+    let cred_store: Arc<dyn CredentialStore> = Arc::new(KeyringCredentialStore::new());
+    let (handle_tx, handle_rx) = std::sync::mpsc::channel::<EngineHandle>();
     let bg_config = config.clone();
     let bg_buffer = buffer.clone();
-    std::thread::spawn(move || match tokio::runtime::Runtime::new() {
-        Ok(rt) => {
-            rt.block_on(async {
-                let engine = BackgroundEngine::new(bg_config, bg_buffer);
-                engine.run().await;
-            });
-        }
-        Err(e) => {
-            tracing::error!("Failed to initialize background Tokio runtime: {:?}", e);
-        }
-    });
+    let bg_creds = cred_store.clone();
+    std::thread::Builder::new()
+        .name("telemetry-engine".into())
+        .spawn(move || {
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    tracing::error!("Failed to initialize background Tokio runtime: {:?}", e);
+                    return;
+                }
+            };
+            let engine = match BackgroundEngine::new(bg_config, bg_buffer, bg_creds) {
+                Ok(engine) => engine,
+                Err(e) => {
+                    tracing::error!("Failed to initialize background engine: {:?}", e);
+                    return;
+                }
+            };
+            let _ = handle_tx.send(engine.handle(rt.handle().clone()));
+            rt.block_on(engine.run());
+        })?;
+    let engine = handle_rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .map_err(|e| tracing::error!("Background engine unavailable: {}", e))
+        .ok();
 
     if is_headless {
         tracing::info!(
@@ -79,7 +100,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eframe::run_native(
             "Telemetry Worker",
             native_options,
-            Box::new(|_cc| Box::new(WorkerDesktopApp::new(config, buffer))),
+            Box::new(move |_cc| {
+                Box::new(WorkerDesktopApp::new(config, buffer, cred_store, engine))
+            }),
         )
         .map_err(|e| format!("eframe execution failed: {}", e))?;
     }

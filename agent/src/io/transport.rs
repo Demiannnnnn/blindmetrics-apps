@@ -1,12 +1,14 @@
-use crate::api::client::{ApiErrorResponse, SingleResponse, APP_VERSION, APP_VERSION_HEADER};
-use crate::config::WorkerConfig;
+use crate::api::client::{ApiClient, ApiErrorResponse, APP_VERSION, APP_VERSION_HEADER};
+use crate::credentials::CredentialStore;
 use crate::errors::AgentError;
+use crate::session::{refresh_session, SessionError};
 use base64::prelude::*;
 use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
 use rusqlite::{params, Connection, Result as SqlResult};
 use serde_json::json;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,6 +27,8 @@ pub enum IngestOutcome {
     DroppedForbidden(Option<String>),
     DroppedValidation(String),
     NeedsQueue(String),
+    /// Refresh rejected with 401: the worker was revoked; wipe local state (DP-09).
+    Revoked,
 }
 
 pub struct OfflineQueue {
@@ -278,22 +282,43 @@ impl OfflineQueue {
 
 pub struct TelemetryTransport {
     client: Client,
-    pub config: WorkerConfig,
+    api: ApiClient,
+    creds: Arc<dyn CredentialStore>,
 }
 
 impl TelemetryTransport {
-    pub fn new(config: WorkerConfig) -> Self {
+    /// Tokens are read from (and rotated into) the credential store, never from
+    /// `config.json` (SEC-05).
+    pub fn new(api_base_url: &str, creds: Arc<dyn CredentialStore>) -> Result<Self, AgentError> {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .unwrap_or_else(|_| Client::new());
-        Self { client, config }
+            .map_err(AgentError::Reqwest)?;
+        Ok(Self {
+            client,
+            api: ApiClient::new(api_base_url.to_string())?,
+            creds,
+        })
+    }
+
+    /// Points the transport at a new server (after re-enrollment).
+    pub fn set_base_url(&mut self, api_base_url: &str) -> Result<(), AgentError> {
+        self.api = ApiClient::new(api_base_url.to_string())?;
+        Ok(())
+    }
+
+    fn post(&self, url: &str, body: &serde_json::Value, token: &str) -> reqwest::RequestBuilder {
+        self.client
+            .post(url)
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .bearer_auth(token)
+            .json(body)
     }
 
     /// Dispatches a single record to the proper API endpoint.
     /// Implements RFC error semantics:
     /// - 201: Delivered
-    /// - 401: Refresh token once, then retry
+    /// - 401: Refresh token once, then retry; 401 on refresh => Revoked
     /// - 403: Drop envelope without queuing
     /// - 400 / 413: Discard invalid body
     /// - 429 / 5xx / Network error: Needs queuing in SQLite
@@ -318,21 +343,15 @@ impl TelemetryTransport {
         let req_body = json!({ "records": [record_val] });
         let url = format!(
             "{}/telemetry/{}",
-            self.config.api_base_url.trim_end_matches('/'),
+            self.api.base_url().trim_end_matches('/'),
             endpoint
         );
 
-        let token = self.config.access_token.as_deref().unwrap_or("");
-        let mut request = self
-            .client
-            .post(&url)
-            .header(APP_VERSION_HEADER, APP_VERSION)
-            .json(&req_body);
-        if !token.is_empty() {
-            request = request.bearer_auth(token);
-        }
+        let Some(token) = self.creds.get_access_token() else {
+            return IngestOutcome::NeedsQueue("no access token (not enrolled)".into());
+        };
 
-        let response = match request.send().await {
+        let response = match self.post(&url, &req_body, &token).send().await {
             Ok(resp) => resp,
             Err(err) => {
                 tracing::warn!("ingest queued: network error: {:?}", err);
@@ -348,28 +367,23 @@ impl TelemetryTransport {
 
         if status == StatusCode::UNAUTHORIZED {
             tracing::info!("Access token expired, attempting refresh...");
-            if self.refresh_access_token().await.is_ok() {
-                let new_token = self.config.access_token.as_deref().unwrap_or("");
-                let mut retry_req = self
-                    .client
-                    .post(&url)
-                    .header(APP_VERSION_HEADER, APP_VERSION)
-                    .json(&req_body);
-                if !new_token.is_empty() {
-                    retry_req = retry_req.bearer_auth(new_token);
+            let new_token = match refresh_session(&self.api, self.creds.as_ref()).await {
+                Ok(t) => t,
+                Err(SessionError::Revoked) => return IngestOutcome::Revoked,
+                Err(e) => return IngestOutcome::NeedsQueue(format!("refresh failed: {}", e)),
+            };
+            return match self.post(&url, &req_body, &new_token).send().await {
+                Ok(retry) if retry.status().is_success() => {
+                    tracing::info!("ingest ok after token refresh category={}", endpoint);
+                    IngestOutcome::Delivered
                 }
-
-                if let Ok(retry_resp) = retry_req.send().await {
-                    if retry_resp.status().is_success() {
-                        tracing::info!("ingest ok after token refresh category={}", endpoint);
-                        return IngestOutcome::Delivered;
-                    }
-                    if retry_resp.status() == StatusCode::FORBIDDEN {
-                        return Self::parse_forbidden(endpoint, retry_resp).await;
-                    }
+                Ok(retry) if retry.status() == StatusCode::UNAUTHORIZED => IngestOutcome::Revoked,
+                Ok(retry) if retry.status() == StatusCode::FORBIDDEN => {
+                    Self::parse_forbidden(endpoint, retry).await
                 }
-            }
-            return IngestOutcome::NeedsQueue("401 Unauthorized after refresh attempt".into());
+                Ok(retry) => IngestOutcome::NeedsQueue(format!("Status {}", retry.status())),
+                Err(e) => IngestOutcome::NeedsQueue(e.to_string()),
+            };
         }
 
         if status == StatusCode::FORBIDDEN {
@@ -402,53 +416,12 @@ impl TelemetryTransport {
         );
         IngestOutcome::DroppedForbidden(reason)
     }
-
-    pub async fn refresh_access_token(&mut self) -> Result<(), AgentError> {
-        let refresh_token = match self.config.refresh_token.as_deref() {
-            Some(t) if !t.is_empty() => t,
-            _ => return Err(AgentError::Unauthorized),
-        };
-
-        let url = format!(
-            "{}/auth/refresh",
-            self.config.api_base_url.trim_end_matches('/')
-        );
-        let res = self
-            .client
-            .post(&url)
-            .header(APP_VERSION_HEADER, APP_VERSION)
-            .json(&json!({ "refresh_token": refresh_token }))
-            .send()
-            .await
-            .map_err(|e| AgentError::Network(e.to_string()))?;
-
-        if res.status().is_success() {
-            let body: SingleResponse<serde_json::Value> =
-                res.json().await.map_err(AgentError::Reqwest)?;
-
-            if let Some(at) = body.data["access_token"].as_str() {
-                self.config.access_token = Some(at.to_string());
-            }
-            if let Some(rt) = body.data["refresh_token"].as_str() {
-                self.config.refresh_token = Some(rt.to_string());
-            }
-            self.config.save().ok();
-            Ok(())
-        } else {
-            if res.status() == StatusCode::UNAUTHORIZED {
-                // Refresh token invalid or revoked: wipe local session (RF-AGENT-05-3 & Sec 4)
-                self.config.access_token = None;
-                self.config.refresh_token = None;
-                self.config.save().ok();
-            }
-            Err(AgentError::Unauthorized)
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credentials::InMemoryCredentialStore;
     use wiremock::matchers::{bearer_token, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -496,11 +469,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let mut config = WorkerConfig::load_or_init();
-        config.api_base_url = server.uri();
-        config.access_token = Some("test_token".into());
-
-        let mut transport = TelemetryTransport::new(config);
+        let creds = Arc::new(InMemoryCredentialStore::new());
+        creds.set_access_token(Some("test_token")).unwrap();
+        let mut transport = TelemetryTransport::new(&server.uri(), creds).unwrap();
         let outcome = transport
             .send_record("location", "dummy_key", b"test_payload", Utc::now(), None)
             .await;
@@ -534,7 +505,8 @@ mod tests {
                     "access_token": "new_token",
                     "refresh_token": "new_refresh_token",
                     "token_type": "Bearer",
-                    "expires_in": 900
+                    "expires_in": 900,
+                    "user": { "id": "w-1", "email": "w@acme.cl", "name": "W", "role": "WORKER" }
                 }
             })))
             .expect(1)
@@ -557,22 +529,47 @@ mod tests {
             .mount(&server)
             .await;
 
-        let mut config = WorkerConfig::load_or_init();
-        config.api_base_url = server.uri();
-        config.access_token = Some("old_token".into());
-        config.refresh_token = Some("initial_refresh_token".into());
-
-        let mut transport = TelemetryTransport::new(config);
+        let creds = Arc::new(InMemoryCredentialStore::new());
+        creds.set_access_token(Some("old_token")).unwrap();
+        creds
+            .set_refresh_token(Some("initial_refresh_token"))
+            .unwrap();
+        let mut transport = TelemetryTransport::new(&server.uri(), creds.clone()).unwrap();
         let outcome = transport
             .send_record("system", "dummy_key", b"test_payload", Utc::now(), None)
             .await;
 
         assert_eq!(outcome, IngestOutcome::Delivered);
-        assert_eq!(transport.config.access_token.as_deref(), Some("new_token"));
+        // Rotated tokens live in the credential store, never in config.json (SEC-05).
+        assert_eq!(creds.get_access_token().as_deref(), Some("new_token"));
         assert_eq!(
-            transport.config.refresh_token.as_deref(),
+            creds.get_refresh_token().as_deref(),
             Some("new_refresh_token")
         );
+    }
+
+    #[tokio::test]
+    async fn test_transport_refresh_401_reports_revoked() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/telemetry/system"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/auth/refresh"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let creds = Arc::new(InMemoryCredentialStore::new());
+        creds.set_access_token(Some("old_token")).unwrap();
+        creds.set_refresh_token(Some("revoked_refresh")).unwrap();
+        let mut transport = TelemetryTransport::new(&server.uri(), creds).unwrap();
+        let outcome = transport
+            .send_record("system", "dummy_key", b"test_payload", Utc::now(), None)
+            .await;
+        assert_eq!(outcome, IngestOutcome::Revoked);
     }
 
     #[test]
