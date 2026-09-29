@@ -38,6 +38,10 @@ tray-icon = "0.24"
 tempfile = "3"
 wiremock = "0.6"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# tray-icon needs GTK initialized and pumped on its own thread (see ui/tray.rs).
+gtk = "0.18"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = { version = "0.23", features = ["link"] }
 
