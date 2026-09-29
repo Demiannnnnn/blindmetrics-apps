@@ -85,4 +85,68 @@ mod tests {
             panic!("Expected productivity metric");
         }
     }
+
+    #[test]
+    fn test_buffer_drain_empties_vector() {
+        let buffer = MetricsBuffer::new(100);
+        let make_item = |kpm| {
+            MetricPayload::ProductivityBasic(ProductivityBasicItem {
+                minute: Utc::now(),
+                keystrokes: kpm,
+                clicks: 0,
+            })
+        };
+
+        for i in 0..10 {
+            buffer.push(make_item(i));
+        }
+        assert_eq!(buffer.len(), 10);
+
+        let drained = buffer.drain_for_flush();
+        assert_eq!(drained.len(), 10);
+        assert_eq!(buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_concurrent_collectors_and_flush_no_deadlock() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let buffer = Arc::new(MetricsBuffer::new(500));
+        let mut handles = Vec::new();
+
+        // 5 concurrent collector threads
+        for t in 0..5 {
+            let buf_clone = buffer.clone();
+            handles.push(thread::spawn(move || {
+                for i in 0..100 {
+                    buf_clone.push(MetricPayload::ProductivityBasic(ProductivityBasicItem {
+                        minute: Utc::now(),
+                        keystrokes: t * 100 + i,
+                        clicks: 1,
+                    }));
+                    thread::yield_now();
+                }
+            }));
+        }
+
+        // 1 concurrent flusher thread
+        let buf_flusher = buffer.clone();
+        let flusher_handle = thread::spawn(move || {
+            let mut total_drained = 0;
+            for _ in 0..10 {
+                let drained = buf_flusher.drain_for_flush();
+                total_drained += drained.len();
+                thread::sleep(std::time::Duration::from_millis(2));
+            }
+            total_drained += buf_flusher.drain_for_flush().len();
+            total_drained
+        });
+
+        for h in handles {
+            h.join().unwrap();
+        }
+        let drained_count = flusher_handle.join().unwrap();
+        assert!(drained_count > 0, "Concurrent flusher must drain items without deadlock");
+    }
 }

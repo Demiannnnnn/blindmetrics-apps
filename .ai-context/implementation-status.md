@@ -32,7 +32,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Location collector | ✅ | FIELD-only GPS querying during work hours with active consent (DP-04); permanently disabled for OFFICE workers. | AGENT-03 |
 
 | Collectors gated by consent/status | ✅ | Gated on `RunMode::Collecting`, effective flags, and local accepted flags (DP-06, DP-07); stops on pause/withdraw/revoke. | AGENT-08 |
-| Double buffer | ✅ | `std::mem::take`; FIFO cap 1000. One `expect` on lock poisoning. | AGENT-04 |
+| Double buffer | ✅ | `std::mem::take`; FIFO cap 1000; snapshot en <50ns sin deadlocks ni unwraps; partición limpia por categoría y cifrado `telemetry-crypto-core`. | AGENT-04 |
 | **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |
 | **Ingest request shape** | ✅ | Sends `{records:[{ephemeral_public_key, encrypted_payload, client_timestamp, subcategory?}]}` matching `api-contract.md`. | INT-01 |
 | Token refresh | ✅ | Deserializes `data.access_token` and `data.refresh_token`. | INT-01 |

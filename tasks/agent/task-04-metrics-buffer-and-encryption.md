@@ -154,10 +154,10 @@ impl EncryptionPipeline {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] La función `drain_for_flush` utiliza `std::mem::take` y no retiene el candado durante el cifrado.
-2. [ ] El buffer respeta el límite de `max_capacity` aplicando FIFO sin fallar por desbordamiento de memoria.
-3. [ ] `EncryptionPipeline::encrypt_batch` produce un `EncryptedEnvelope` que puede descifrarse exitosamente con la clave privada de admin.
-4. [ ] Pruebas de estrés concurrentes demuestran cero deadlocks entre colectores y el hilo de flush.
+1. [x] La función `drain_for_flush` utiliza `std::mem::take` y no retiene el candado durante el cifrado.
+2. [x] El buffer respeta el límite de `max_capacity` aplicando FIFO sin fallar por desbordamiento de memoria.
+3. [x] `EncryptionPipeline::encrypt_batch` produce un `EncryptedEnvelope` que puede descifrarse exitosamente con la clave privada de admin.
+4. [x] Pruebas de estrés concurrentes demuestran cero deadlocks entre colectores y el hilo de flush.
 
 ---
 
