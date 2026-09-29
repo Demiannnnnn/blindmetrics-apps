@@ -27,7 +27,10 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Idle time | ✅ | Native idle detection via CoreGraphics on macOS (`CGEventSourceSecondsSinceLastEventType`) and `GetLastInputInfo` on Windows. | AGENT-02 |
 | CPU / RAM | ✅ | `sysinfo`, 30 s controlled interval (PERF-03). Execution < 10ms. | AGENT-02 |
 | Screenshot collector | ✅ | `xcap::Monitor` capture, scaled to <= 1920x1080, JPEG compressed <= 2MB, native desktop notification (`notify-rust`), gated on work hours and consent (DP-05). | AGENT-02 |
-| Network / files / location collectors | ❌ | Only structs in `core/metrics.rs`. | AGENT-03 |
+| Network (FQDN) collector | ✅ | Passive domain aggregation, RFC 1035 sanitization (DP-02), path/query/private IP stripping. | AGENT-03 |
+| File activity collector | ✅ | Reactive `notify` watcher on corporate folder, metadata only (DP-03: actions + extensions, zero content read), filters `.git` and temp files. | AGENT-03 |
+| Location collector | ✅ | FIELD-only GPS querying during work hours with active consent (DP-04); permanently disabled for OFFICE workers. | AGENT-03 |
+
 | Collectors gated by consent/status | ✅ | Gated on `RunMode::Collecting`, effective flags, and local accepted flags (DP-06, DP-07); stops on pause/withdraw/revoke. | AGENT-08 |
 | Double buffer | ✅ | `std::mem::take`; FIFO cap 1000. One `expect` on lock poisoning. | AGENT-04 |
 | **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |

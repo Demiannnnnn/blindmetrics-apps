@@ -35,6 +35,8 @@ pub struct WorkerConfig {
     pub flush_interval_secs: u64,
     #[serde(default)]
     pub consents: ConsentSettings,
+    #[serde(default)]
+    pub corporate_watched_dir: Option<PathBuf>,
 
     // Sensitive and server-managed fields: deserialized on read for backward-compat migration,
     // but never serialized back out to config.json (SEC-05).
@@ -57,6 +59,16 @@ pub struct WorkerConfig {
 }
 
 impl WorkerConfig {
+    pub fn corporate_watched_dir(&self) -> PathBuf {
+        if let Some(ref dir) = self.corporate_watched_dir {
+            dir.clone()
+        } else {
+            dirs::document_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("Corporate")
+        }
+    }
+
     pub fn config_path() -> PathBuf {
         let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
         path.push("telemetry-worker");
@@ -137,7 +149,9 @@ impl WorkerConfig {
             device_identifier: get_device_identifier(),
             flush_interval_secs: 30,
             consents: ConsentSettings::default(),
+            corporate_watched_dir: None,
             worker_id: None,
+
             admin_public_key: None,
             access_token: None,
             refresh_token: None,
@@ -181,7 +195,9 @@ mod tests {
                 .into(),
             flush_interval_secs: 60,
             consents: ConsentSettings::default(),
+            corporate_watched_dir: None,
             worker_id: Some("worker-123".into()),
+
             admin_public_key: Some("dummy-b64-key".into()),
             access_token: Some("secret_access".into()),
             refresh_token: Some("secret_refresh".into()),

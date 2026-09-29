@@ -1,13 +1,17 @@
 use crate::api::client::ApiClient;
 use crate::config::WorkerConfig;
 use crate::core::buffer::MetricsBuffer;
+use crate::core::collectors::files::FileCollector;
 use crate::core::collectors::keystroke_counter::KeystrokeCollector;
+use crate::core::collectors::location::LocationCollector;
+use crate::core::collectors::network::NetworkCollector;
 use crate::core::collectors::screenshot::ScreenshotCollector;
 use crate::core::collectors::SystemCollector;
 use crate::core::metrics::MetricPayload;
 use crate::credentials::{CredentialStore, KeyringCredentialStore};
 use crate::errors::AgentError;
 use crate::io::system_hooks::SystemHooksManager;
+
 use crate::io::transport::{IngestOutcome, OfflineQueue, TelemetryTransport};
 use crate::notifications::NotificationDispatcher;
 use crate::pipeline::build_envelopes;
@@ -212,9 +216,14 @@ impl BackgroundEngine {
         let collector_run_mode = self.run_mode.clone();
         let collector_worker_self = self.worker_self.clone();
         let collector_cred_store = self.cred_store.clone();
+        let corporate_dir = self.config.corporate_watched_dir();
 
         tokio::spawn(async move {
             let mut sys_collector = SystemCollector::new();
+            let net_collector = NetworkCollector::new();
+            let mut file_collector = FileCollector::new(corporate_dir);
+            let _ = file_collector.start_watching();
+
             loop {
                 sleep(Duration::from_secs(30)).await;
 
@@ -259,6 +268,63 @@ impl BackgroundEngine {
                 ) {
                     let sys = sys_collector.collect();
                     collector_buffer.push(MetricPayload::System(sys));
+                }
+
+                // Check network collection (DP-02, DP-06, DP-07)
+                if should_collect(
+                    Category::Network,
+                    &mode,
+                    role,
+                    in_work_hours,
+                    &locally_accepted,
+                ) {
+                    for item in net_collector.drain() {
+                        collector_buffer.push(MetricPayload::Network(item));
+                    }
+                }
+
+                // Check file metadata collection (DP-03, DP-06, DP-07)
+                if should_collect(
+                    Category::Files,
+                    &mode,
+                    role,
+                    in_work_hours,
+                    &locally_accepted,
+                ) {
+                    for item in file_collector.drain() {
+                        collector_buffer.push(MetricPayload::File(item));
+                    }
+                }
+
+                // Check location collection (DP-04, DP-06, DP-07)
+                if should_collect(
+                    Category::Location,
+                    &mode,
+                    role,
+                    in_work_hours,
+                    &locally_accepted,
+                ) {
+                    let start_t = ws
+                        .as_ref()
+                        .and_then(|w| w.work_hours_start.as_deref())
+                        .and_then(|s| {
+                            chrono::NaiveTime::parse_from_str(s, "%H:%M:%S")
+                                .or_else(|_| chrono::NaiveTime::parse_from_str(s, "%H:%M"))
+                                .ok()
+                        });
+                    let end_t = ws
+                        .as_ref()
+                        .and_then(|w| w.work_hours_end.as_deref())
+                        .and_then(|s| {
+                            chrono::NaiveTime::parse_from_str(s, "%H:%M:%S")
+                                .or_else(|_| chrono::NaiveTime::parse_from_str(s, "%H:%M"))
+                                .ok()
+                        });
+                    let loc_collector =
+                        LocationCollector::new(role, start_t, end_t, locally_accepted.location);
+                    if let Some(loc) = loc_collector.collect() {
+                        collector_buffer.push(MetricPayload::Location(loc));
+                    }
                 }
             }
         });

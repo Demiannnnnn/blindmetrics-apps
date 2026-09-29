@@ -205,11 +205,12 @@ fn get_os_location() -> Option<LocationMetric> {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] El colector de red nunca almacena URLs con rutas (`/path`) o parámetros de consulta (`?query=value`).
-2. [ ] El colector de archivos detecta creación y borrado de documentos corporativos sin leer sus contenidos.
-3. [ ] Trabajadores con rol `OFFICE` nunca disparan consultas al hardware GPS.
-4. [ ] Fuera del horario laboral configurado, `LocationCollector::collect()` retorna `None` de forma inmediata.
-5. [ ] Pruebas unitarias pasan con `cargo test -p agent`.
+1. [x] El colector de red nunca almacena URLs con rutas (`/path`) o parámetros de consulta (`?query=value`).
+2. [x] El colector de archivos detecta creación y borrado de documentos corporativos sin leer sus contenidos.
+3. [x] Trabajadores con rol `OFFICE` nunca disparan consultas al hardware GPS.
+4. [x] Fuera del horario laboral configurado, `LocationCollector::collect()` retorna `None` de forma inmediata.
+5. [x] Pruebas unitarias pasan con `cargo test -p agent`.
+
 
 ---
 
