@@ -529,6 +529,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_admin_login_sends_role_admin_and_reads_data_envelope() {
+        // login() persists the refresh token: isolate from the real OS keystore
+        // and from other tests sharing the in-memory vault.
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
         let server = MockServer::start().await;
 
         // Mock login endpoint checking role: ADMIN
