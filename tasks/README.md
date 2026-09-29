@@ -113,7 +113,8 @@ Leyenda: 🟢 Completada · 🟡 Parcial (existe con defectos o partes faltantes
 | **CRYPTO-01** | [`crypto-core/task-01-crypto-core-foundations.md`](crypto-core/task-01-crypto-core-foundations.md) | X25519, HKDF-SHA256, AES-256-GCM, framing del sobre, zeroize. | 🟢 |
 | **CRYPTO-02** | [`crypto-core/task-02-enrollment-manifest-commitment.md`](crypto-core/task-02-enrollment-manifest-commitment.md) | Manifiesto canónico, compromiso, código de verificación, fingerprint, QR, payloads compartidos. | 🟢 |
 | **AGENT-01** | [`agent/task-01-agent-foundations-and-device-id.md`](agent/task-01-agent-foundations-and-device-id.md) | Config local y `device_identifier`. ⚠️ El guardado de llave/credenciales pasa a AGENT-08. | 🟡 |
-| **AGENT-02** | [`agent/task-02-system-and-productivity-collectors.md`](agent/task-02-system-and-productivity-collectors.md) | CPU/RAM reales; ventana activa e idle son stubs; ningún hook de SO alimenta los contadores. | 🎭 |
+| **AGENT-02** | [`agent/task-02-system-and-productivity-collectors.md`](agent/task-02-system-and-productivity-collectors.md) | Hook O(1) con `rdev`, KPM/CPM atómicos, ventana activa real e idle nativo sin fake data (PLAT-02), capturas `xcap` notificadas (DP-05). | 🟢 |
+
 | **AGENT-03** | [`agent/task-03-network-files-and-location-collectors.md`](agent/task-03-network-files-and-location-collectors.md) | FQDN, archivos, GPS, capturas. | 🔴 |
 | **AGENT-04** | [`agent/task-04-metrics-buffer-and-encryption.md`](agent/task-04-metrics-buffer-and-encryption.md) | Doble búfer OK; el cifrado mezcla categorías (lo corrige INT-01). | 🟡 |
 | **AGENT-05** | [`agent/task-05-offline-queue-and-transport.md`](agent/task-05-offline-queue-and-transport.md) | Cola SQLite OK; faltan tope de tamaño, backoff/jitter y descarte en 403. | 🟡 |

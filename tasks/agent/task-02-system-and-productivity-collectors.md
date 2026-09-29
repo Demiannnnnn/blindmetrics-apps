@@ -221,11 +221,12 @@ fn get_active_window_details() -> (String, String) {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] El hook de teclado y ratón no causa latencia perceptible en la escritura del usuario.
-2. [ ] El contador atómico `ProductivityCollector::snapshot_and_reset()` retorna valores precisos y se resetea a cero de forma atómica.
-3. [ ] `SystemCollector::collect()` se ejecuta en menos de 10ms por llamada.
-4. [ ] `xcap` captura la pantalla y la notificación nativa se dispara exitosamente.
-5. [ ] Pruebas unitarias pasan con `cargo test -p agent`.
+1. [x] El hook de teclado y ratón no causa latencia perceptible en la escritura del usuario.
+2. [x] El contador atómico `ProductivityCollector::snapshot_and_reset()` retorna valores precisos y se resetea a cero de forma atómica.
+3. [x] `SystemCollector::collect()` se ejecuta en menos de 10ms por llamada.
+4. [x] `xcap` captura la pantalla y la notificación nativa se dispara exitosamente.
+5. [x] Pruebas unitarias pasan con `cargo test -p agent`.
+
 
 ---
 

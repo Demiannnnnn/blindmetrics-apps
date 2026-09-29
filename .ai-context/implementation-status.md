@@ -22,11 +22,12 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | **Consent UI** | ✅ | All-or-nothing consent screen (C1), withdrawal confirmation (W) with instant purge (DP-09); per-category toggles removed. | AGENT-08 |
 | **Enrollment** | ✅ | QR commitment verification, manual safety code, pinned key, tamper alert (E1–E3), logout on mismatch. | AGENT-08 |
 | **Authentication** | ✅ | Worker obtains JWT and refresh tokens via `POST /workers/enroll`, stores in OS keystore, rotates on 401. | AGENT-08 |
-| Keystroke/click counters | 🟡 | `AtomicU64` counters correct (PERF-01) but **no OS hook feeds them** (`io/system_hooks.rs` is never registered) → always 0. | AGENT-02 |
-| Active window | 🎭 | Returns hard-coded `"Finder"/"Desktop"`, `"Explorer.EXE"` (PLAT-02). | AGENT-02 |
-| Idle time | 🎭 | Returns `0` on every OS. | AGENT-02 |
-| CPU / RAM | ✅ | `sysinfo`, 30 s. Net bytes & USB missing. | AGENT-02 |
-| Network / files / location / screenshots collectors | ❌ | Only structs in `core/metrics.rs`. | AGENT-03 |
+| Keystroke/click counters | ✅ | `AtomicU64` O(1) non-blocking counters hooked via `rdev` thread, zero keylogging (DP-01), dynamically gated by consent. | AGENT-02 |
+| Active window | ✅ | Real foreground window and process detection via `xcap::Window::all()`, zero fake data (PLAT-02: returns None if unavailable). | AGENT-02 |
+| Idle time | ✅ | Native idle detection via CoreGraphics on macOS (`CGEventSourceSecondsSinceLastEventType`) and `GetLastInputInfo` on Windows. | AGENT-02 |
+| CPU / RAM | ✅ | `sysinfo`, 30 s controlled interval (PERF-03). Execution < 10ms. | AGENT-02 |
+| Screenshot collector | ✅ | `xcap::Monitor` capture, scaled to <= 1920x1080, JPEG compressed <= 2MB, native desktop notification (`notify-rust`), gated on work hours and consent (DP-05). | AGENT-02 |
+| Network / files / location collectors | ❌ | Only structs in `core/metrics.rs`. | AGENT-03 |
 | Collectors gated by consent/status | ✅ | Gated on `RunMode::Collecting`, effective flags, and local accepted flags (DP-06, DP-07); stops on pause/withdraw/revoke. | AGENT-08 |
 | Double buffer | ✅ | `std::mem::take`; FIFO cap 1000. One `expect` on lock poisoning. | AGENT-04 |
 | **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |

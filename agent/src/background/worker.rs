@@ -2,10 +2,12 @@ use crate::api::client::ApiClient;
 use crate::config::WorkerConfig;
 use crate::core::buffer::MetricsBuffer;
 use crate::core::collectors::keystroke_counter::KeystrokeCollector;
+use crate::core::collectors::screenshot::ScreenshotCollector;
 use crate::core::collectors::SystemCollector;
 use crate::core::metrics::MetricPayload;
 use crate::credentials::{CredentialStore, KeyringCredentialStore};
 use crate::errors::AgentError;
+use crate::io::system_hooks::SystemHooksManager;
 use crate::io::transport::{IngestOutcome, OfflineQueue, TelemetryTransport};
 use crate::notifications::NotificationDispatcher;
 use crate::pipeline::build_envelopes;
@@ -16,6 +18,33 @@ use std::time::Duration;
 use telemetry_crypto_core::{Category, ConsentFlags};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
+
+/// Helper to determine if the local time falls within configured work hours.
+pub fn is_within_work_hours(
+    start: Option<&str>,
+    end: Option<&str>,
+    now: chrono::NaiveTime,
+) -> bool {
+    let (Some(start_str), Some(end_str)) = (start, end) else {
+        return true;
+    };
+    let Ok(start_time) = chrono::NaiveTime::parse_from_str(start_str, "%H:%M:%S")
+        .or_else(|_| chrono::NaiveTime::parse_from_str(start_str, "%H:%M"))
+    else {
+        return true;
+    };
+    let Ok(end_time) = chrono::NaiveTime::parse_from_str(end_str, "%H:%M:%S")
+        .or_else(|_| chrono::NaiveTime::parse_from_str(end_str, "%H:%M"))
+    else {
+        return true;
+    };
+
+    if start_time <= end_time {
+        now >= start_time && now <= end_time
+    } else {
+        now >= start_time || now <= end_time
+    }
+}
 
 /// Pure gating function enforcing DP-04, DP-05, DP-06, and DP-07.
 pub fn is_category_effective_and_accepted(
@@ -160,6 +189,9 @@ impl BackgroundEngine {
     pub async fn run(self) {
         tracing::info!("Telemetry Worker Background Engine started");
 
+        // Start low-level OS input hook (RF-AGENT-02-1)
+        SystemHooksManager::start_hook();
+
         // Initial transparency notification on startup
         NotificationDispatcher::notify_periodic_active();
 
@@ -196,22 +228,78 @@ impl BackgroundEngine {
                     .get_accepted_flags()
                     .unwrap_or_default();
 
+                let now = chrono::Local::now().time();
+                let in_work_hours = is_within_work_hours(
+                    ws.as_ref().and_then(|w| w.work_hours_start.as_deref()),
+                    ws.as_ref().and_then(|w| w.work_hours_end.as_deref()),
+                    now,
+                );
+
                 // Check productivity collection (DP-06, DP-07)
-                if should_collect(
+                let prod_enabled = should_collect(
                     Category::ProductivityBasic,
                     &mode,
                     role,
-                    true,
+                    in_work_hours,
                     &locally_accepted,
-                ) {
+                );
+                KeystrokeCollector::set_hook_enabled(prod_enabled);
+                if prod_enabled {
                     let prod = KeystrokeCollector::snapshot_and_reset();
                     collector_buffer.push(MetricPayload::ProductivityBasic(prod));
                 }
 
                 // Check system collection (DP-06, DP-07)
-                if should_collect(Category::System, &mode, role, true, &locally_accepted) {
+                if should_collect(
+                    Category::System,
+                    &mode,
+                    role,
+                    in_work_hours,
+                    &locally_accepted,
+                ) {
                     let sys = sys_collector.collect();
                     collector_buffer.push(MetricPayload::System(sys));
+                }
+            }
+        });
+
+        // 3. Screenshot loop (randomized every 10-15 minutes, DP-05)
+        let screenshot_buffer = buffer.clone();
+        let screenshot_run_mode = self.run_mode.clone();
+        let screenshot_worker_self = self.worker_self.clone();
+        let screenshot_cred_store = self.cred_store.clone();
+
+        tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(600)).await;
+
+                let mode = screenshot_run_mode.read().await.clone();
+                let ws = screenshot_worker_self.read().await.clone();
+                let role = ws
+                    .as_ref()
+                    .map(|w| w.role_type.as_str())
+                    .unwrap_or("OFFICE");
+                let locally_accepted = screenshot_cred_store
+                    .get_accepted_flags()
+                    .unwrap_or_default();
+
+                let now = chrono::Local::now().time();
+                let in_work_hours = is_within_work_hours(
+                    ws.as_ref().and_then(|w| w.work_hours_start.as_deref()),
+                    ws.as_ref().and_then(|w| w.work_hours_end.as_deref()),
+                    now,
+                );
+
+                if should_collect(
+                    Category::ProductivityScreenshot,
+                    &mode,
+                    role,
+                    in_work_hours,
+                    &locally_accepted,
+                ) {
+                    if let Ok(Some(item)) = ScreenshotCollector::capture_primary() {
+                        screenshot_buffer.push(MetricPayload::ProductivityScreenshot(item));
+                    }
                 }
             }
         });
@@ -635,5 +723,67 @@ mod tests {
         assert!(cred_store.get_accepted_manifest_hash().is_none());
         assert_eq!(queue.count().unwrap(), 0);
         assert!(buffer.drain_for_flush().is_empty());
+    }
+
+    #[test]
+    fn test_is_within_work_hours() {
+        use chrono::NaiveTime;
+
+        // Standard daytime shift: 09:00 to 18:00
+        let start = Some("09:00:00");
+        let end = Some("18:00:00");
+
+        assert!(is_within_work_hours(
+            start,
+            end,
+            NaiveTime::from_hms_opt(9, 0, 0).unwrap()
+        ));
+        assert!(is_within_work_hours(
+            start,
+            end,
+            NaiveTime::from_hms_opt(14, 30, 0).unwrap()
+        ));
+        assert!(is_within_work_hours(
+            start,
+            end,
+            NaiveTime::from_hms_opt(18, 0, 0).unwrap()
+        ));
+        assert!(!is_within_work_hours(
+            start,
+            end,
+            NaiveTime::from_hms_opt(8, 59, 59).unwrap()
+        ));
+        assert!(!is_within_work_hours(
+            start,
+            end,
+            NaiveTime::from_hms_opt(18, 0, 1).unwrap()
+        ));
+
+        // Overnight shift: 22:00 to 06:00
+        let night_start = Some("22:00");
+        let night_end = Some("06:00");
+
+        assert!(is_within_work_hours(
+            night_start,
+            night_end,
+            NaiveTime::from_hms_opt(23, 0, 0).unwrap()
+        ));
+        assert!(is_within_work_hours(
+            night_start,
+            night_end,
+            NaiveTime::from_hms_opt(4, 0, 0).unwrap()
+        ));
+        assert!(!is_within_work_hours(
+            night_start,
+            night_end,
+            NaiveTime::from_hms_opt(12, 0, 0).unwrap()
+        ));
+
+        // None configured -> always true
+        assert!(is_within_work_hours(
+            None,
+            None,
+            NaiveTime::from_hms_opt(12, 0, 0).unwrap()
+        ));
     }
 }

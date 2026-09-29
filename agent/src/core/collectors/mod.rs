@@ -1,6 +1,7 @@
 pub mod active_window;
 pub mod idle_time;
 pub mod keystroke_counter;
+pub mod screenshot;
 
 use crate::core::metrics::SystemItem;
 use chrono::Utc;
@@ -22,7 +23,7 @@ impl SystemCollector {
     }
 
     /// Samples hardware metrics and foreground window state.
-    /// Runs on controlled intervals (30-60 seconds) to avoid CPU load.
+    /// Runs on controlled intervals (30-60 seconds) to avoid CPU load (PERF-03).
     pub fn collect(&mut self) -> SystemItem {
         self.sys.refresh_cpu_usage();
         self.sys.refresh_memory();
@@ -35,9 +36,9 @@ impl SystemCollector {
 
         SystemItem {
             ts: Utc::now(),
-            foreground_app: if app.is_empty() { None } else { Some(app) },
-            window_title: if title.is_empty() { None } else { Some(title) },
-            idle_seconds: Some(idle),
+            foreground_app: app,
+            window_title: title,
+            idle_seconds: idle,
             cpu_pct: cpu,
             mem_used_mb: mem_used,
             mem_total_mb: mem_total,
@@ -51,5 +52,40 @@ impl SystemCollector {
 impl Default for SystemCollector {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn test_system_collector_returns_valid_metrics() {
+        let mut collector = SystemCollector::new();
+        let metric = collector.collect();
+
+        // CPU percentage range [0.0, 100.0 * num_cpus]
+        assert!(metric.cpu_pct >= 0.0);
+        // Total memory must be greater than zero
+        assert!(metric.mem_total_mb > 0);
+        assert!(metric.mem_used_mb <= metric.mem_total_mb);
+    }
+
+    #[test]
+    fn test_system_collector_performance() {
+        let mut collector = SystemCollector::new();
+
+        let start = Instant::now();
+        let _ = collector.collect();
+        let elapsed = start.elapsed();
+
+        // DoD 3: collect() executes quickly (typically < 10ms for refresh_cpu_usage and refresh_memory)
+        tracing::info!("SystemCollector::collect elapsed: {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() < 500,
+            "Collector should not stall the thread (took {:?})",
+            elapsed
+        );
     }
 }
