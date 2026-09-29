@@ -159,10 +159,10 @@ impl SystemTrayManager {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] Al activarse la captura de pantalla periódica, aparece una notificación nativa en el escritorio.
-2. [ ] Al cerrar la ventana, la aplicación continúa ejecutándose y permanece visible en la bandeja del sistema.
-3. [ ] Al seleccionar "Abrir Panel de Telemetría" desde el menú de la bandeja, la ventana egui se restaura en pantalla.
-4. [ ] La compilación y ejecución de `notify-rust` se ejecuta sin errores en Linux (DBus), macOS y Windows.
+1. [x] Al activarse la captura de pantalla periódica, aparece una notificación nativa en el escritorio.
+2. [x] Al cerrar la ventana, la aplicación continúa ejecutándose y permanece visible en la bandeja del sistema.
+3. [x] Al seleccionar "Abrir Panel de Telemetría" desde el menú de la bandeja, la ventana egui se restaura en pantalla.
+4. [x] La compilación y ejecución de `notify-rust` se ejecuta sin errores en Linux (DBus), macOS y Windows.
 
 ---
 

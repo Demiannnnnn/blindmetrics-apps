@@ -10,6 +10,7 @@ use crate::enrollment::{
 };
 use crate::io::transport::OfflineQueue;
 use crate::state::{RunMode, WorkerSelf};
+use crate::ui::tray::{SystemTrayManager, TrayAction};
 use eframe::egui::{self, Color32, RichText};
 use std::sync::Arc;
 
@@ -54,6 +55,8 @@ pub struct WorkerDesktopApp {
     pub run_mode: RunMode,
     pub status_message: Option<String>,
     pub error_message: Option<String>,
+    pub tray: Option<SystemTrayManager>,
+    pub window_visible: bool,
 }
 
 impl WorkerDesktopApp {
@@ -89,6 +92,8 @@ impl WorkerDesktopApp {
             run_mode: RunMode::Unenrolled,
             status_message: None,
             error_message: None,
+            tray: Some(SystemTrayManager::new()),
+            window_visible: true,
         }
     }
 
@@ -124,6 +129,8 @@ impl WorkerDesktopApp {
             run_mode: RunMode::Unenrolled,
             status_message: None,
             error_message: None,
+            tray: None,
+            window_visible: true,
         }
     }
 }
@@ -131,6 +138,52 @@ impl WorkerDesktopApp {
 impl eframe::App for WorkerDesktopApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
+
+        // 1. Intercept window close request and hide to tray (RF-AGENT-07-2, docs §3)
+        if ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.window_visible = false;
+        }
+
+        // 2. Poll and handle system tray menu actions
+        if let Some(ref mut tray) = self.tray {
+            if let Some(action) = tray.poll_action() {
+                match action {
+                    TrayAction::Open => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        self.window_visible = true;
+                    }
+                    TrayAction::WhatsCollected => {
+                        self.screen = ActiveScreen::MMain {
+                            active_tab: MainTab::WhatsCollected,
+                        };
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        self.window_visible = true;
+                    }
+                    TrayAction::WithdrawConsent => {
+                        self.screen = ActiveScreen::WWithdrawConfirm;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        self.window_visible = true;
+                    }
+                    TrayAction::Quit => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+
+            // Sync tray icon color with RunMode status light (docs §3)
+            let (r, g, b) = match &self.run_mode {
+                RunMode::Collecting(_) => (46, 204, 113),
+                RunMode::Paused => (241, 196, 15),
+                RunMode::AwaitingConsent { .. } | RunMode::Unenrolled => (180, 180, 180),
+                RunMode::Halted(_) => (231, 76, 60),
+            };
+            tray.set_icon_color(r, g, b);
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {

@@ -39,8 +39,8 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Offline queue | ✅ | SQLite WAL + retención 7 días, límite 5MB por payload, tope 100MB, cuarentena a 10 reintentos, backoff exponencial con jitter (+/-20%) y auto-renovación JWT transparente (DP-09, RF-AGENT-05). | AGENT-05 |
 | Lifecycle polling (`GET /workers/me`), key pinning | ✅ | `ApiClient::get_me`, `derive_run_mode`, pinned key integrity check (Halted on mismatch), revocation wipe on 401. | AGENT-08 |
 | Data subject rights | 🎭 | Buttons show a "request sent" dialog **without calling the API**; the text says data is decryptable "with the holder's key" (wrong: it's the admin's key). | AGENT-06 |
-| Notifications | 🟡 | Start + hourly via `notify-rust`. No screenshot / work-hours / consent-change notifications. | AGENT-07 |
-| System tray | 🎭 | `ui/tray.rs` is a state struct; no tray icon exists (eframe has none; needs `tray-icon`). Closing the window quits the app. | AGENT-07 |
+| Notifications | ✅ | Catálogo completo (inicio, recordatorio horario, capturas DP-05, jornada laboral, cambios de consentimiento/admin, desvinculación, alteración de clave) vía `notify-rust` sin bloquear UI. | AGENT-07 |
+| System tray | ✅ | `SystemTrayManager` con `tray-icon` + `muda`, sincronización de color según estado (🟢/🟡/⚪/🔴), menú contextual y minimizado a la bandeja al pulsar cerrar ventana. | AGENT-07 |
 | Panic safety | ✅ | Replaced `expect`/`unwrap` in production paths (runtime creation, sqlite disk/memory fallback, client build). | INT-01 |
 | Tests isolation | ✅ | `WorkerConfig::load_or_init_at` with `tempfile`; real `config.json` is protected. | INT-01 |
 
