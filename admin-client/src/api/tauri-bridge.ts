@@ -759,7 +759,7 @@ export async function workersSetStatus(id: string, status: WorkerStatus, reason?
 
 export async function workersRegenerateToken(id: string, ttlHours?: number): Promise<EnrollmentView> {
   if (isTauri()) {
-    return await invoke<EnrollmentView>('workers_regenerate_token', { id, ttl_hours: ttlHours });
+    return await invoke<EnrollmentView>('workers_regenerate_token', { id, ttlHours });
   }
   throw new Error("workers_regenerate_token IPC unavailable outside Tauri");
 }
@@ -772,8 +772,8 @@ export async function workersUpdateConsentConfig(
   if (isTauri()) {
     return await invoke<ConsentConfigResponse>('workers_update_consent_config', {
       id,
-      consent_flags: consentFlags,
-      consent_descriptions: consentDescriptions,
+      consentFlags,
+      consentDescriptions,
     });
   }
   throw new Error("workers_update_consent_config IPC unavailable outside Tauri");
