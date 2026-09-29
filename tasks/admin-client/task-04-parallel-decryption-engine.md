@@ -151,10 +151,10 @@ pub async fn fetch_and_decrypt_telemetry(
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] El pipeline descifra lotes de 1,000 registros en menos de 100 ms en máquinas multi-núcleo.
-2. [ ] Si un registro está alterado, se rechaza individualmente sin corromper el resto del lote.
-3. [ ] Los datos descifrados se devuelven correctamente estructurados al frontend como JSON.
-4. [ ] La memoria que alojaba claves intermedias es sanitizada de inmediato.
+1. [x] El pipeline descifra lotes de 1,000 registros en menos de 100 ms en máquinas multi-núcleo.
+2. [x] Si un registro está alterado, se rechaza individualmente sin corromper el resto del lote.
+3. [x] Los datos descifrados se devuelven correctamente estructurados al frontend como JSON.
+4. [x] La memoria que alojaba claves intermedias es sanitizada de inmediato.
 
 ---
 

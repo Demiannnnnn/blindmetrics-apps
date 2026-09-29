@@ -10,7 +10,9 @@ use commands::keys::{
 use commands::session::{
     admin_get_session, admin_lock_and_flush_memory, admin_login, admin_logout, admin_register,
 };
-use commands::telemetry::{admin_decrypt_records, admin_simulate_and_decrypt};
+use commands::telemetry::{
+    admin_decrypt_records, admin_simulate_and_decrypt, fetch_and_decrypt_telemetry,
+};
 use commands::workers::{
     workers_create, workers_delete, workers_get, workers_get_consent_records, workers_list,
     workers_regenerate_token, workers_set_status, workers_update_consent_config,
@@ -40,6 +42,7 @@ fn main() {
             keys_register_on_server,
             admin_decrypt_records,
             admin_simulate_and_decrypt,
+            fetch_and_decrypt_telemetry,
             workers_list,
             workers_get,
             workers_create,

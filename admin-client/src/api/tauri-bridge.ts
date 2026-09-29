@@ -362,7 +362,41 @@ export async function decryptRecords(records: any[]): Promise<DecryptedTelemetry
   throw new Error("Telemetry decryption pipeline unavailable outside Tauri desktop client.");
 }
 
+export async function fetchAndDecryptTelemetry(
+  workerId: string,
+  category: string,
+  from?: string,
+  to?: string,
+  subcategory?: string,
+  page?: number,
+  perPage?: number,
+): Promise<DecryptedTelemetryRecord[]> {
+  if (isTauri()) {
+    try {
+      return await invoke<DecryptedTelemetryRecord[]>('fetch_and_decrypt_telemetry', {
+        workerId,
+        category,
+        from,
+        to,
+        subcategory,
+        page,
+        perPage,
+      });
+    } catch (err) {
+      console.error("fetch_and_decrypt_telemetry IPC failure:", err);
+      throw err;
+    }
+  }
+
+  if (isDemoMode) {
+    return [];
+  }
+
+  throw new Error("Telemetry decryption pipeline unavailable outside Tauri desktop client.");
+}
+
 export function toWorkerItem(w: WorkerResponse): WorkerItem {
+
   return {
     id: w.id,
     name: w.name,

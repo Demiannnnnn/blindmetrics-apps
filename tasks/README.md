@@ -125,7 +125,7 @@ Leyenda: 🟢 Completada · 🟡 Parcial (existe con defectos o partes faltantes
 | **ADMIN-01** | [`admin-client/task-01-tauri-foundations-and-keystore.md`](admin-client/task-01-tauri-foundations-and-keystore.md) | Keystore y generación de llave OK; falta backup/restore. | 🟡 |
 | **ADMIN-02** | [`admin-client/task-02-auth-session-and-api-client.md`](admin-client/task-02-auth-session-and-api-client.md) | Login roto contra la API real; sin refresh token; comandos sin dividir. | 🟡 |
 | **ADMIN-03** | [`admin-client/task-03-worker-management-and-enrollment.md`](admin-client/task-03-worker-management-and-enrollment.md) | Listado/edición/baja. ⚠️ Alta y paquete de enrollment reemplazados por ADMIN-08. Todo corre sobre mocks. | 🎭 |
-| **ADMIN-04** | [`admin-client/task-04-parallel-decryption-engine.md`](admin-client/task-04-parallel-decryption-engine.md) | Pipeline `rayon` OK y testeado; falta traer registros de la API. | 🟡 |
+| **ADMIN-04** | [`admin-client/task-04-parallel-decryption-engine.md`](admin-client/task-04-parallel-decryption-engine.md) | Pipeline `rayon` en memoria tolerante a registros corruptos con fetch real a la API. | 🟢 |
 | **ADMIN-05** | [`admin-client/task-05-telemetry-analytics-dashboard.md`](admin-client/task-05-telemetry-analytics-dashboard.md) | Componentes de UI sobre datos generados. | 🎭 |
 | **ADMIN-06** | [`admin-client/task-06-field-worker-map-tracking.md`](admin-client/task-06-field-worker-map-tracking.md) | Mapa Leaflet sobre datos generados. | 🎭 |
 | **ADMIN-07** | [`admin-client/task-07-security-hardening-and-autolock.md`](admin-client/task-07-security-hardening-and-autolock.md) | Timer de 5 min y limpieza del token; purga de estado sin verificar; no configurable. | 🟡 |

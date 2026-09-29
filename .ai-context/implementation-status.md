@@ -57,8 +57,8 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | **Browser-mode `fetch`** | ✅ | Direct API calls from JS removed; demo mocks strictly guarded behind `VITE_DEMO_MODE=true` (SEC-06). | INT-01 |
 | **Workers list / create / toggle / KPIs** | ✅ | Full IPC commands (`workers_list`, `workers_create`, `workers_set_status`, `workers_regenerate_token`, etc.) connected in UI; no mock workers outside demo mode. | ADMIN-08 |
 | Enrollment modal | ✅ | Interactive `QRCodeSVG` from `EnrollmentQr`, 12-char Crockford code, 12-digit safety code, ephemeral warning (SEC-05). | ADMIN-08 |
-| Parallel decryption | ✅ | `rayon` pipeline tested with 50 records. | ADMIN-04 |
-| Fetch telemetry from API | ❌ | Only `admin_simulate_and_decrypt`. Charts use generated data. | ADMIN-04 / ADMIN-05 |
+| Parallel decryption | ✅ | `rayon` pipeline in memory, tolerant to tampered/corrupted records, tested with 1,000 records in <100ms. | ADMIN-04 |
+| Fetch telemetry from API | ✅ | `fetch_and_decrypt_telemetry` IPC command downloads batches from `GET /telemetry/{category}` and decrypts in memory. | ADMIN-04 |
 | Charts, network explorer, screenshot gallery, field map | 🎭 | UI components on mock data. | ADMIN-05 / ADMIN-06 |
 | Auto-lock | 🟡 | UI timer (5 min) + `admin_lock_and_flush_memory` clears the token; decrypted state purge not verified; not configurable. | ADMIN-07 |
 | Command structure | ✅ | Divided into `commands/{mod,session,keys,workers,telemetry}.rs` with structured `CommandError`. | ADMIN-08 |
