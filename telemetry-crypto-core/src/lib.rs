@@ -1,10 +1,12 @@
 pub mod asymmetric;
+pub mod backup;
 pub mod enrollment;
 pub mod error;
 pub mod kdf;
 pub mod payloads;
 pub mod symmetric;
 
+pub use backup::*;
 pub use enrollment::*;
 pub use payloads::*;
 

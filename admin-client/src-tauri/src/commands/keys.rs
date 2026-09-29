@@ -3,7 +3,10 @@ use crate::client::get_api_client;
 use crate::keystore::{load_admin_private_key, save_admin_private_key};
 use serde::{Deserialize, Serialize};
 use telemetry_crypto_core::enrollment::public_key_fingerprint;
-use telemetry_crypto_core::{derive_public_key, generate_admin_keypair};
+use telemetry_crypto_core::{
+    derive_public_key, export_encrypted_admin_key, generate_admin_keypair,
+    import_encrypted_admin_key,
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct KeyStatus {
@@ -46,6 +49,41 @@ pub fn admin_generate_keypair() -> Result<String, CommandError> {
 #[tauri::command]
 pub fn admin_get_public_key() -> Result<String, CommandError> {
     get_admin_public_key()
+}
+
+#[tauri::command]
+pub fn admin_export_backup(passphrase: String) -> Result<Vec<u8>, CommandError> {
+    let priv_b64 = load_admin_private_key().map_err(|e| CommandError {
+        code: "KEYSTORE_ERROR".into(),
+        message: format!("Failed to load admin key from OS keystore: {}", e),
+    })?;
+
+    let backup = export_encrypted_admin_key(&priv_b64, &passphrase).map_err(|e| CommandError {
+        code: "CRYPTO_ERROR".into(),
+        message: format!("Failed to export encrypted backup: {}", e),
+    })?;
+
+    tracing::info!("Admin master key backup successfully exported with passphrase (RF-ADMIN-01-3)");
+    Ok(backup)
+}
+
+#[tauri::command]
+pub fn admin_import_backup(backup_data: Vec<u8>, passphrase: String) -> Result<(), CommandError> {
+    let priv_b64 =
+        import_encrypted_admin_key(&backup_data, &passphrase).map_err(|e| CommandError {
+            code: "CRYPTO_ERROR".into(),
+            message: format!("Failed to decrypt and import backup: {}", e),
+        })?;
+
+    save_admin_private_key(&priv_b64).map_err(|e| CommandError {
+        code: "KEYSTORE_ERROR".into(),
+        message: format!("Failed to save imported admin key to OS keystore: {}", e),
+    })?;
+
+    tracing::info!(
+        "Admin master key backup successfully imported into OS keystore (RF-ADMIN-01-3)"
+    );
+    Ok(())
 }
 
 pub async fn keys_register_on_server_with_client(
@@ -181,5 +219,62 @@ mod tests {
         let client = AdminApiClient::new(server.uri());
         let res = check_and_register_key_if_missing_with_client(&client).await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_admin_export_and_import_backup_roundtrip() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+
+        // 1. Generate master keys
+        let original_pub = generate_and_save_master_keys().expect("Generate keys failed");
+        let passphrase = "safe-passphrase-with-enough-entropy-2026";
+
+        // 2. Export backup
+        let backup_bytes =
+            admin_export_backup(passphrase.to_string()).expect("Export backup failed");
+        assert!(!backup_bytes.is_empty());
+
+        // 3. Clear keystore
+        crate::keystore::delete_admin_private_key().expect("Delete key failed");
+        assert!(get_admin_public_key().is_err());
+
+        // 4. Import backup
+        admin_import_backup(backup_bytes, passphrase.to_string()).expect("Import backup failed");
+
+        // 5. Restored key should derive identical public key
+        let restored_pub = get_admin_public_key().expect("Restored key not found");
+        assert_eq!(original_pub, restored_pub);
+    }
+
+    #[tokio::test]
+    async fn test_backup_encryption_invalid_passphrase() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+
+        let _ = generate_and_save_master_keys().expect("Generate keys failed");
+        let passphrase = "correct-passphrase-123456";
+        let wrong_passphrase = "wrong-passphrase-654321";
+
+        let backup_bytes =
+            admin_export_backup(passphrase.to_string()).expect("Export backup failed");
+
+        let err = admin_import_backup(backup_bytes, wrong_passphrase.to_string())
+            .expect_err("Should fail");
+        assert_eq!(err.code, "CRYPTO_ERROR");
+    }
+
+    #[tokio::test]
+    async fn test_backup_passphrase_too_short_rejected() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+
+        let _ = generate_and_save_master_keys().expect("Generate keys failed");
+        let short_passphrase = "short";
+
+        let err = admin_export_backup(short_passphrase.to_string())
+            .expect_err("Export short should fail");
+        assert_eq!(err.code, "CRYPTO_ERROR");
+        assert!(err.message.contains("at least 12 characters"));
     }
 }

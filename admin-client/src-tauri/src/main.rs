@@ -5,7 +5,8 @@ pub mod commands;
 pub mod keystore;
 
 use commands::keys::{
-    admin_generate_keypair, admin_get_public_key, keys_register_on_server, keys_status,
+    admin_export_backup, admin_generate_keypair, admin_get_public_key, admin_import_backup,
+    keys_register_on_server, keys_status,
 };
 use commands::session::{
     admin_get_session, admin_is_locked, admin_lock_and_flush_memory, admin_login, admin_logout,
@@ -42,6 +43,8 @@ fn main() {
             admin_is_locked,
             admin_generate_keypair,
             admin_get_public_key,
+            admin_export_backup,
+            admin_import_backup,
             keys_status,
             keys_register_on_server,
             admin_decrypt_records,

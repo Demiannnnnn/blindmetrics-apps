@@ -21,6 +21,7 @@ telemetry-crypto-core = { path = "telemetry-crypto-core" }
 x25519-dalek = { version = "2.0", features = ["static_secrets", "zeroize"] }
 aes-gcm = "0.10"
 hkdf = "0.12"
+hmac = "0.12"
 sha2 = "0.10"
 rand = "0.8"
 zeroize = { version = "1.8", features = ["derive"] }

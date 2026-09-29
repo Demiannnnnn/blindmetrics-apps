@@ -139,10 +139,10 @@ pub fn admin_generate_keypair() -> Result<String, String> {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] La aplicación compila con Tauri 2.0 y abre la ventana principal sin errores de WebView.
-2. [ ] El par de claves se genera y la clave privada persiste en el Keychain / DPAPI / Secret Service.
-3. [ ] Al reiniciar la aplicación, `load_admin_private_key()` recupera la clave sin solicitar regeneración.
-4. [ ] La exportación y reimportación del backup protegido por contraseña funciona adecuadamente.
+1. [x] La aplicación compila con Tauri 2.0 y abre la ventana principal sin errores de WebView.
+2. [x] El par de claves se genera y la clave privada persiste en el Keychain / DPAPI / Secret Service.
+3. [x] Al reiniciar la aplicación, `load_admin_private_key()` recupera la clave sin solicitar regeneración.
+4. [x] La exportación y reimportación del backup protegido por contraseña funciona adecuadamente.
 
 ---
 

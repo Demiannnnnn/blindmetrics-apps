@@ -117,3 +117,39 @@ pub fn delete_admin_refresh_token() -> Result<(), KeystoreError> {
         Err(e) => Err(KeystoreError::Keyring(e)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_keystore_mock_save_and_load() {
+        let _guard = KEYSTORE_TEST_MUTEX.lock().await;
+        init_test_vault();
+
+        // 1. Initial state should be KeyNotFound
+        let load_initial = load_admin_private_key();
+        assert!(matches!(load_initial, Err(KeystoreError::KeyNotFound)));
+
+        // 2. Save master key
+        let test_key = "dGVzdC1wcml2YXRlLWtleS0zMi1ieXRlcy1sb25n";
+        save_admin_private_key(test_key).expect("Save admin private key failed");
+
+        // 3. Load master key
+        let loaded = load_admin_private_key().expect("Load admin private key failed");
+        assert_eq!(loaded, test_key);
+
+        // 4. Delete master key
+        delete_admin_private_key().expect("Delete admin private key failed");
+        let after_delete = load_admin_private_key();
+        assert!(matches!(after_delete, Err(KeystoreError::KeyNotFound)));
+
+        // 5. Test refresh token lifecycle
+        save_admin_refresh_token("refresh_tok_123").expect("Save refresh token failed");
+        let tok = load_admin_refresh_token().expect("Load refresh token failed");
+        assert_eq!(tok, "refresh_tok_123");
+        delete_admin_refresh_token().expect("Delete refresh token failed");
+        let tok_after = load_admin_refresh_token();
+        assert!(matches!(tok_after, Err(KeystoreError::TokenNotFound)));
+    }
+}

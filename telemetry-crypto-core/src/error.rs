@@ -34,4 +34,10 @@ pub enum CryptoError {
 
     #[error("Invalid consent version: must be >= 1")]
     InvalidConsentVersion,
+
+    #[error("Invalid passphrase: {0}")]
+    InvalidPassphrase(String),
+
+    #[error("Invalid backup format: {0}")]
+    InvalidBackup(String),
 }

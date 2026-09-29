@@ -10,7 +10,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 |:-----------|:-----:|:------|:-----|
 | X25519 keygen, ECDH, HKDF, AES-256-GCM, envelope framing | ✅ | Tested (roundtrip, tamper, short payload). `unwrap`s are in tests only. | CRYPTO-01 |
 | Enrollment manifest / commitment / safety code / fingerprint / QR | ✅ | Canonical manifest, SHA-256 commitment, constant-time verification, Crockford Base32 QR format, fixed vector tested. | CRYPTO-02 |
-| Encrypted backup of `K_admin_priv` | ❌ | | ADMIN-01 |
+| Encrypted backup of `K_admin_priv` | ✅ | AES-256-GCM + PBKDF2-HMAC-SHA256 (100k iters), min 12-char passphrase, tested with wrong passphrase rejection. | ADMIN-01 |
 
 ## 2. `agent`
 
@@ -50,7 +50,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 |:-----------|:-----:|:------|:-----|
 | Keypair generation + keystore | ✅ | `keyring`, service `TelemetryAdminVault`. | ADMIN-01 |
 | Register `K_admin_pub` on server | ✅ | Auto-registration upon login (`PUT /admins/me/public-key`), mismatch detection (K2). | ADMIN-08 |
-| Backup export/import | ❌ | | ADMIN-01 |
+| Backup export/import | ✅ | `admin_export_backup` y `admin_import_backup` IPC commands y controles en UI con frase de paso (PBKDF2/AES-GCM). | ADMIN-01 |
 | **Login** | ✅ | Rust client sends `role: "ADMIN"`, reads `{data}`, saves refresh token in keystore, fetches `GET /admins/me`. No silent fake profile. | INT-01 |
 | Register | ✅ | Reads `{data}` from `POST /auth/register`, sets session and saves refresh token. | INT-01 |
 | Refresh token handling | 🟡 | Stored in keystore (`admin_refresh_token`); 401 retry in `get_with_auth`. | ADMIN-02 |

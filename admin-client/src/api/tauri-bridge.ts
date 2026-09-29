@@ -817,6 +817,30 @@ export async function keysRegisterOnServer(): Promise<string> {
   throw new Error("keys_register_on_server IPC unavailable outside Tauri");
 }
 
+export async function adminExportBackup(passphrase: string): Promise<Uint8Array> {
+  if (isTauri()) {
+    const raw = await invoke<number[]>('admin_export_backup', { passphrase });
+    return new Uint8Array(raw);
+  }
+  if (isDemoMode) {
+    return new TextEncoder().encode(JSON.stringify({ format: "telemetry-vault-v1-demo" }));
+  }
+  throw new Error("admin_export_backup IPC unavailable outside Tauri");
+}
+
+export async function adminImportBackup(backupData: Uint8Array, passphrase: string): Promise<void> {
+  if (isTauri()) {
+    return await invoke<void>('admin_import_backup', {
+      backupData: Array.from(backupData),
+      passphrase,
+    });
+  }
+  if (isDemoMode) {
+    return;
+  }
+  throw new Error("admin_import_backup IPC unavailable outside Tauri");
+}
+
 export async function lockAndFlushMemory(): Promise<void> {
   if (isTauri()) {
     try {
