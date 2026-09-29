@@ -8,19 +8,20 @@ use crate::core::collectors::network::NetworkCollector;
 use crate::core::collectors::screenshot::ScreenshotCollector;
 use crate::core::collectors::SystemCollector;
 use crate::core::metrics::MetricPayload;
-use crate::credentials::{CredentialStore, KeyringCredentialStore};
+use crate::credentials::CredentialStore;
 use crate::errors::AgentError;
 use crate::io::system_hooks::SystemHooksManager;
 
+use crate::consent::{send_decision, Decision};
 use crate::io::transport::{BackoffPolicy, IngestOutcome, OfflineQueue, TelemetryTransport};
 use crate::notifications::NotificationDispatcher;
 use crate::pipeline::build_envelopes;
-use crate::state::RunMode;
-use crate::state::WorkerSelf;
+use crate::session::{with_access_token, SessionError};
+use crate::state::{derive_run_mode, AwaitingReason, RunMode, WorkerSelf, WorkerStatus};
 use std::sync::Arc;
 use std::time::Duration;
 use telemetry_crypto_core::{Category, ConsentFlags};
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, watch, RwLock};
 use tokio::time::sleep;
 
 /// Helper to determine if the local time falls within configured work hours.
@@ -100,39 +101,31 @@ pub fn should_collect(
     true
 }
 
-/// Executes consent withdrawal with DP-09 guarantee:
-/// In-memory buffer and disk SQLite queue are purged BEFORE sending the PATCH.
+/// Executes consent withdrawal with DP-09 guarantee: the in-memory buffer and
+/// the on-disk SQLite queue are purged BEFORE the WITHDRAW decision is sent.
 pub async fn execute_withdraw(
     api: &ApiClient,
     cred_store: &dyn CredentialStore,
     buffer: &MetricsBuffer,
     queue: &mut OfflineQueue,
-    worker_id: &str,
     consent_version: i32,
     manifest_hash: &str,
-) -> Result<(), AgentError> {
-    // DP-09: Purge in-memory buffer and SQLite offline queue immediately
+) -> Result<(), SessionError> {
     let _ = buffer.drain_for_flush();
     let _ = queue.clear();
     let _ = cred_store.set_accepted_manifest_hash(None);
     let _ = cred_store.set_accepted_flags(None);
+    tracing::info!("Consent withdrawn locally: buffer and queue purged (DP-09)");
 
-    let token = cred_store.get_access_token().unwrap_or_default();
-    if !token.is_empty() {
-        // Attempt to notify server of WITHDRAW decision
-        let _ = api
-            .patch_consent(
-                worker_id,
-                &token,
-                "WITHDRAW",
-                consent_version,
-                manifest_hash,
-            )
-            .await;
-    }
-
-    tracing::info!("Consent withdrawn and all buffers/queues purged (DP-09)");
-    Ok(())
+    send_decision(
+        api,
+        cred_store,
+        Decision::Withdraw,
+        consent_version,
+        manifest_hash,
+    )
+    .await
+    .map(|_| ())
 }
 
 /// Handles worker revocation (401 from server or refresh):
@@ -148,36 +141,115 @@ pub fn handle_revocation(
     tracing::warn!("Worker revoked: wiped credentials, pinned keys, and purged queue (DP-09)");
 }
 
+/// Derives the run mode from `/workers/me`, also holding collection while a
+/// newer consent version than the one accepted on this device is pending.
+pub fn lifecycle_run_mode(
+    me: &WorkerSelf,
+    pinned_fp: &str,
+    accepted_hash: Option<&str>,
+) -> RunMode {
+    let mode = derive_run_mode(me, pinned_fp, accepted_hash);
+    let outdated = me
+        .accepted_consent_version
+        .map_or(true, |v| v < me.consent_version);
+    if matches!(mode, RunMode::Collecting(_)) && outdated {
+        return RunMode::AwaitingConsent {
+            reason: AwaitingReason::NewVersionPending,
+        };
+    }
+    mode
+}
+
+/// How often `/workers/me` is polled (worker-app-spec: every 5 minutes).
+pub const LIFECYCLE_POLL: Duration = Duration::from_secs(300);
+
+/// Requests from the UI thread. The egui thread never blocks on the runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EngineCommand {
+    /// Re-read `/workers/me` now (after a consent decision).
+    SyncNow,
+    /// Enrollment committed against `api_base_url`.
+    Enrolled { api_base_url: String },
+    /// DP-09: purge buffer and on-disk queue, then send WITHDRAW.
+    Withdraw,
+}
+
+/// State published to the UI after every change.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EngineSnapshot {
+    pub run_mode: RunMode,
+    pub worker_self: Option<WorkerSelf>,
+    /// The server revoked this device and local state was wiped.
+    pub revoked: bool,
+    pub last_error: Option<String>,
+}
+
+impl Default for EngineSnapshot {
+    fn default() -> Self {
+        Self {
+            run_mode: RunMode::Unenrolled,
+            worker_self: None,
+            revoked: false,
+            last_error: None,
+        }
+    }
+}
+
+/// UI-side handle: spawn async work on the engine runtime and talk to the engine.
+#[derive(Clone)]
+pub struct EngineHandle {
+    pub runtime: tokio::runtime::Handle,
+    pub commands: mpsc::UnboundedSender<EngineCommand>,
+    pub state: watch::Receiver<EngineSnapshot>,
+}
+
+/// Queue-backed delivery state owned by the dispatcher loop.
+struct Dispatcher {
+    transport: TelemetryTransport,
+    backoff: BackoffPolicy,
+    next_retry_at: Option<std::time::Instant>,
+}
+
 pub struct BackgroundEngine {
     config: WorkerConfig,
     buffer: Arc<MetricsBuffer>,
     cred_store: Arc<dyn CredentialStore>,
+    api: ApiClient,
     run_mode: Arc<RwLock<RunMode>>,
     worker_self: Arc<RwLock<Option<WorkerSelf>>>,
+    commands: mpsc::UnboundedReceiver<EngineCommand>,
+    commands_tx: mpsc::UnboundedSender<EngineCommand>,
+    state: watch::Sender<EngineSnapshot>,
 }
 
 impl BackgroundEngine {
-    pub fn new(config: WorkerConfig, buffer: Arc<MetricsBuffer>) -> Self {
-        Self {
-            config,
-            buffer,
-            cred_store: Arc::new(KeyringCredentialStore::new()),
-            run_mode: Arc::new(RwLock::new(RunMode::Unenrolled)),
-            worker_self: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    pub fn with_credentials(
+    pub fn new(
         config: WorkerConfig,
         buffer: Arc<MetricsBuffer>,
         cred_store: Arc<dyn CredentialStore>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, AgentError> {
+        let api = ApiClient::new(config.api_base_url.clone())?;
+        let (commands_tx, commands) = mpsc::unbounded_channel();
+        let (state, _) = watch::channel(EngineSnapshot::default());
+        Ok(Self {
             config,
             buffer,
             cred_store,
+            api,
             run_mode: Arc::new(RwLock::new(RunMode::Unenrolled)),
             worker_self: Arc::new(RwLock::new(None)),
+            commands,
+            commands_tx,
+            state,
+        })
+    }
+
+    /// Handle for the UI; `runtime` must be the runtime that runs [`Self::run`].
+    pub fn handle(&self, runtime: tokio::runtime::Handle) -> EngineHandle {
+        EngineHandle {
+            runtime,
+            commands: self.commands_tx.clone(),
+            state: self.state.subscribe(),
         }
     }
 
@@ -189,25 +261,167 @@ impl BackgroundEngine {
         self.worker_self.clone()
     }
 
+    /// Records the new state for collectors and the UI, notifying transitions (AGENT-07).
+    async fn publish(
+        &self,
+        run_mode: RunMode,
+        worker_self: Option<WorkerSelf>,
+        revoked: bool,
+        last_error: Option<String>,
+    ) {
+        let previous = self.run_mode.read().await.clone();
+        if previous != run_mode {
+            tracing::info!(from = ?previous, to = ?run_mode, "Run mode changed");
+            match (&previous, &run_mode) {
+                (_, RunMode::Paused) => NotificationDispatcher::notify_admin_paused(),
+                (RunMode::Paused, RunMode::Collecting(_)) => {
+                    NotificationDispatcher::notify_admin_resumed()
+                }
+                (_, RunMode::Collecting(flags)) => {
+                    NotificationDispatcher::notify_collection_started(count_enabled(flags))
+                }
+                (
+                    _,
+                    RunMode::AwaitingConsent {
+                        reason: AwaitingReason::NewVersionPending,
+                    },
+                ) => NotificationDispatcher::notify_consent_request_changed(),
+                (_, RunMode::Halted(_)) => NotificationDispatcher::notify_halted(),
+                _ => {}
+            }
+        }
+        if revoked {
+            NotificationDispatcher::notify_unlinked();
+        }
+        *self.run_mode.write().await = run_mode.clone();
+        *self.worker_self.write().await = worker_self.clone();
+        self.state.send_replace(EngineSnapshot {
+            run_mode,
+            worker_self,
+            revoked,
+            last_error,
+        });
+    }
+
+    async fn publish_error(&self, error: String) {
+        let mode = self.run_mode.read().await.clone();
+        let ws = self.worker_self.read().await.clone();
+        self.publish(mode, ws, false, Some(error)).await;
+    }
+
+    /// Polls `GET /workers/me` and derives the run mode (DP-06, SEC-08).
+    async fn sync_lifecycle(&self, queue: &mut OfflineQueue) {
+        if self.cred_store.get_access_token().is_none() {
+            self.publish(RunMode::Unenrolled, None, false, None).await;
+            return;
+        }
+        let api = self.api.clone();
+        let me = with_access_token(&api, self.cred_store.as_ref(), |token| {
+            let api = api.clone();
+            async move { api.get_me(&token).await }
+        })
+        .await;
+
+        match me {
+            Ok(me) if me.status == WorkerStatus::Revoked => self.revoke(queue).await,
+            Ok(me) => {
+                let pinned = self.cred_store.get_pinned_fingerprint().unwrap_or_default();
+                let accepted = self.cred_store.get_accepted_manifest_hash();
+                let mode = lifecycle_run_mode(&me, &pinned, accepted.as_deref());
+                self.publish(mode, Some(me), false, None).await;
+            }
+            Err(SessionError::Revoked) => self.revoke(queue).await,
+            Err(SessionError::NotEnrolled) => {
+                self.publish(RunMode::Unenrolled, None, false, None).await
+            }
+            // Offline or server error: keep the current mode; data keeps queuing.
+            Err(e) => {
+                tracing::warn!("Lifecycle sync failed: {}", e);
+                self.publish_error(format!("No se pudo contactar al servidor: {}", e))
+                    .await;
+            }
+        }
+    }
+
+    async fn revoke(&self, queue: &mut OfflineQueue) {
+        handle_revocation(self.cred_store.as_ref(), &self.buffer, queue);
+        self.publish(RunMode::Unenrolled, None, true, None).await;
+    }
+
+    async fn withdraw(&self, queue: &mut OfflineQueue) {
+        let accepted_hash = self.cred_store.get_accepted_manifest_hash();
+        let version = self
+            .worker_self
+            .read()
+            .await
+            .as_ref()
+            .and_then(|w| w.accepted_consent_version.or(Some(w.consent_version)));
+        // Stop collectors immediately, before any network round-trip.
+        let ws = self.worker_self.read().await.clone();
+        self.publish(
+            RunMode::AwaitingConsent {
+                reason: AwaitingReason::NoConsent,
+            },
+            ws,
+            false,
+            None,
+        )
+        .await;
+
+        let result = match (accepted_hash, version) {
+            (Some(hash), Some(version)) => {
+                execute_withdraw(
+                    &self.api,
+                    self.cred_store.as_ref(),
+                    &self.buffer,
+                    queue,
+                    version,
+                    &hash,
+                )
+                .await
+            }
+            // Nothing accepted server-side is known: purge locally only.
+            _ => {
+                let _ = self.buffer.drain_for_flush();
+                let _ = queue.clear();
+                let _ = self.cred_store.set_accepted_manifest_hash(None);
+                let _ = self.cred_store.set_accepted_flags(None);
+                Ok(())
+            }
+        };
+        match result {
+            Err(SessionError::Revoked) => self.revoke(queue).await,
+            Err(e) => {
+                tracing::warn!("WITHDRAW could not be sent: {}", e);
+                self.publish_error(format!(
+                    "Se detuvo la recolección y se borraron los datos locales, pero el servidor no confirmó el retiro: {}",
+                    e
+                ))
+                .await;
+            }
+            Ok(()) => self.sync_lifecycle(queue).await,
+        }
+    }
+
     /// Spawns the collection, periodic notification, and dispatch loops.
-    pub async fn run(self) {
+    pub async fn run(mut self) {
         tracing::info!("Telemetry Worker Background Engine started");
 
         // Start low-level OS input hook (RF-AGENT-02-1)
         SystemHooksManager::start_hook();
 
-        // Initial transparency notification on startup
-        NotificationDispatcher::notify_periodic_active();
-
         let buffer = self.buffer.clone();
-        let flush_interval = Duration::from_secs(self.config.flush_interval_secs);
+        let flush_interval = Duration::from_secs(self.config.flush_interval_secs.max(1));
 
-        // 1. Periodic hourly transparency notification (every 1 hour)
+        // 1. Periodic hourly transparency notification, only while collecting.
+        let notify_run_mode = self.run_mode.clone();
         tokio::spawn(async move {
             let one_hour = Duration::from_secs(3600);
             loop {
                 sleep(one_hour).await;
-                NotificationDispatcher::notify_periodic_active();
+                if matches!(*notify_run_mode.read().await, RunMode::Collecting(_)) {
+                    NotificationDispatcher::notify_periodic_active();
+                }
             }
         });
 
@@ -370,7 +584,8 @@ impl BackgroundEngine {
             }
         });
 
-        // 3. Dispatcher loop (flushes double buffer and dispatches over HTTP or offline SQLite)
+        // 4. Dispatcher + lifecycle loop: owns the on-disk queue, so withdrawal
+        // and revocation purge the real queue (DP-09).
         let mut db_path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         db_path.push("telemetry-worker");
         let _ = std::fs::create_dir_all(&db_path);
@@ -383,55 +598,148 @@ impl BackgroundEngine {
                     "Failed to open disk SQLite queue ({:?}). Falling back to in-memory queue.",
                     err
                 );
-                OfflineQueue::open_in_memory().unwrap_or_else(|e| {
-                    tracing::error!("Failed to open in-memory SQLite queue: {:?}", e);
-                    OfflineQueue::open_in_memory()
-                        .unwrap_or_else(|_| panic!("Fatal: cannot allocate SQLite database"))
-                })
+                match OfflineQueue::open_in_memory() {
+                    Ok(q) => q,
+                    Err(e) => {
+                        tracing::error!("Cannot open any SQLite queue, engine stopped: {:?}", e);
+                        self.publish_error("No se pudo abrir la cola local de envío.".into())
+                            .await;
+                        return;
+                    }
+                }
             }
         };
 
-        let mut transport = TelemetryTransport::new(self.config.clone());
-        let dispatch_cred = self.cred_store.clone();
-        let dispatch_run_mode = self.run_mode.clone();
-        let mut backoff = BackoffPolicy::default();
-        let mut next_retry_at: Option<std::time::Instant> = None;
+        let transport =
+            match TelemetryTransport::new(&self.config.api_base_url, self.cred_store.clone()) {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::error!("Cannot build HTTP transport, engine stopped: {:?}", e);
+                    self.publish_error("No se pudo inicializar el cliente HTTP.".into())
+                        .await;
+                    return;
+                }
+            };
+        let mut dispatcher = Dispatcher {
+            transport,
+            backoff: BackoffPolicy::default(),
+            next_retry_at: None,
+        };
+
+        let mut flush_tick = tokio::time::interval(flush_interval);
+        let mut lifecycle_tick = tokio::time::interval(LIFECYCLE_POLL);
 
         loop {
-            sleep(flush_interval).await;
-
-            let mode = dispatch_run_mode.read().await.clone();
-            if !matches!(mode, RunMode::Collecting(_)) {
-                continue;
-            }
-
-            let mut is_in_backoff = if let Some(retry_time) = next_retry_at {
-                if std::time::Instant::now() < retry_time {
-                    true
-                } else {
-                    next_retry_at = None;
-                    false
+            tokio::select! {
+                _ = lifecycle_tick.tick() => self.sync_lifecycle(&mut queue).await,
+                Some(cmd) = self.commands.recv() => match cmd {
+                    EngineCommand::SyncNow => self.sync_lifecycle(&mut queue).await,
+                    EngineCommand::Enrolled { api_base_url } => {
+                        match ApiClient::new(api_base_url.clone()) {
+                            Ok(api) => self.api = api,
+                            Err(e) => tracing::error!("Invalid API client for {}: {:?}", api_base_url, e),
+                        }
+                        if let Err(e) = dispatcher.transport.set_base_url(&api_base_url) {
+                            tracing::error!("Invalid transport for {}: {:?}", api_base_url, e);
+                        }
+                        self.config.api_base_url = api_base_url;
+                        self.sync_lifecycle(&mut queue).await;
+                    }
+                    EngineCommand::Withdraw => self.withdraw(&mut queue).await,
+                },
+                _ = flush_tick.tick() => {
+                    let mode = self.run_mode.read().await.clone();
+                    if !matches!(mode, RunMode::Collecting(_)) {
+                        continue;
+                    }
+                    if self.flush(&mut dispatcher, &mut queue).await == FlushResult::Revoked {
+                        self.revoke(&mut queue).await;
+                    }
                 }
+            }
+        }
+    }
+
+    async fn flush(&self, d: &mut Dispatcher, queue: &mut OfflineQueue) -> FlushResult {
+        let transport = &mut d.transport;
+        let backoff = &mut d.backoff;
+        let next_retry_at = &mut d.next_retry_at;
+        let dispatch_cred = &self.cred_store;
+
+        let mut is_in_backoff = if let Some(retry_time) = *next_retry_at {
+            if std::time::Instant::now() < retry_time {
+                true
             } else {
+                *next_retry_at = None;
                 false
-            };
+            }
+        } else {
+            false
+        };
 
-            // Extract snapshot via std::mem::take
-            let batch = self.buffer.drain_for_flush();
-            let worker_id = dispatch_cred
-                .get_worker_id()
-                .as_deref()
-                .and_then(|id| uuid::Uuid::parse_str(id).ok())
-                .unwrap_or_else(uuid::Uuid::nil);
+        // Extract snapshot via std::mem::take
+        let batch = self.buffer.drain_for_flush();
+        let worker_id = dispatch_cred
+            .get_worker_id()
+            .as_deref()
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .unwrap_or_else(uuid::Uuid::nil);
 
-            // SEC-07, SEC-08: Encrypt only to pinned admin public key
-            if !batch.is_empty() {
-                if let Some(admin_key) = dispatch_cred.get_pinned_admin_public_key() {
-                    let records = build_envelopes(batch, worker_id, &admin_key);
-                    for rec_res in records {
-                        match rec_res {
-                            Ok(record) => {
-                                if is_in_backoff {
+        // SEC-07, SEC-08: Encrypt only to pinned admin public key
+        if !batch.is_empty() {
+            if let Some(admin_key) = dispatch_cred.get_pinned_admin_public_key() {
+                let records = build_envelopes(batch, worker_id, &admin_key);
+                for rec_res in records {
+                    match rec_res {
+                        Ok(record) => {
+                            if is_in_backoff {
+                                let _ = queue.enqueue(
+                                    record.category.as_str(),
+                                    &record.ephemeral_public_key,
+                                    &record.encrypted_payload,
+                                    record.client_timestamp,
+                                    record.subcategory,
+                                );
+                                continue;
+                            }
+
+                            let endpoint = record.category.api_endpoint();
+                            let outcome = transport
+                                .send_record(
+                                    endpoint,
+                                    &record.ephemeral_public_key,
+                                    &record.encrypted_payload,
+                                    record.client_timestamp,
+                                    record.subcategory,
+                                )
+                                .await;
+
+                            match outcome {
+                                IngestOutcome::Delivered => {
+                                    backoff.reset();
+                                    *next_retry_at = None;
+                                }
+                                IngestOutcome::DroppedForbidden(reason) => {
+                                    tracing::warn!(
+                                        "Record dropped: 403 reason={:?} category={}",
+                                        reason,
+                                        record.category.as_str()
+                                    );
+                                }
+                                IngestOutcome::DroppedValidation(code) => {
+                                    tracing::error!(
+                                        "Record dropped: validation error ({}) category={}",
+                                        code,
+                                        record.category.as_str()
+                                    );
+                                }
+                                IngestOutcome::Revoked => return FlushResult::Revoked,
+                                IngestOutcome::NeedsQueue(err) => {
+                                    tracing::info!(
+                                        "Enqueuing record into SQLite queue ({}): category={}",
+                                        err,
+                                        record.category.as_str()
+                                    );
                                     let _ = queue.enqueue(
                                         record.category.as_str(),
                                         &record.ephemeral_public_key,
@@ -439,117 +747,92 @@ impl BackgroundEngine {
                                         record.client_timestamp,
                                         record.subcategory,
                                     );
-                                    continue;
-                                }
-
-                                let endpoint = record.category.api_endpoint();
-                                let outcome = transport
-                                    .send_record(
-                                        endpoint,
-                                        &record.ephemeral_public_key,
-                                        &record.encrypted_payload,
-                                        record.client_timestamp,
-                                        record.subcategory,
-                                    )
-                                    .await;
-
-                                match outcome {
-                                    IngestOutcome::Delivered => {
-                                        backoff.reset();
-                                        next_retry_at = None;
-                                    }
-                                    IngestOutcome::DroppedForbidden(reason) => {
-                                        tracing::warn!(
-                                            "Record dropped: 403 reason={:?} category={}",
-                                            reason,
-                                            record.category.as_str()
-                                        );
-                                    }
-                                    IngestOutcome::DroppedValidation(code) => {
-                                        tracing::error!(
-                                            "Record dropped: validation error ({}) category={}",
-                                            code,
-                                            record.category.as_str()
-                                        );
-                                    }
-                                    IngestOutcome::NeedsQueue(err) => {
-                                        tracing::info!(
-                                            "Enqueuing record into SQLite queue ({}): category={}",
-                                            err,
-                                            record.category.as_str()
-                                        );
-                                        let _ = queue.enqueue(
-                                            record.category.as_str(),
-                                            &record.ephemeral_public_key,
-                                            &record.encrypted_payload,
-                                            record.client_timestamp,
-                                            record.subcategory,
-                                        );
-                                        let delay = backoff.next_backoff();
-                                        next_retry_at = Some(std::time::Instant::now() + delay);
-                                        is_in_backoff = true;
-                                    }
+                                    let delay = backoff.next_backoff();
+                                    *next_retry_at = Some(std::time::Instant::now() + delay);
+                                    is_in_backoff = true;
                                 }
                             }
-                            Err(err) => {
-                                tracing::error!("Batch encryption failed: {:?}", err);
-                            }
+                        }
+                        Err(err) => {
+                            tracing::error!("Batch encryption failed: {:?}", err);
                         }
                     }
-                }
-            }
-
-            // Attempt to deliver queued offline records if not in backoff
-            if !is_in_backoff {
-                if let Ok(queued_items) = queue.peek_batch(10) {
-                    let mut delivered_ids = Vec::new();
-                    for item in queued_items {
-                        let endpoint = match item.category.as_str() {
-                            "productivity_basic" | "productivity_screenshot" | "productivity" => {
-                                "productivity"
-                            }
-                            other => other,
-                        };
-
-                        let outcome = transport
-                            .send_record(
-                                endpoint,
-                                &item.ephemeral_public_key,
-                                &item.encrypted_payload,
-                                item.client_timestamp,
-                                item.subcategory.as_deref(),
-                            )
-                            .await;
-
-                        match outcome {
-                            IngestOutcome::Delivered => {
-                                delivered_ids.push(item.id);
-                                backoff.reset();
-                                next_retry_at = None;
-                            }
-                            IngestOutcome::DroppedForbidden(_)
-                            | IngestOutcome::DroppedValidation(_) => {
-                                delivered_ids.push(item.id);
-                            }
-                            IngestOutcome::NeedsQueue(err) => {
-                                let _ = queue.increment_retries(&[item.id]);
-                                let delay = backoff.next_backoff();
-                                next_retry_at = Some(std::time::Instant::now() + delay);
-                                tracing::warn!(
-                                    "Failed delivering queued item {}: backing off for {:?} ({})",
-                                    item.id,
-                                    delay,
-                                    err
-                                );
-                                break;
-                            }
-                        }
-                    }
-                    let _ = queue.mark_delivered(&delivered_ids);
                 }
             }
         }
+
+        // Attempt to deliver queued offline records if not in backoff
+        if !is_in_backoff {
+            if let Ok(queued_items) = queue.peek_batch(10) {
+                let mut delivered_ids = Vec::new();
+                for item in queued_items {
+                    let endpoint = match item.category.as_str() {
+                        "productivity_basic" | "productivity_screenshot" | "productivity" => {
+                            "productivity"
+                        }
+                        other => other,
+                    };
+
+                    let outcome = transport
+                        .send_record(
+                            endpoint,
+                            &item.ephemeral_public_key,
+                            &item.encrypted_payload,
+                            item.client_timestamp,
+                            item.subcategory.as_deref(),
+                        )
+                        .await;
+
+                    match outcome {
+                        IngestOutcome::Delivered => {
+                            delivered_ids.push(item.id);
+                            backoff.reset();
+                            *next_retry_at = None;
+                        }
+                        IngestOutcome::DroppedForbidden(_)
+                        | IngestOutcome::DroppedValidation(_) => {
+                            delivered_ids.push(item.id);
+                        }
+                        IngestOutcome::Revoked => return FlushResult::Revoked,
+                        IngestOutcome::NeedsQueue(err) => {
+                            let _ = queue.increment_retries(&[item.id]);
+                            let delay = backoff.next_backoff();
+                            *next_retry_at = Some(std::time::Instant::now() + delay);
+                            tracing::warn!(
+                                "Failed delivering queued item {}: backing off for {:?} ({})",
+                                item.id,
+                                delay,
+                                err
+                            );
+                            break;
+                        }
+                    }
+                }
+                let _ = queue.mark_delivered(&delivered_ids);
+            }
+        }
+        FlushResult::Done
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FlushResult {
+    Done,
+    Revoked,
+}
+
+fn count_enabled(flags: &ConsentFlags) -> usize {
+    [
+        flags.system_activity,
+        flags.network_activity,
+        flags.productivity_basic,
+        flags.productivity_screenshots,
+        flags.file_activity,
+        flags.location,
+    ]
+    .iter()
+    .filter(|f| **f)
+    .count()
 }
 
 #[cfg(test)]
@@ -689,19 +972,38 @@ mod tests {
             .unwrap();
         assert_eq!(queue.count().unwrap(), 1);
 
-        let client = ApiClient::new("http://localhost:8080".into()).unwrap();
+        cred_store.set_worker_id(Some("worker-123")).unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/workers/worker-123/consent"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "decision": "WITHDRAW",
+                "consent_version": 1,
+                "manifest_hash": "manifest_hash_123"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "status": "PENDING_CONSENT", "consent_version": 1,
+                    "accepted_consent_version": null,
+                    "consent_flags": ConsentFlags::default()
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = ApiClient::new(server.uri()).unwrap();
 
         // Execute withdrawal (DP-09)
-        let _ = execute_withdraw(
+        execute_withdraw(
             &client,
             &cred_store,
             &buffer,
             &mut queue,
-            "worker-123",
             1,
             "manifest_hash_123",
         )
-        .await;
+        .await
+        .unwrap();
 
         // Buffer and queue must be completely empty!
         assert!(buffer.drain_for_flush().is_empty());
@@ -891,6 +1193,223 @@ mod tests {
             None,
             None,
             NaiveTime::from_hms_opt(12, 0, 0).unwrap()
+        ));
+    }
+
+    fn me_json(status: &str, version: i32, accepted: Option<i32>, fp: &str) -> serde_json::Value {
+        let flags = serde_json::json!({
+            "system_activity": true, "network_activity": false, "productivity_basic": false,
+            "productivity_screenshots": false, "file_activity": false, "location": false
+        });
+        serde_json::json!({ "data": {
+            "id": "worker-1", "status": status, "role_type": "OFFICE",
+            "work_hours_start": "09:00:00", "work_hours_end": "18:00:00",
+            "timezone": "America/Santiago",
+            "consent_version": version, "accepted_consent_version": accepted,
+            "consent_flags": flags, "requested_consent_flags": flags,
+            "consent_descriptions": {
+                "system_activity": "Aplicaciones en uso", "network_activity": null,
+                "productivity_basic": null, "productivity_screenshots": null,
+                "file_activity": null, "location": null
+            },
+            "admin_public_key_fingerprint": fp
+        }})
+    }
+
+    fn test_engine(
+        server_uri: &str,
+        creds: Arc<InMemoryCredentialStore>,
+    ) -> (BackgroundEngine, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = WorkerConfig::load_or_init_at(dir.path().join("config.json"));
+        config.api_base_url = server_uri.to_string();
+        let engine =
+            BackgroundEngine::new(config, Arc::new(MetricsBuffer::new(100)), creds).unwrap();
+        (engine, dir)
+    }
+
+    fn enrolled_creds() -> Arc<InMemoryCredentialStore> {
+        let creds = Arc::new(InMemoryCredentialStore::new());
+        creds.set_access_token(Some("access")).unwrap();
+        creds.set_refresh_token(Some("refresh")).unwrap();
+        creds.set_worker_id(Some("worker-1")).unwrap();
+        creds.set_pinned_fingerprint(Some("pinned_fp")).unwrap();
+        creds
+            .set_pinned_admin_public_key(Some("pinned_key"))
+            .unwrap();
+        creds
+    }
+
+    #[test]
+    fn test_lifecycle_new_version_holds_collection() {
+        let flags = ConsentFlags {
+            system_activity: true,
+            ..Default::default()
+        };
+        let me = WorkerSelf {
+            id: "w".into(),
+            status: WorkerStatus::Active,
+            role_type: "OFFICE".into(),
+            work_hours_start: None,
+            work_hours_end: None,
+            timezone: None,
+            consent_version: 2,
+            accepted_consent_version: Some(1),
+            consent_flags: flags,
+            requested_consent_flags: flags,
+            consent_descriptions: Default::default(),
+            admin_public_key_fingerprint: "fp".into(),
+        };
+        assert_eq!(
+            lifecycle_run_mode(&me, "fp", Some("hash")),
+            RunMode::AwaitingConsent {
+                reason: AwaitingReason::NewVersionPending
+            }
+        );
+        let current = WorkerSelf {
+            accepted_consent_version: Some(2),
+            ..me
+        };
+        assert_eq!(
+            lifecycle_run_mode(&current, "fp", Some("hash")),
+            RunMode::Collecting(flags)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_engine_sync_active_worker_starts_collecting_and_publishes() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "ACTIVE",
+                1,
+                Some(1),
+                "pinned_fp",
+            )))
+            .mount(&server)
+            .await;
+
+        let creds = enrolled_creds();
+        creds.set_accepted_manifest_hash(Some("accepted")).unwrap();
+        let (engine, _dir) = test_engine(&server.uri(), creds);
+        let mut state = engine.state.subscribe();
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+
+        engine.sync_lifecycle(&mut queue).await;
+
+        assert!(matches!(
+            *engine.run_mode.read().await,
+            RunMode::Collecting(_)
+        ));
+        assert!(state.has_changed().unwrap());
+        let snap = state.borrow_and_update().clone();
+        assert!(matches!(snap.run_mode, RunMode::Collecting(_)));
+        assert_eq!(snap.worker_self.unwrap().id, "worker-1");
+    }
+
+    #[tokio::test]
+    async fn test_engine_sync_key_mismatch_halts() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "ACTIVE",
+                1,
+                Some(1),
+                "other_fp",
+            )))
+            .mount(&server)
+            .await;
+        let creds = enrolled_creds();
+        creds.set_accepted_manifest_hash(Some("accepted")).unwrap();
+        let (engine, _dir) = test_engine(&server.uri(), creds);
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        engine.sync_lifecycle(&mut queue).await;
+        assert_eq!(
+            *engine.run_mode.read().await,
+            RunMode::Halted(HaltReason::KeyFingerprintMismatch)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_engine_sync_revoked_wipes_and_reports() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/auth/refresh"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let creds = enrolled_creds();
+        let (engine, _dir) = test_engine(&server.uri(), creds.clone());
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        queue
+            .enqueue("system", "key", b"payload", Utc::now(), None)
+            .unwrap();
+
+        engine.sync_lifecycle(&mut queue).await;
+
+        assert!(creds.get_access_token().is_none());
+        assert!(creds.get_pinned_admin_public_key().is_none());
+        assert_eq!(queue.count().unwrap(), 0);
+        assert!(engine.state.borrow().revoked);
+        assert_eq!(*engine.run_mode.read().await, RunMode::Unenrolled);
+    }
+
+    #[tokio::test]
+    async fn test_engine_withdraw_purges_real_queue_and_sends_accepted_version() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/workers/worker-1/consent"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "decision": "WITHDRAW", "consent_version": 3, "manifest_hash": "accepted_hash"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "status": "PENDING_CONSENT", "consent_version": 3,
+                          "accepted_consent_version": null,
+                          "consent_flags": ConsentFlags::default() }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "PENDING_CONSENT",
+                3,
+                None,
+                "pinned_fp",
+            )))
+            .mount(&server)
+            .await;
+
+        let creds = enrolled_creds();
+        creds
+            .set_accepted_manifest_hash(Some("accepted_hash"))
+            .unwrap();
+        let (engine, _dir) = test_engine(&server.uri(), creds.clone());
+        let me: WorkerSelf =
+            serde_json::from_value(me_json("ACTIVE", 3, Some(3), "pinned_fp")["data"].clone())
+                .unwrap();
+        *engine.worker_self.write().await = Some(me);
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        queue
+            .enqueue("system", "key", b"payload", Utc::now(), None)
+            .unwrap();
+
+        engine.withdraw(&mut queue).await;
+
+        assert_eq!(queue.count().unwrap(), 0);
+        assert!(creds.get_accepted_manifest_hash().is_none());
+        assert!(matches!(
+            *engine.run_mode.read().await,
+            RunMode::AwaitingConsent { .. }
         ));
     }
 }
