@@ -23,6 +23,14 @@ interface CreateWorkerModalProps {
   onCreated: (created: CreatedWorker) => void;
 }
 
+// Key-setup failures the admin can act on (RF-ADMIN-08-1).
+const KEY_ERRORS: Record<string, string> = {
+  KEY_SETUP_REQUIRED: 'No hay llave maestra en este equipo. Genérela o restaure su respaldo antes de crear trabajadores.',
+  PUBLIC_KEY_MISMATCH:
+    'La llave maestra registrada en el servidor es distinta a la de este equipo. Restaure el respaldo de la llave original (Cumplimiento → Importar).',
+  ADMIN_PUBLIC_KEY_MISSING: 'El servidor aún no tiene su llave pública registrada. Reintente; se registrará automáticamente.',
+};
+
 /** W2 — New worker with admin-defined consent package (RF-ADMIN-08-2). */
 export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organization, onClose, onCreated }) => {
   const [name, setName] = useState('');
@@ -82,7 +90,7 @@ export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organizati
       });
       onCreated(created);
     } catch (err: any) {
-      setError(err?.message || String(err));
+      setError(KEY_ERRORS[err?.code] ?? (err?.message || String(err)));
     } finally {
       setSubmitting(false);
     }

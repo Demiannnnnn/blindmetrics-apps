@@ -19,8 +19,11 @@ pub async fn admin_login(
             message: e,
         })?;
 
-    // Auto-register key if missing or check match (RF-ADMIN-08-1)
-    let _ = crate::commands::keys::check_and_register_key_if_missing().await;
+    // Auto-register key if missing or check match (RF-ADMIN-08-1). Worker
+    // creation re-checks, so a failure here is logged, not fatal.
+    if let Err(e) = crate::commands::keys::check_and_register_key_if_missing().await {
+        tracing::warn!("Key registration check after login failed: {}", e);
+    }
 
     Ok(profile)
 }
@@ -37,13 +40,19 @@ pub async fn admin_register(
     if let Some(url) = api_url {
         client.set_base_url(url);
     }
-    client
+    let profile = client
         .register(&name, &email, &password, &organization)
         .await
         .map_err(|e| CommandError {
             code: "REGISTER_FAILED".into(),
             message: e,
-        })
+        })?;
+
+    if let Err(e) = crate::commands::keys::check_and_register_key_if_missing().await {
+        tracing::warn!("Key registration check after sign-up failed: {}", e);
+    }
+
+    Ok(profile)
 }
 
 #[tauri::command]

@@ -41,8 +41,17 @@ pub fn get_admin_public_key() -> Result<String, CommandError> {
     })
 }
 
+/// Generates the master keypair only when none exists on this machine.
+/// Replacing an existing key would make every stored record unreadable and,
+/// once registered, the server key is write-once (K2).
 #[tauri::command]
 pub fn admin_generate_keypair() -> Result<String, CommandError> {
+    if get_admin_public_key().is_ok() {
+        return Err(CommandError {
+            code: "KEY_ALREADY_EXISTS".into(),
+            message: "A master key already exists on this machine; restore a backup instead of regenerating it".into(),
+        });
+    }
     generate_and_save_master_keys()
 }
 
@@ -163,6 +172,36 @@ pub async fn check_and_register_key_if_missing_with_client(
     Ok(())
 }
 
+/// RF-ADMIN-08-1 gate before issuing enrollments: the local key must exist
+/// and be the one registered on the server; registers it if the server has none.
+/// Returns the local public key (the only one ever put in a manifest, SEC-07).
+pub async fn ensure_server_key_with_client(
+    client: &crate::client::AdminApiClient,
+) -> Result<String, CommandError> {
+    let local_pub = get_admin_public_key().map_err(|_| CommandError {
+        code: "KEY_SETUP_REQUIRED".into(),
+        message: "No master key on this machine: generate or restore it first".into(),
+    })?;
+    let me = client.get_admin_me().await.map_err(|e| CommandError {
+        code: "NETWORK_ERROR".into(),
+        message: e,
+    })?;
+    match me.public_key_fingerprint {
+        None => {
+            keys_register_on_server_with_client(client).await?;
+        }
+        Some(srv_fp) if srv_fp != public_key_fingerprint(&local_pub)? => {
+            tracing::warn!("Server public key differs from local key (K2 mismatch)");
+            return Err(CommandError {
+                code: "PUBLIC_KEY_MISMATCH".into(),
+                message: "Server master public key differs from local key (K2 mismatch)".into(),
+            });
+        }
+        Some(_) => {}
+    }
+    Ok(local_pub)
+}
+
 pub async fn check_and_register_key_if_missing() -> Result<(), CommandError> {
     check_and_register_key_if_missing_with_client(get_api_client()).await
 }
@@ -276,5 +315,24 @@ mod tests {
             .expect_err("Export short should fail");
         assert_eq!(err.code, "CRYPTO_ERROR");
         assert!(err.message.contains("at least 12 characters"));
+    }
+
+    #[tokio::test]
+    async fn test_ensure_server_key_without_local_key_requires_setup() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let client = AdminApiClient::new("http://127.0.0.1:9".into());
+        let err = ensure_server_key_with_client(&client).await.unwrap_err();
+        assert_eq!(err.code, "KEY_SETUP_REQUIRED");
+    }
+
+    #[tokio::test]
+    async fn test_generate_keypair_refuses_to_replace_existing_key() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let first = admin_generate_keypair().unwrap();
+        let err = admin_generate_keypair().unwrap_err();
+        assert_eq!(err.code, "KEY_ALREADY_EXISTS");
+        assert_eq!(get_admin_public_key().unwrap(), first);
     }
 }

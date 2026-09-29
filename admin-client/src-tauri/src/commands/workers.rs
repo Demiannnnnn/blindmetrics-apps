@@ -1,10 +1,10 @@
-use super::keys::get_admin_public_key;
+use super::keys::{ensure_server_key_with_client, get_admin_public_key};
 use super::CommandError;
 use crate::client::{get_api_client, AdminApiClient, CollectionResponse, SingleResponse};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use telemetry_crypto_core::enrollment::{
-    manifest_commitment, public_key_fingerprint, safety_code, EnrollmentManifest, EnrollmentQr,
+    manifest_commitment, safety_code, EnrollmentManifest, EnrollmentQr,
 };
 use telemetry_crypto_core::{ConsentDescriptions, ConsentFlags};
 
@@ -506,21 +506,9 @@ pub async fn workers_create_with_client(
 ) -> Result<CreatedWorker, CommandError> {
     form.validate()?;
 
-    // Check server key vs local key: must match before creating workers (RF-ADMIN-08-1)
-    let admin_pub = get_admin_public_key()?;
-    let local_fp = public_key_fingerprint(&admin_pub)?;
-
-    if let Ok(me) = client.get_admin_me().await {
-        if let Some(srv_fp) = me.public_key_fingerprint {
-            if srv_fp != local_fp {
-                tracing::warn!("Server key mismatch: worker creation blocked");
-                return Err(CommandError {
-                    code: "PUBLIC_KEY_MISMATCH".into(),
-                    message: "Server master public key differs from local key (K2 mismatch)".into(),
-                });
-            }
-        }
-    }
+    // RF-ADMIN-08-1: the server must hold our local key (registered now if
+    // missing) before it accepts workers; a different key blocks creation (K2).
+    let admin_pub = ensure_server_key_with_client(client).await?;
 
     let body = serde_json::json!({
         "email": form.email,
@@ -932,6 +920,17 @@ mod tests {
             .mount(&server)
             .await;
 
+        // Server has no key yet: workers_create registers the local one first
+        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
+        Mock::given(method("PUT"))
+            .and(path("/admins/me/public-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
         // Mock POST /workers returning worker and enrollment token
         Mock::given(method("POST"))
             .and(path("/workers"))
@@ -1027,6 +1026,17 @@ mod tests {
                     "updated_at": "2026-09-28T00:00:00Z"
                 }
             })))
+            .mount(&server)
+            .await;
+
+        // Server has no key yet: workers_create registers the local one first
+        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
+        Mock::given(method("PUT"))
+            .and(path("/admins/me/public-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
+            })))
+            .expect(1)
             .mount(&server)
             .await;
 
@@ -1173,6 +1183,17 @@ mod tests {
             .mount(&server)
             .await;
 
+        // Server has no key yet: workers_create registers the local one first
+        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
+        Mock::given(method("PUT"))
+            .and(path("/admins/me/public-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
         Mock::given(method("POST"))
             .and(path("/workers"))
             .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
@@ -1255,6 +1276,17 @@ mod tests {
                     "updated_at": "2026-09-28T00:00:00Z"
                 }
             })))
+            .mount(&server)
+            .await;
+
+        // Server has no key yet: workers_create registers the local one first
+        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
+        Mock::given(method("PUT"))
+            .and(path("/admins/me/public-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
+            })))
+            .expect(1)
             .mount(&server)
             .await;
 
