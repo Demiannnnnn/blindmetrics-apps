@@ -50,7 +50,11 @@ fn get_raw_hardware_id() -> Option<String> {
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty() && *l != "UUID").collect();
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && *l != "UUID")
+        .collect();
     lines.first().map(|s| s.to_string())
 }
 
@@ -86,6 +90,9 @@ mod tests {
         let id2 = get_device_identifier();
         assert_eq!(id1, id2, "Device identifier must be deterministic");
         assert_eq!(id1.len(), 64, "SHA-256 hash must be 64 characters long");
-        assert!(id1.chars().all(|c| c.is_ascii_hexdigit()), "Must contain only hex digits");
+        assert!(
+            id1.chars().all(|c| c.is_ascii_hexdigit()),
+            "Must contain only hex digits"
+        );
     }
 }

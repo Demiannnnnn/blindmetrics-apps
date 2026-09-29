@@ -1,7 +1,7 @@
+use crate::error::CryptoError;
 use hkdf::Hkdf;
 use sha2::Sha256;
 use zeroize::Zeroizing;
-use crate::error::CryptoError;
 
 pub const HKDF_SALT: &[u8] = b"telemetry-v1";
 pub const HKDF_INFO: &[u8] = b"aes256gcm";

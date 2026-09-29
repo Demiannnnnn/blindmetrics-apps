@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::config::ConsentSettings;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConsentUpdateRequest {
@@ -35,7 +35,9 @@ impl ConsentManager {
             "file_activity" => self.current_settings.file_activity = granted,
             "location" => {
                 if granted && self.worker_role == "OFFICE" {
-                    return Err("Location tracking is prohibited by compliance policy for OFFICE workers");
+                    return Err(
+                        "Location tracking is prohibited by compliance policy for OFFICE workers",
+                    );
                 }
                 self.current_settings.location = granted;
             }

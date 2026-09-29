@@ -1,5 +1,5 @@
-use std::sync::Mutex;
 use crate::core::metrics::MetricPayload;
+use std::sync::Mutex;
 
 pub struct MetricsBuffer {
     items: Mutex<Vec<MetricPayload>>,
@@ -29,7 +29,7 @@ impl MetricsBuffer {
     /// Retains the Mutex lock for under 50 nanoseconds, replacing the internal vector
     /// with an empty one and freeing the lock immediately for collectors to proceed.
     pub fn drain_for_flush(&self) -> Vec<MetricPayload> {
-        let mut lock = self.items.lock().unwrap();
+        let mut lock = self.items.lock().unwrap_or_else(|p| p.into_inner());
         std::mem::take(&mut *lock)
     }
 
@@ -51,18 +51,20 @@ impl Default for MetricsBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::metrics::ProductivityBasicItem;
     use chrono::Utc;
-    use crate::core::metrics::ProductivityMetric;
 
     #[test]
     fn test_buffer_push_drain_and_fifo_eviction() {
         let buffer = MetricsBuffer::new(3);
 
-        let make_item = |kpm| MetricPayload::Productivity(ProductivityMetric {
-            client_timestamp: Utc::now(),
-            keystrokes_per_minute: kpm,
-            clicks_per_minute: 0,
-        });
+        let make_item = |kpm| {
+            MetricPayload::ProductivityBasic(ProductivityBasicItem {
+                minute: Utc::now(),
+                keystrokes: kpm,
+                clicks: 0,
+            })
+        };
 
         buffer.push(make_item(10));
         buffer.push(make_item(20));
@@ -77,8 +79,8 @@ mod tests {
         assert_eq!(drained.len(), 3);
         assert_eq!(buffer.len(), 0);
 
-        if let MetricPayload::Productivity(first) = &drained[0] {
-            assert_eq!(first.keystrokes_per_minute, 20);
+        if let MetricPayload::ProductivityBasic(first) = &drained[0] {
+            assert_eq!(first.keystrokes, 20);
         } else {
             panic!("Expected productivity metric");
         }

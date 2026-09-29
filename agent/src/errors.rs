@@ -20,6 +20,13 @@ pub enum AgentError {
     #[error("Network error: {0}")]
     Network(String),
 
+    #[error("API error ({status}): {code} - {reason:?}")]
+    Api {
+        status: u16,
+        code: String,
+        reason: Option<String>,
+    },
+
     #[error("Server returned status {0}")]
     ServerError(u16),
 

@@ -1,5 +1,5 @@
-use telemetry_crypto_core::{encrypt_telemetry_batch, CryptoError, EncryptedEnvelope};
 use crate::core::metrics::MetricPayload;
+use telemetry_crypto_core::{encrypt_telemetry_batch, CryptoError, EncryptedEnvelope};
 
 pub struct EncryptionPipeline {
     admin_public_key: String,
@@ -24,22 +24,20 @@ impl EncryptionPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::metrics::ProductivityBasicItem;
     use chrono::Utc;
     use telemetry_crypto_core::{decrypt_telemetry_record, generate_admin_keypair};
-    use crate::core::metrics::ProductivityMetric;
 
     #[test]
     fn test_encryption_pipeline_integration() {
         let (admin_priv, admin_pub) = generate_admin_keypair();
         let pipeline = EncryptionPipeline::new(admin_pub);
 
-        let batch = vec![
-            MetricPayload::Productivity(ProductivityMetric {
-                client_timestamp: Utc::now(),
-                keystrokes_per_minute: 55,
-                clicks_per_minute: 22,
-            }),
-        ];
+        let batch = vec![MetricPayload::ProductivityBasic(ProductivityBasicItem {
+            minute: Utc::now(),
+            keystrokes: 55,
+            clicks: 22,
+        })];
 
         let envelope = pipeline.encrypt_batch(&batch).expect("Encryption failed");
         assert!(!envelope.ephemeral_public_key.is_empty());
@@ -48,7 +46,8 @@ mod tests {
             &admin_priv,
             &envelope.ephemeral_public_key,
             &envelope.encrypted_payload,
-        ).expect("Decryption failed");
+        )
+        .expect("Decryption failed");
 
         assert_eq!(batch, decrypted);
     }

@@ -1,6 +1,6 @@
+use crate::device::get_device_identifier;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::device::get_device_identifier;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConsentSettings {
@@ -33,10 +33,10 @@ pub struct WorkerConfig {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
     pub device_identifier: String,
-    pub worker_role: String, // "OFFICE" or "FIELD"
+    pub worker_role: String,      // "OFFICE" or "FIELD"
     pub work_hours_start: String, // "09:00"
-    pub work_hours_end: String, // "18:00"
-    pub timezone: String, // "America/Santiago"
+    pub work_hours_end: String,   // "18:00"
+    pub timezone: String,         // "America/Santiago"
     pub flush_interval_secs: u64,
     pub consents: ConsentSettings,
 }
@@ -51,35 +51,48 @@ impl WorkerConfig {
     }
 
     pub fn load_or_init() -> Self {
+        Self::load_or_init_at(Self::config_path())
+    }
+
+    pub fn load_or_init_at<P: AsRef<std::path::Path>>(path: P) -> Self {
+        let path = path.as_ref();
         let _ = dotenvy::dotenv();
-        let path = Self::config_path();
-        let mut cfg = if let Ok(data) = std::fs::read_to_string(&path) {
-            serde_json::from_str(&data).unwrap_or_else(|_| Self::default_config())
+        let (mut cfg, is_new) = if let Ok(data) = std::fs::read_to_string(path) {
+            if let Ok(loaded) = serde_json::from_str::<Self>(&data) {
+                (loaded, false)
+            } else {
+                (Self::default_config(), true)
+            }
         } else {
-            Self::default_config()
+            (Self::default_config(), true)
         };
 
-        // Override or initialize from environment variables if present
-        if let Ok(env_url) = std::env::var("TELEMETRY_API_URL") {
-            if !env_url.trim().is_empty() {
-                cfg.api_base_url = env_url.trim().to_string();
-            }
-        }
-        if let Ok(env_role) = std::env::var("WORKER_ROLE") {
-            let role_upper = env_role.trim().to_uppercase();
-            if role_upper == "FIELD" || role_upper == "OFFICE" {
-                cfg.worker_role = role_upper;
-            }
-        }
-        if let Ok(env_flush) = std::env::var("WORKER_FLUSH_INTERVAL") {
-            if let Ok(secs) = env_flush.trim().parse::<u64>() {
-                if secs >= 5 {
-                    cfg.flush_interval_secs = secs;
+        if is_new {
+            if let Ok(env_url) = std::env::var("TELEMETRY_API_URL") {
+                if !env_url.trim().is_empty() {
+                    cfg.api_base_url = env_url.trim().to_string();
                 }
             }
+            if let Ok(env_role) = std::env::var("WORKER_ROLE") {
+                let role_upper = env_role.trim().to_uppercase();
+                if role_upper == "FIELD" || role_upper == "OFFICE" {
+                    cfg.worker_role = role_upper;
+                }
+            }
+            if let Ok(env_flush) = std::env::var("WORKER_FLUSH_INTERVAL") {
+                if let Ok(secs) = env_flush.trim().parse::<u64>() {
+                    if secs >= 5 {
+                        cfg.flush_interval_secs = secs;
+                    }
+                }
+            }
+
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = cfg.save_to(path);
         }
 
-        cfg.save().ok();
         cfg
     }
 
@@ -102,8 +115,12 @@ impl WorkerConfig {
     }
 
     pub fn save(&self) -> Result<(), std::io::Error> {
+        self.save_to(Self::config_path())
+    }
+
+    pub fn save_to<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), std::io::Error> {
         let data = serde_json::to_string_pretty(self)?;
-        std::fs::write(Self::config_path(), data)
+        std::fs::write(path, data)
     }
 }
 
@@ -119,7 +136,8 @@ mod tests {
             admin_public_key: Some("dummy-b64-key".into()),
             access_token: None,
             refresh_token: None,
-            device_identifier: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+            device_identifier: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .into(),
             worker_role: "FIELD".into(),
             work_hours_start: "08:30".into(),
             work_hours_end: "17:30".into(),
@@ -134,5 +152,23 @@ mod tests {
         assert_eq!(config.api_base_url, deserialized.api_base_url);
         assert_eq!(config.worker_role, deserialized.worker_role);
         assert_eq!(config.consents, deserialized.consents);
+    }
+
+    #[test]
+    fn test_config_load_uses_injected_path() {
+        let temp_dir = tempfile::tempdir().expect("Failed to create tempdir");
+        let config_path = temp_dir.path().join("injected_config.json");
+
+        assert!(!config_path.exists());
+        let mut config = WorkerConfig::load_or_init_at(&config_path);
+        assert!(config_path.exists());
+
+        config.worker_role = "FIELD".into();
+        config
+            .save_to(&config_path)
+            .expect("Failed to save to injected path");
+
+        let reloaded = WorkerConfig::load_or_init_at(&config_path);
+        assert_eq!(reloaded.worker_role, "FIELD");
     }
 }

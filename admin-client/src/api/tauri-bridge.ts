@@ -47,8 +47,10 @@ export interface KpiSummary {
   systemAlerts: number;
 }
 
-// In-memory data store for rich administrative demonstration and offline inspection
-let mockWorkers: WorkerItem[] = [
+const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
+
+// Demo store strictly guarded behind VITE_DEMO_MODE=true
+let mockWorkers: WorkerItem[] = isDemoMode ? [
   {
     id: "01912345-6789-7abc-def0-000000000001",
     name: "Carlos Valenzuela",
@@ -103,7 +105,7 @@ let mockWorkers: WorkerItem[] = [
       location: false,
     },
   },
-];
+] : [];
 
 let cachedAdminKey: string | null = null;
 let currentSession: AdminProfile | null = null;
@@ -130,49 +132,34 @@ export async function adminLogin(email: string, pass: string, apiUrl?: string): 
       currentSession = profile;
       return profile;
     } catch (err) {
-      console.warn("Tauri admin_login API call returned error, checking fallback:", err);
-      // If server is offline, allow testing with local administrative profile
-      const localProfile: AdminProfile = {
-        id: "admin-local-1",
-        email,
-        name: email.split('@')[0],
-        organization: "Acme SpA",
-      };
-      currentSession = localProfile;
-      return localProfile;
+      if (isDemoMode) {
+        console.warn("Tauri admin_login API call returned error, demo fallback enabled:", err);
+        const localProfile: AdminProfile = {
+          id: "admin-local-demo",
+          email,
+          name: email.split('@')[0],
+          organization: "Acme SpA (Demo)",
+        };
+        currentSession = localProfile;
+        return localProfile;
+      }
+      throw err;
     }
   }
 
-  // Web Browser mode: Try HTTP POST, with offline fallback
-  try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: pass }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const profile = data.user || {
-        id: "admin-1",
-        email,
-        name: email.split('@')[0],
-        organization: "Acme SpA",
-      };
-      currentSession = profile;
-      return profile;
-    }
-  } catch (err) {
-    console.info("API unreachable in web mode, logging in with offline administrative profile:", err);
+  // Web Browser mode: only permitted when explicitly running in demo mode
+  if (isDemoMode) {
+    const profile: AdminProfile = {
+      id: "admin-offline-demo",
+      email,
+      name: email.split('@')[0],
+      organization: "Acme SpA (Demo)",
+    };
+    currentSession = profile;
+    return profile;
   }
 
-  const profile: AdminProfile = {
-    id: "admin-offline-demo",
-    email,
-    name: email.split('@')[0],
-    organization: "Acme SpA",
-  };
-  currentSession = profile;
-  return profile;
+  throw new Error("Direct API calls from browser/web are prohibited (SEC-06). Please launch the Tauri desktop client.");
 }
 
 export async function adminRegister(
@@ -197,18 +184,33 @@ export async function adminRegister(
       currentSession = profile;
       return profile;
     } catch (err) {
-      console.warn("Tauri admin_register API error:", err);
+      if (isDemoMode) {
+        console.warn("Tauri admin_register API error, demo fallback enabled:", err);
+        const profile: AdminProfile = {
+          id: `admin-demo-${Date.now()}`,
+          name,
+          email,
+          organization,
+        };
+        currentSession = profile;
+        return profile;
+      }
+      throw err;
     }
   }
 
-  const profile: AdminProfile = {
-    id: `admin-${Date.now()}`,
-    name,
-    email,
-    organization,
-  };
-  currentSession = profile;
-  return profile;
+  if (isDemoMode) {
+    const profile: AdminProfile = {
+      id: `admin-demo-${Date.now()}`,
+      name,
+      email,
+      organization,
+    };
+    currentSession = profile;
+    return profile;
+  }
+
+  throw new Error("Direct API calls from browser/web are prohibited (SEC-06). Please launch the Tauri desktop client.");
 }
 
 export async function adminLogout(): Promise<void> {
@@ -255,10 +257,18 @@ export async function getAdminPublicKey(): Promise<string> {
         return generated;
       } catch (genErr) {
         console.error("Failed to generate master keypair:", genErr);
+        if (!isDemoMode) {
+          throw genErr;
+        }
       }
     }
   }
-  return "v3bQ4f8r9s2w8e4y1u7i5o0p3a6s9d2f5g8h1j4k7l0=";
+
+  if (isDemoMode) {
+    return "v3bQ4f8r9s2w8e4y1u7i5o0p3a6s9d2f5g8h1j4k7l0=";
+  }
+
+  throw new Error("Admin public key unavailable outside Tauri native keystore.");
 }
 
 export async function generateAdminKeypair(): Promise<string> {
@@ -272,9 +282,14 @@ export async function generateAdminKeypair(): Promise<string> {
       throw err;
     }
   }
-  const mockKey = "v3bQ4f8r9s2w8e4y1u7i5o0p3a6s9d2f5g8h1j4k7l0=";
-  cachedAdminKey = mockKey;
-  return mockKey;
+
+  if (isDemoMode) {
+    const mockKey = "v3bQ4f8r9s2w8e4y1u7i5o0p3a6s9d2f5g8h1j4k7l0=";
+    cachedAdminKey = mockKey;
+    return mockKey;
+  }
+
+  throw new Error("Keypair generation unavailable outside Tauri native keystore.");
 }
 
 export async function simulateAndDecrypt(): Promise<DecryptedTelemetryRecord> {
@@ -287,22 +302,25 @@ export async function simulateAndDecrypt(): Promise<DecryptedTelemetryRecord> {
     }
   }
 
-  // Web fallback simulation
-  return {
-    id: `sim-${Date.now().toString().slice(-6)}`,
-    client_timestamp: new Date().toISOString(),
-    payload: {
-      device_identifier: "macbook-air-m2-corporate-node",
-      worker_name: "Carlos Valenzuela",
-      cpu_usage_pct: 32.4,
-      ram_usage_pct: 68.1,
-      keystrokes_per_minute: 146,
-      clicks_per_minute: 41,
-      active_window: "VS Code — telemetry-apps",
-      top_fqdns: ["github.com", "crates.io", "docs.rs"],
-      encrypted_at: new Date().toISOString(),
-    },
-  };
+  if (isDemoMode) {
+    return {
+      id: `sim-${Date.now().toString().slice(-6)}`,
+      client_timestamp: new Date().toISOString(),
+      payload: {
+        device_identifier: "macbook-air-m2-corporate-node",
+        worker_name: "Carlos Valenzuela",
+        cpu_usage_pct: 32.4,
+        ram_usage_pct: 68.1,
+        keystrokes_per_minute: 146,
+        clicks_per_minute: 41,
+        active_window: "VS Code — telemetry-apps",
+        top_fqdns: ["github.com", "crates.io", "docs.rs"],
+        encrypted_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  throw new Error("Telemetry decryption pipeline unavailable outside Tauri desktop client.");
 }
 
 export async function decryptRecords(records: any[]): Promise<DecryptedTelemetryRecord[]> {
@@ -314,19 +332,24 @@ export async function decryptRecords(records: any[]): Promise<DecryptedTelemetry
       throw err;
     }
   }
-  return records.map(r => ({
-    id: r.id,
-    client_timestamp: r.client_timestamp,
-    payload: r.payload || {},
-  }));
+
+  if (isDemoMode) {
+    return records.map(r => ({
+      id: r.id,
+      client_timestamp: r.client_timestamp,
+      payload: r.payload || {},
+    }));
+  }
+
+  throw new Error("Telemetry decryption pipeline unavailable outside Tauri desktop client.");
 }
 
 export async function fetchKpiSummary(): Promise<KpiSummary> {
-  const active = mockWorkers.filter(w => w.isActive).length;
+  const active = isDemoMode ? mockWorkers.filter(w => w.isActive).length : 0;
   return {
     activeWorkers: active,
-    totalWorkers: mockWorkers.length,
-    packetsDecrypted24h: 8492,
+    totalWorkers: isDemoMode ? mockWorkers.length : 0,
+    packetsDecrypted24h: isDemoMode ? 8492 : 0,
     keystoreProtected: true,
     systemAlerts: 0,
   };
@@ -337,7 +360,8 @@ export async function getWorkersList(
   roleFilter: string = "ALL",
   statusFilter: string = "ALL"
 ): Promise<WorkerItem[]> {
-  return mockWorkers.filter(w => {
+  const workers = isDemoMode ? mockWorkers : [];
+  return workers.filter(w => {
     const matchesSearch =
       w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       w.email.toLowerCase().includes(searchQuery.toLowerCase());
@@ -358,6 +382,10 @@ export async function createWorker(
   workHoursEnd: string,
   timezone: string
 ): Promise<{ worker: WorkerItem; enrollment: EnrollmentPackage }> {
+  if (!isDemoMode && !isTauri()) {
+    throw new Error("Worker creation requires Tauri desktop connection.");
+  }
+
   const newId = `01912345-6789-7abc-def0-${Date.now().toString().slice(-12)}`;
   const newWorker: WorkerItem = {
     id: newId,

@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::sleep;
 use crate::config::WorkerConfig;
 use crate::core::buffer::MetricsBuffer;
 use crate::core::collectors::keystroke_counter::KeystrokeCollector;
 use crate::core::collectors::SystemCollector;
 use crate::core::metrics::MetricPayload;
-use crate::io::encryption::EncryptionPipeline;
-use crate::io::transport::{OfflineQueue, TelemetryTransport};
+use crate::io::transport::{IngestOutcome, OfflineQueue, TelemetryTransport};
 use crate::notifications::NotificationDispatcher;
+use crate::pipeline::build_envelopes;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
 
 pub struct BackgroundEngine {
     config: WorkerConfig,
@@ -48,7 +48,7 @@ impl BackgroundEngine {
 
                 // Productivity metric snapshot
                 let prod = KeystrokeCollector::snapshot_and_reset();
-                collector_buffer.push(MetricPayload::Productivity(prod));
+                collector_buffer.push(MetricPayload::ProductivityBasic(prod));
 
                 // System metric sample
                 let sys = sys_collector.collect();
@@ -59,10 +59,25 @@ impl BackgroundEngine {
         // 3. Dispatcher loop (flushes double buffer and dispatches over HTTP or offline SQLite)
         let mut db_path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         db_path.push("telemetry-worker");
-        std::fs::create_dir_all(&db_path).ok();
+        let _ = std::fs::create_dir_all(&db_path);
         db_path.push("offline.db");
 
-        let mut queue = OfflineQueue::open(&db_path).expect("Failed to open offline SQLite database");
+        let mut queue = match OfflineQueue::open(&db_path) {
+            Ok(q) => q,
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to open disk SQLite queue ({:?}). Falling back to in-memory queue.",
+                    err
+                );
+                OfflineQueue::open_in_memory().unwrap_or_else(|e| {
+                    tracing::error!("Failed to open in-memory SQLite queue: {:?}", e);
+                    // Create uninitialized dummy if in-memory fails
+                    OfflineQueue::open_in_memory()
+                        .unwrap_or_else(|_| panic!("Fatal: cannot allocate SQLite database"))
+                })
+            }
+        };
+
         let mut transport = TelemetryTransport::new(self.config.clone());
 
         loop {
@@ -74,19 +89,64 @@ impl BackgroundEngine {
                 continue;
             }
 
+            let worker_id = self
+                .config
+                .worker_id
+                .as_deref()
+                .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                .unwrap_or_else(uuid::Uuid::nil);
+
             if let Some(admin_key) = &self.config.admin_public_key {
-                let pipeline = EncryptionPipeline::new(admin_key.clone());
-                match pipeline.encrypt_batch(&batch) {
-                    Ok(envelope) => {
-                        let category = batch[0].category();
-                        // Try sending directly, if network fails enqueue in SQLite
-                        if let Err(err) = transport.send_envelope(category, &envelope.ephemeral_public_key, &envelope.encrypted_payload).await {
-                            tracing::warn!("Direct dispatch failed: {:?}. Enqueuing in SQLite queue.", err);
-                            queue.enqueue(category, &envelope.ephemeral_public_key, &envelope.encrypted_payload).ok();
+                let records = build_envelopes(batch, worker_id, admin_key);
+                for rec_res in records {
+                    match rec_res {
+                        Ok(record) => {
+                            let endpoint = record.category.api_endpoint();
+                            let outcome = transport
+                                .send_record(
+                                    endpoint,
+                                    &record.ephemeral_public_key,
+                                    &record.encrypted_payload,
+                                    record.client_timestamp,
+                                    record.subcategory,
+                                )
+                                .await;
+
+                            match outcome {
+                                IngestOutcome::Delivered => {}
+                                IngestOutcome::DroppedForbidden(reason) => {
+                                    tracing::warn!(
+                                        "Record dropped: 403 reason={:?} category={}",
+                                        reason,
+                                        record.category.as_str()
+                                    );
+                                }
+                                IngestOutcome::DroppedValidation(code) => {
+                                    tracing::error!(
+                                        "Record dropped: validation error ({}) category={}",
+                                        code,
+                                        record.category.as_str()
+                                    );
+                                }
+                                IngestOutcome::NeedsQueue(err) => {
+                                    tracing::info!(
+                                        "Enqueuing record into SQLite queue ({}): category={}",
+                                        err,
+                                        record.category.as_str()
+                                    );
+                                    let _ = queue.enqueue(
+                                        record.category.as_str(),
+                                        &record.ephemeral_public_key,
+                                        &record.encrypted_payload,
+                                        record.client_timestamp,
+                                        record.subcategory,
+                                    );
+                                }
+                            }
                         }
-                    }
-                    Err(err) => {
-                        tracing::error!("Encryption failed: {:?}", err);
+                        Err(err) => {
+                            tracing::error!("Batch encryption failed: {:?}", err);
+                        }
                     }
                 }
             }
@@ -95,13 +155,39 @@ impl BackgroundEngine {
             if let Ok(queued_items) = queue.peek_batch(10) {
                 let mut delivered_ids = Vec::new();
                 for item in queued_items {
-                    if transport.send_envelope(&item.category, &item.ephemeral_public_key, &item.encrypted_payload).await.is_ok() {
-                        delivered_ids.push(item.id);
-                    } else {
-                        break; // Stop on first network failure to respect order
+                    let endpoint = match item.category.as_str() {
+                        "productivity_basic" | "productivity_screenshot" | "productivity" => {
+                            "productivity"
+                        }
+                        other => other,
+                    };
+
+                    let outcome = transport
+                        .send_record(
+                            endpoint,
+                            &item.ephemeral_public_key,
+                            &item.encrypted_payload,
+                            item.client_timestamp,
+                            item.subcategory.as_deref(),
+                        )
+                        .await;
+
+                    match outcome {
+                        IngestOutcome::Delivered => {
+                            delivered_ids.push(item.id);
+                        }
+                        IngestOutcome::DroppedForbidden(_)
+                        | IngestOutcome::DroppedValidation(_) => {
+                            // Drop permanently from queue on explicit non-recoverable error
+                            delivered_ids.push(item.id);
+                        }
+                        IngestOutcome::NeedsQueue(_) => {
+                            // Stop on network failure to maintain strict FIFO delivery order
+                            break;
+                        }
                     }
                 }
-                queue.mark_delivered(&delivered_ids).ok();
+                let _ = queue.mark_delivered(&delivered_ids);
             }
         }
     }

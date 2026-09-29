@@ -1,8 +1,8 @@
+use crate::error::CryptoError;
 use base64::prelude::*;
 use rand::rngs::OsRng;
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 use zeroize::Zeroizing;
-use crate::error::CryptoError;
 
 /// Generates a new static X25519 keypair for the Admin console.
 /// Returns `(private_key_b64, public_key_b64)`.
@@ -52,9 +52,7 @@ pub fn derive_public_key(priv_key_b64: &str) -> Result<String, CryptoError> {
 
 /// Generates an ephemeral X25519 secret and computes the ECDH shared secret with peer's public key.
 /// Returns `(ephemeral_public_key_b64, shared_secret)` with the secret securely zeroized on drop.
-pub fn compute_ephemeral_shared_secret(
-    peer_public: &PublicKey,
-) -> (String, Zeroizing<[u8; 32]>) {
+pub fn compute_ephemeral_shared_secret(peer_public: &PublicKey) -> (String, Zeroizing<[u8; 32]>) {
     let eph_secret = EphemeralSecret::random_from_rng(OsRng);
     let eph_public = PublicKey::from(&eph_secret);
     let shared = eph_secret.diffie_hellman(peer_public);

@@ -1,8 +1,8 @@
+use crate::keystore::{load_admin_private_key, save_admin_private_key};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use telemetry_crypto_core::{decrypt_telemetry_record, generate_admin_keypair};
 use zeroize::Zeroizing;
-use crate::keystore::{load_admin_private_key, save_admin_private_key};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct EncryptedRecordDto {
@@ -48,7 +48,8 @@ pub fn decrypt_records_parallel(
                 &priv_key,
                 &rec.ephemeral_public_key,
                 &rec.encrypted_payload,
-            ).map_err(|e| format!("Crypto decryption failure on record ID {}: {}", rec.id, e))?;
+            )
+            .map_err(|e| format!("Crypto decryption failure on record ID {}: {}", rec.id, e))?;
 
             Ok(DecryptedRecordDto {
                 id: rec.id,
@@ -60,7 +61,11 @@ pub fn decrypt_records_parallel(
 }
 
 #[tauri::command]
-pub async fn admin_login(email: String, password: String, api_url: Option<String>) -> Result<crate::client::AdminProfile, String> {
+pub async fn admin_login(
+    email: String,
+    password: String,
+    api_url: Option<String>,
+) -> Result<crate::client::AdminProfile, String> {
     let client = crate::client::get_api_client();
     if let Some(url) = api_url {
         client.set_base_url(url);
@@ -80,7 +85,9 @@ pub async fn admin_register(
     if let Some(url) = api_url {
         client.set_base_url(url);
     }
-    client.register(&name, &email, &password, &organization).await
+    client
+        .register(&name, &email, &password, &organization)
+        .await
 }
 
 #[tauri::command]
@@ -105,7 +112,9 @@ pub fn admin_get_public_key() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn admin_decrypt_records(records: Vec<EncryptedRecordDto>) -> Result<Vec<DecryptedRecordDto>, String> {
+pub fn admin_decrypt_records(
+    records: Vec<EncryptedRecordDto>,
+) -> Result<Vec<DecryptedRecordDto>, String> {
     let priv_key = load_admin_private_key().map_err(|e| format!("Keystore error: {}", e))?;
     decrypt_records_parallel(&priv_key, records)
 }
@@ -134,14 +143,19 @@ pub fn admin_simulate_and_decrypt() -> Result<DecryptedRecordDto, String> {
 
     let priv_key = load_admin_private_key().map_err(|e| format!("Keystore error: {}", e))?;
     let records = vec![EncryptedRecordDto {
-        id: format!("sim-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap()),
+        id: format!(
+            "sim-{}",
+            uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+        ),
         client_timestamp: chrono::Utc::now(),
         ephemeral_public_key: envelope.ephemeral_public_key,
         encrypted_payload: envelope.encrypted_payload,
     }];
 
     let mut decrypted = decrypt_records_parallel(&priv_key, records)?;
-    decrypted.pop().ok_or_else(|| "Decryption produced no output".to_string())
+    decrypted
+        .pop()
+        .ok_or_else(|| "Decryption produced no output".to_string())
 }
 
 #[tauri::command]
@@ -170,8 +184,8 @@ mod tests {
                 "cpu_usage": 20 + i,
             });
 
-            let envelope = encrypt_telemetry_batch(&payload, &admin_pub)
-                .expect("Failed to encrypt record");
+            let envelope =
+                encrypt_telemetry_batch(&payload, &admin_pub).expect("Failed to encrypt record");
 
             encrypted_records.push(EncryptedRecordDto {
                 id: format!("rec-{}", i),

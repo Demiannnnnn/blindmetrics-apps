@@ -9,7 +9,9 @@ impl NotificationDispatcher {
             let res = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Monitoreo de Telemetría Activo")
-                .body("Se están recolectando métricas laborales según los consentimientos otorgados.")
+                .body(
+                    "Se están recolectando métricas laborales según los consentimientos otorgados.",
+                )
                 .icon("dialog-information")
                 .timeout(notify_rust::Timeout::Milliseconds(5000))
                 .show();

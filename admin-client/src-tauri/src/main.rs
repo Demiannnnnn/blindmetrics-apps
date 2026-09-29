@@ -5,9 +5,9 @@ pub mod commands;
 pub mod keystore;
 
 use commands::{
-    admin_decrypt_records, admin_generate_keypair, admin_get_public_key,
-    admin_get_session, admin_lock_and_flush_memory, admin_login, admin_logout,
-    admin_register, admin_simulate_and_decrypt,
+    admin_decrypt_records, admin_generate_keypair, admin_get_public_key, admin_get_session,
+    admin_lock_and_flush_memory, admin_login, admin_logout, admin_register,
+    admin_simulate_and_decrypt,
 };
 
 fn main() {

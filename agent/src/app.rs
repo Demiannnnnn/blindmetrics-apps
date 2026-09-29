@@ -1,5 +1,3 @@
-use std::sync::Arc;
-use eframe::egui::{self, Color32, RichText};
 use crate::config::WorkerConfig;
 use crate::core::buffer::MetricsBuffer;
 use crate::core::collectors::keystroke_counter::KeystrokeCollector;
@@ -7,6 +5,8 @@ use crate::core::collectors::SystemCollector;
 use crate::core::metrics::MetricPayload;
 use crate::ui::onboarding::OnboardingManager;
 use crate::ui::WorkerUIState;
+use eframe::egui::{self, Color32, RichText};
+use std::sync::Arc;
 
 pub struct WorkerDesktopApp {
     pub config: WorkerConfig,
@@ -245,28 +245,45 @@ impl WorkerDesktopApp {
             });
 
             ui.horizontal(|ui| {
-                ui.label(format!("Horario configurado: {} - {} ({})", self.config.work_hours_start, self.config.work_hours_end, self.config.timezone));
+                ui.label(format!(
+                    "Horario configurado: {} - {} ({})",
+                    self.config.work_hours_start, self.config.work_hours_end, self.config.timezone
+                ));
             });
 
             ui.horizontal(|ui| {
-                ui.label(format!("Frecuencia de envío: cada {} segundos", self.config.flush_interval_secs));
+                ui.label(format!(
+                    "Frecuencia de envío: cada {} segundos",
+                    self.config.flush_interval_secs
+                ));
             });
 
             ui.add_space(4.0);
 
-            if ui.button(RichText::new("⚡ Enviar Muestra de Telemetría Ahora").strong()).clicked() {
+            if ui
+                .button(RichText::new("⚡ Enviar Muestra de Telemetría Ahora").strong())
+                .clicked()
+            {
                 let mut sys = SystemCollector::new();
                 let sys_sample = sys.collect();
                 let prod_sample = KeystrokeCollector::snapshot_and_reset();
 
                 self.buffer.push(MetricPayload::System(sys_sample));
-                self.buffer.push(MetricPayload::Productivity(prod_sample));
+                self.buffer
+                    .push(MetricPayload::ProductivityBasic(prod_sample));
 
-                self.status_notification = Some(format!("Muestra capturada. {} registros en búfer volátil.", self.buffer.len()));
+                self.status_notification = Some(format!(
+                    "Muestra capturada. {} registros en búfer volátil.",
+                    self.buffer.len()
+                ));
             }
 
             if let Some(ref note) = self.status_notification {
-                ui.label(RichText::new(note).color(Color32::from_rgb(52, 152, 219)).small());
+                ui.label(
+                    RichText::new(note)
+                        .color(Color32::from_rgb(52, 152, 219))
+                        .small(),
+                );
             }
         });
     }

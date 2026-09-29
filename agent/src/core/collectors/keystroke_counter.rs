@@ -1,6 +1,6 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use crate::core::metrics::ProductivityBasicItem;
 use chrono::Utc;
-use crate::core::metrics::ProductivityMetric;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 static KEYSTROKE_COUNT: AtomicU64 = AtomicU64::new(0);
 static CLICK_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -31,14 +31,14 @@ impl KeystrokeCollector {
     }
 
     /// Takes a snapshot of current frequency counters and resets them to zero atomically.
-    pub fn snapshot_and_reset() -> ProductivityMetric {
+    pub fn snapshot_and_reset() -> ProductivityBasicItem {
         let kpm = KEYSTROKE_COUNT.swap(0, Ordering::Relaxed);
         let cpm = CLICK_COUNT.swap(0, Ordering::Relaxed);
 
-        ProductivityMetric {
-            client_timestamp: Utc::now(),
-            keystrokes_per_minute: kpm,
-            clicks_per_minute: cpm,
+        ProductivityBasicItem {
+            minute: Utc::now(),
+            keystrokes: kpm,
+            clicks: cpm,
         }
     }
 }
@@ -56,12 +56,12 @@ mod tests {
         KeystrokeCollector::record_click();
 
         let metric = KeystrokeCollector::snapshot_and_reset();
-        assert_eq!(metric.keystrokes_per_minute, 2);
-        assert_eq!(metric.clicks_per_minute, 1);
+        assert_eq!(metric.keystrokes, 2);
+        assert_eq!(metric.clicks, 1);
 
         // Next snapshot should be zero
         let next = KeystrokeCollector::snapshot_and_reset();
-        assert_eq!(next.keystrokes_per_minute, 0);
-        assert_eq!(next.clicks_per_minute, 0);
+        assert_eq!(next.keystrokes, 0);
+        assert_eq!(next.clicks, 0);
     }
 }

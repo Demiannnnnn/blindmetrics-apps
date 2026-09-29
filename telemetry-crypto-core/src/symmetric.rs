@@ -1,9 +1,9 @@
+use crate::error::CryptoError;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use rand::RngCore;
-use crate::error::CryptoError;
 
 /// Encrypts arbitrary plaintext bytes with AES-256-GCM using the provided 256-bit DEK.
 /// Produces a payload formatted as: `[ Nonce (12B) | Auth Tag (16B) | Ciphertext (NB) ]`.

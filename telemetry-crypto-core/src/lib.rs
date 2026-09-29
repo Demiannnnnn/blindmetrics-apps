@@ -1,7 +1,10 @@
 pub mod asymmetric;
 pub mod error;
 pub mod kdf;
+pub mod payloads;
 pub mod symmetric;
+
+pub use payloads::*;
 
 pub use asymmetric::{
     decode_private_key, decode_public_key, derive_public_key, generate_admin_keypair,
@@ -93,8 +96,7 @@ mod tests {
             domains: vec!["github.com".into(), "rust-lang.org".into()],
         };
 
-        let envelope = encrypt_telemetry_batch(&original, &admin_pub)
-            .expect("Encryption failed");
+        let envelope = encrypt_telemetry_batch(&original, &admin_pub).expect("Encryption failed");
 
         assert!(!envelope.ephemeral_public_key.is_empty());
         assert!(envelope.encrypted_payload.len() >= 28);
@@ -103,7 +105,8 @@ mod tests {
             &admin_priv,
             &envelope.ephemeral_public_key,
             &envelope.encrypted_payload,
-        ).expect("Decryption failed");
+        )
+        .expect("Decryption failed");
 
         assert_eq!(original, decrypted);
     }
@@ -159,11 +162,8 @@ mod tests {
         let short_payload = vec![0u8; 20]; // Less than 28 bytes
         let (_, dummy_eph) = generate_admin_keypair();
 
-        let result: Result<MockTelemetry, _> = decrypt_telemetry_record(
-            &admin_priv,
-            &dummy_eph,
-            &short_payload,
-        );
+        let result: Result<MockTelemetry, _> =
+            decrypt_telemetry_record(&admin_priv, &dummy_eph, &short_payload);
 
         assert!(matches!(result, Err(CryptoError::PayloadTooShort)));
     }

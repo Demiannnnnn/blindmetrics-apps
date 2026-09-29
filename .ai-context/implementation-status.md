@@ -29,16 +29,16 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Network / files / location / screenshots collectors | ❌ | Only structs in `core/metrics.rs`. | AGENT-03 |
 | Collectors gated by consent/status | ❌ | Collection loop ignores consent and runs unconditionally (DP-06). | AGENT-08 |
 | Double buffer | ✅ | `std::mem::take`; FIFO cap 1000. One `expect` on lock poisoning. | AGENT-04 |
-| **Envelope grouping** | 🟡❗ | Encrypts the whole mixed buffer as one envelope and posts it to `batch[0].category()` → system data can land in `/productivity`. | INT-01 |
-| **Ingest request shape** | 🎭❗ | Sends `{ephemeral_public_key, encrypted_payload}`; API requires `{records:[{…, client_timestamp}]}` (+ `subcategory` for productivity) → always 422/400. | INT-01 |
-| Token refresh | 🟡 | Reads `body.access_token` instead of `body.data.access_token`. | INT-01 |
-| Offline queue | 🟡 | SQLite WAL + 7-day purge OK; no size cap, no backoff/jitter, no drop-on-403, no purge on withdraw. `mark_delivered` builds SQL by string concat (ids are ints, but use params). | AGENT-05 |
+| **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |
+| **Ingest request shape** | ✅ | Sends `{records:[{ephemeral_public_key, encrypted_payload, client_timestamp, subcategory?}]}` matching `api-contract.md`. | INT-01 |
+| Token refresh | ✅ | Deserializes `data.access_token` and `data.refresh_token`. | INT-01 |
+| Offline queue | 🟡 | SQLite WAL + 7-day purge OK; parameterized `mark_delivered`; drops on 403. Faltan tope de tamaño y backoff/jitter. | AGENT-05 |
 | Lifecycle polling (`GET /workers/me`), key pinning | ❌ | | AGENT-08 |
 | Data subject rights | 🎭 | Buttons show a "request sent" dialog **without calling the API**; the text says data is decryptable "with the holder's key" (wrong: it's the admin's key). | AGENT-06 |
 | Notifications | 🟡 | Start + hourly via `notify-rust`. No screenshot / work-hours / consent-change notifications. | AGENT-07 |
 | System tray | 🎭 | `ui/tray.rs` is a state struct; no tray icon exists (eframe has none; needs `tray-icon`). Closing the window quits the app. | AGENT-07 |
-| Panic safety | 🟡 | `main.rs` `expect` on runtime creation; background `expect` on SQLite open; transport `expect` on client build. With `panic = "abort"` any of these kills the agent silently. | INT-01 |
-| Tests isolation | 🟡 | `ui::tests::test_traffic_light_states` calls `WorkerConfig::load_or_init()` → overwrites the developer's real `config.json`. | INT-01 |
+| Panic safety | ✅ | Replaced `expect`/`unwrap` in production paths (runtime creation, sqlite disk/memory fallback, client build). | INT-01 |
+| Tests isolation | ✅ | `WorkerConfig::load_or_init_at` with `tempfile`; real `config.json` is protected. | INT-01 |
 
 ## 3. `admin-client`
 
@@ -47,10 +47,10 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Keypair generation + keystore | ✅ | `keyring`, service `TelemetryAdminVault`. | ADMIN-01 |
 | Register `K_admin_pub` on server | ❌ | Needs API [T12]. | ADMIN-08 |
 | Backup export/import | ❌ | | ADMIN-01 |
-| **Login** | 🟡❗ | Rust client omits the required `role: "ADMIN"` and reads `body.access_token` (not `data.…`) → fails against the real API. The TS bridge then **silently falls back to a fake offline profile**, so the user appears logged in. | INT-01 |
-| Register | 🟡 | Ignores returned tokens and fabricates a random UUID profile. | INT-01 |
-| Refresh token handling | ❌ | Not stored; no 401→refresh→retry. | ADMIN-02 |
-| **Browser-mode `fetch`** | 🟡❗ | `tauri-bridge.ts` calls the API from JS when not in Tauri (SEC-06). Must be demo-only. | INT-01 |
+| **Login** | ✅ | Rust client sends `role: "ADMIN"`, reads `{data}`, saves refresh token in keystore, fetches `GET /admins/me`. No silent fake profile. | INT-01 |
+| Register | ✅ | Reads `{data}` from `POST /auth/register`, sets session and saves refresh token. | INT-01 |
+| Refresh token handling | 🟡 | Stored in keystore (`admin_refresh_token`); 401 retry in `get_with_auth`. | ADMIN-02 |
+| **Browser-mode `fetch`** | ✅ | Direct API calls from JS removed; demo mocks strictly guarded behind `VITE_DEMO_MODE=true` (SEC-06). | INT-01 |
 | **Workers list / create / toggle / KPIs** | 🎭 | `mockWorkers` array in `tauri-bridge.ts`; no Tauri command exists for workers. | ADMIN-03 / ADMIN-08 |
 | Enrollment modal | 🎭 | Shows the obsolete JSON package with a fake worker id. | ADMIN-08 |
 | Parallel decryption | ✅ | `rayon` pipeline tested with 50 records. | ADMIN-04 |

@@ -47,7 +47,9 @@ mod tests {
 
     #[test]
     fn test_traffic_light_states() {
-        let config = WorkerConfig::load_or_init();
+        let temp_dir = tempfile::tempdir().expect("Failed to create tempdir");
+        let config_path = temp_dir.path().join("config.json");
+        let config = WorkerConfig::load_or_init_at(&config_path);
         let mut state = WorkerUIState::new(&config);
 
         assert_eq!(state.get_traffic_light().0, "🟢");

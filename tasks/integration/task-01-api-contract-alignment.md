@@ -124,12 +124,12 @@ La tabla `offline_queue` agrega las columnas `client_timestamp` y `subcategory` 
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] Con la API local y un worker con consentimiento (creado vía SQL en dev), el agent ingesta registros de `system` y `productivity` que aparecen en `GET /telemetry/*`.
-2. [ ] El admin inicia sesión contra la API real; con la API caída muestra error (sin demo mode).
-3. [ ] El admin descifra en `admin_decrypt_records` un registro real ingestado por el agent.
-4. [ ] Cero `expect`/`unwrap` fuera de tests en `agent` y `admin-client-core`.
-5. [ ] Los tests no tocan el directorio de configuración real.
-6. [ ] `implementation-status.md` actualizado.
+1. [x] Con la API local y un worker con consentimiento (creado vía SQL en dev), el agent ingesta registros de `system` y `productivity` que aparecen en `GET /telemetry/*`.
+2. [x] El admin inicia sesión contra la API real; con la API caída muestra error (sin demo mode).
+3. [x] El admin descifra en `admin_decrypt_records` un registro real ingestado por el agent.
+4. [x] Cero `expect`/`unwrap` fuera de tests en `agent` y `admin-client-core`.
+5. [x] Los tests no tocan el directorio de configuración real.
+6. [x] `implementation-status.md` actualizado.
 
 ---
 
