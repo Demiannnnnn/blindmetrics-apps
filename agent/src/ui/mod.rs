@@ -59,4 +59,55 @@ mod tests {
         state.is_connected = false;
         assert_eq!(state.get_traffic_light().0, "🔴");
     }
+
+    #[test]
+    fn test_consent_flags_serialization() {
+        use telemetry_crypto_core::ConsentFlags;
+
+        let flags = ConsentFlags {
+            system_activity: true,
+            network_activity: false,
+            productivity_basic: true,
+            productivity_screenshots: false,
+            file_activity: true,
+            location: false,
+        };
+
+        let json = serde_json::to_string(&flags).expect("Serialize flags failed");
+        let parsed: ConsentFlags = serde_json::from_str(&json).expect("Deserialize flags failed");
+        assert_eq!(flags, parsed);
+    }
+
+    #[test]
+    fn test_office_worker_cannot_enable_gps() {
+        use crate::background::worker::should_collect;
+        use crate::state::RunMode;
+        use telemetry_crypto_core::{Category, ConsentFlags};
+
+        let all_true = ConsentFlags {
+            system_activity: true,
+            network_activity: true,
+            productivity_basic: true,
+            productivity_screenshots: true,
+            file_activity: true,
+            location: true,
+        };
+
+        let mode = RunMode::Collecting(all_true);
+
+        // For an OFFICE worker, location collection is ALWAYS false, even if requested and during work hours (DP-04)
+        let can_collect_office =
+            should_collect(Category::Location, &mode, "OFFICE", true, &all_true);
+        assert!(
+            !can_collect_office,
+            "OFFICE worker must never collect location"
+        );
+
+        // For a FIELD worker during work hours with consent, it is allowed
+        let can_collect_field = should_collect(Category::Location, &mode, "FIELD", true, &all_true);
+        assert!(
+            can_collect_field,
+            "FIELD worker during work hours with consent collects location"
+        );
+    }
 }

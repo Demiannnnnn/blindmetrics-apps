@@ -206,10 +206,10 @@ impl WorkerApp {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] La interfaz egui compila y renderiza a 60 FPS sin picos de consumo de CPU cuando está en reposo.
-2. [ ] El indicador semáforo refleja con precisión los tres estados de conexión y horario laboral.
-3. [ ] El toggle de GPS permanece inactivo e inaccesible para trabajadores de tipo `OFFICE`.
-4. [ ] Las solicitudes de portabilidad y supresión invocan los endpoints correspondientes de la API.
+1. [x] La interfaz egui compila y renderiza a 60 FPS sin picos de consumo de CPU cuando está en reposo.
+2. [x] El indicador semáforo refleja con precisión los tres estados de conexión y horario laboral.
+3. [x] El toggle de GPS permanece inactivo e inaccesible para trabajadores de tipo `OFFICE`.
+4. [x] Las solicitudes de portabilidad y supresión invocan los endpoints correspondientes de la API.
 
 ---
 

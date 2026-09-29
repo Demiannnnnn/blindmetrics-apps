@@ -144,6 +144,22 @@ pub struct ConsentDecisionResponse {
     pub consent_accepted_at: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DataRequestResponse {
+    pub request_id: String,
+    pub status: String,
+    #[serde(default)]
+    pub estimated_completion: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DataDeletionResponse {
+    pub request_id: String,
+    pub status: String,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct ApiClient {
     client: Client,
@@ -370,6 +386,88 @@ impl ApiClient {
         }
     }
 
+    /// Calls `POST /workers/me/data-request` to request an export of worker data (ARCO / GDPR).
+    pub async fn post_data_request(
+        &self,
+        access_token: &str,
+        categories: &[&str],
+    ) -> Result<DataRequestResponse, AgentError> {
+        let url = format!(
+            "{}/workers/me/data-request",
+            self.base_url.trim_end_matches('/')
+        );
+        let body = serde_json::json!({
+            "type": "EXPORT",
+            "categories": categories,
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(access_token)
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+
+        let status = resp.status();
+        if status.is_success() || status == StatusCode::ACCEPTED {
+            let val: serde_json::Value = resp.json().await.map_err(AgentError::Reqwest)?;
+            let item: DataRequestResponse = if let Some(data) = val.get("data") {
+                serde_json::from_value(data.clone())
+                    .map_err(|e| AgentError::Network(e.to_string()))?
+            } else {
+                serde_json::from_value(val).map_err(|e| AgentError::Network(e.to_string()))?
+            };
+            Ok(item)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
+    /// Calls `POST /workers/me/data-deletion` to request formal deletion of data (ARCO / GDPR).
+    pub async fn post_data_deletion(
+        &self,
+        access_token: &str,
+        reason: Option<&str>,
+    ) -> Result<DataDeletionResponse, AgentError> {
+        let url = format!(
+            "{}/workers/me/data-deletion",
+            self.base_url.trim_end_matches('/')
+        );
+        let mut body = serde_json::json!({
+            "categories": ["all"],
+        });
+        if let Some(r) = reason {
+            body["reason"] = serde_json::json!(r);
+        }
+
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(access_token)
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+
+        let status = resp.status();
+        if status.is_success() || status == StatusCode::ACCEPTED {
+            let val: serde_json::Value = resp.json().await.map_err(AgentError::Reqwest)?;
+            let item: DataDeletionResponse = if let Some(data) = val.get("data") {
+                serde_json::from_value(data.clone())
+                    .map_err(|e| AgentError::Network(e.to_string()))?
+            } else {
+                serde_json::from_value(val).map_err(|e| AgentError::Network(e.to_string()))?
+            };
+            Ok(item)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
     async fn handle_error_response<T>(
         status: StatusCode,
         resp: reqwest::Response,
@@ -495,5 +593,54 @@ mod tests {
             }
             other => panic!("Unexpected error: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn test_api_client_data_request_and_deletion() {
+        let server = MockServer::start().await;
+
+        // Mock 202 Accepted on POST /workers/me/data-request
+        Mock::given(method("POST"))
+            .and(path("/workers/me/data-request"))
+            .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+                "data": {
+                    "request_id": "REQ-123456",
+                    "status": "PENDING",
+                    "estimated_completion": "2026-09-29T10:00:00Z"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        // Mock 202 Accepted on POST /workers/me/data-deletion
+        Mock::given(method("POST"))
+            .and(path("/workers/me/data-deletion"))
+            .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+                "data": {
+                    "request_id": "DEL-789012",
+                    "status": "QUEUED",
+                    "message": "Solicitud de eliminación registrada"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = ApiClient::new(server.uri()).expect("Failed to create client");
+
+        let req_res = client
+            .post_data_request("worker_token", &["system", "network"])
+            .await;
+        assert!(req_res.is_ok());
+        let req_data = req_res.unwrap();
+        assert_eq!(req_data.request_id, "REQ-123456");
+        assert_eq!(req_data.status, "PENDING");
+
+        let del_res = client
+            .post_data_deletion("worker_token", Some("Derecho al olvido"))
+            .await;
+        assert!(del_res.is_ok());
+        let del_data = del_res.unwrap();
+        assert_eq!(del_data.request_id, "DEL-789012");
+        assert_eq!(del_data.status, "QUEUED");
     }
 }

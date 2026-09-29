@@ -57,6 +57,10 @@ pub struct WorkerDesktopApp {
     pub error_message: Option<String>,
     pub tray: Option<SystemTrayManager>,
     pub window_visible: bool,
+    pub last_arco_request_id: Option<String>,
+    pub last_arco_status: Option<String>,
+    pub last_arco_message: Option<String>,
+    pub show_deletion_confirm: bool,
 }
 
 impl WorkerDesktopApp {
@@ -94,6 +98,10 @@ impl WorkerDesktopApp {
             error_message: None,
             tray: Some(SystemTrayManager::new()),
             window_visible: true,
+            last_arco_request_id: None,
+            last_arco_status: None,
+            last_arco_message: None,
+            show_deletion_confirm: false,
         }
     }
 
@@ -131,6 +139,10 @@ impl WorkerDesktopApp {
             error_message: None,
             tray: None,
             window_visible: true,
+            last_arco_request_id: None,
+            last_arco_status: None,
+            last_arco_message: None,
+            show_deletion_confirm: false,
         }
     }
 }
@@ -686,21 +698,106 @@ impl WorkerDesktopApp {
     }
 
     fn render_tab_rights(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Derechos del Titular de Datos");
+        ui.heading("Derechos del Titular de Datos (ARCO / GDPR)");
         ui.add_space(6.0);
-        ui.label("Sus datos están cifrados con la clave de su empleador. Las solicitudes de exportación o eliminación son procesadas por la API.");
+        ui.label(RichText::new("Sus datos están cifrados con la clave de su empleador; los datos exportados se entregan cifrados y solo pueden ser leídos con dicha clave.").italics().color(Color32::LIGHT_GRAY));
 
         ui.add_space(10.0);
-        if ui.button("📥 Solicitar copia de mis datos").clicked() {
-            self.status_message = Some(
-                "Solicitud de exportación enviada. ID: REQ-".to_string()
-                    + &uuid::Uuid::new_v4().to_string()[..8],
-            );
+
+        if let Some(ref rid) = self.last_arco_request_id {
+            ui.group(|ui| {
+                ui.label(RichText::new("Última solicitud registrada:").strong());
+                ui.label(format!("ID de solicitud: {}", rid));
+                if let Some(ref status) = self.last_arco_status {
+                    ui.label(format!("Estado: {}", status));
+                }
+                if let Some(ref msg) = self.last_arco_message {
+                    ui.label(format!("Detalle: {}", msg));
+                }
+            });
+            ui.add_space(8.0);
         }
-        if ui.button("🗑️ Solicitar eliminación de mis datos").clicked() {
-            self.status_message = Some(
-                "Solicitud de eliminación enviada conforme al derecho al olvido laboral.".into(),
-            );
+
+        ui.horizontal(|ui| {
+            if ui.button("📥 Solicitar copia de mis datos").clicked() {
+                let token = self.cred_store.get_access_token().unwrap_or_default();
+                if token.is_empty() {
+                    self.error_message =
+                        Some("No hay sesión activa para solicitar exportación.".into());
+                } else {
+                    let client = self.client.clone();
+                    let handle = tokio::runtime::Handle::current();
+                    let categories = ["system", "network", "productivity", "files", "location"];
+                    match handle.block_on(client.post_data_request(&token, &categories)) {
+                        Ok(resp) => {
+                            self.last_arco_request_id = Some(resp.request_id.clone());
+                            self.last_arco_status = Some(resp.status.clone());
+                            self.last_arco_message = resp
+                                .estimated_completion
+                                .map(|e| format!("Estimado: {}", e));
+                            self.status_message = Some(format!(
+                                "Solicitud de exportación creada exitosamente (ID: {}).",
+                                resp.request_id
+                            ));
+                            self.error_message = None;
+                        }
+                        Err(e) => {
+                            self.error_message =
+                                Some(format!("Error en solicitud de datos: {}", e));
+                        }
+                    }
+                }
+            }
+
+            if !self.show_deletion_confirm
+                && ui
+                    .button(
+                        RichText::new("🗑️ Solicitar eliminación de mis datos")
+                            .color(Color32::from_rgb(231, 76, 60)),
+                    )
+                    .clicked()
+            {
+                self.show_deletion_confirm = true;
+            }
+        });
+
+        if self.show_deletion_confirm {
+            ui.add_space(8.0);
+            ui.group(|ui| {
+                ui.label(RichText::new("¿Confirmar solicitud formal de supresión de datos?").strong().color(Color32::from_rgb(231, 76, 60)));
+                ui.label("Se enviará una solicitud de purga a la organización conforme al derecho al olvido laboral.");
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.button(RichText::new("Confirmar Supresión").strong().color(Color32::from_rgb(231, 76, 60))).clicked() {
+                        self.show_deletion_confirm = false;
+                        let token = self.cred_store.get_access_token().unwrap_or_default();
+                        if token.is_empty() {
+                            self.error_message = Some("No hay sesión activa para solicitar eliminación.".into());
+                        } else {
+                            let client = self.client.clone();
+                            let handle = tokio::runtime::Handle::current();
+                            match handle.block_on(client.post_data_deletion(&token, Some("Derecho al olvido laboral"))) {
+                                Ok(resp) => {
+                                    self.last_arco_request_id = Some(resp.request_id.clone());
+                                    self.last_arco_status = Some(resp.status.clone());
+                                    self.last_arco_message = resp.message;
+                                    self.status_message = Some(format!(
+                                        "Solicitud de eliminación registrada exitosamente (ID: {}).",
+                                        resp.request_id
+                                    ));
+                                    self.error_message = None;
+                                }
+                                Err(e) => {
+                                    self.error_message = Some(format!("Error al solicitar eliminación: {}", e));
+                                }
+                            }
+                        }
+                    }
+                    if ui.button("Cancelar").clicked() {
+                        self.show_deletion_confirm = false;
+                    }
+                });
+            });
         }
     }
 
