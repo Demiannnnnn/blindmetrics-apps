@@ -1,9 +1,5 @@
-pub mod onboarding;
-pub mod settings;
 pub mod tray;
 
-pub use onboarding::OnboardingManager;
-pub use settings::ConsentManager;
 pub use tray::{TrayAction, TrayMenuState};
 
 use crate::config::WorkerConfig;
@@ -22,7 +18,10 @@ impl WorkerUIState {
         Self {
             is_connected: true,
             is_in_work_hours: true,
-            worker_role: config.worker_role.clone(),
+            worker_role: config
+                .worker_role
+                .clone()
+                .unwrap_or_else(|| "OFFICE".to_string()),
             offline_items_count: 0,
             status_message: None,
         }

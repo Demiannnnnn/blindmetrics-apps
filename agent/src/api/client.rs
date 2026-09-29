@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use telemetry_crypto_core::{ConsentDescriptions, ConsentFlags};
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_VERSION_HEADER: &str = "X-App-Version";
@@ -71,6 +72,76 @@ pub struct HealthResponse {
     pub version: Option<String>,
     #[serde(default)]
     pub timestamp: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct DeviceInfo {
+    pub hostname: String,
+    pub os: String,
+    pub app_version: String,
+}
+
+impl DeviceInfo {
+    pub fn collect() -> Self {
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown-host".to_string());
+        let os = format!(
+            "{} {}",
+            sysinfo::System::name().unwrap_or_else(|| std::env::consts::OS.to_string()),
+            sysinfo::System::os_version().unwrap_or_default()
+        )
+        .trim()
+        .to_string();
+        Self {
+            hostname,
+            os,
+            app_version: APP_VERSION.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct EnrollRequest<'a> {
+    pub token: &'a str,
+    pub device_identifier: &'a str,
+    pub device_info: &'a DeviceInfo,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct EnrollResponse {
+    pub worker_id: String,
+    pub worker_name: String,
+    pub organization: String,
+    pub role_type: String,
+    #[serde(default)]
+    pub work_hours_start: Option<String>,
+    #[serde(default)]
+    pub work_hours_end: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    pub status: crate::state::WorkerStatus,
+    pub auth: AuthResponse,
+    pub admin_public_key: String,
+    pub admin_public_key_fingerprint: String,
+    pub consent_version: i32,
+    pub consent_flags: ConsentFlags,
+    pub consent_descriptions: ConsentDescriptions,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ConsentDecisionRequest<'a> {
+    pub decision: &'a str,
+    pub consent_version: i32,
+    pub manifest_hash: &'a str,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ConsentDecisionResponse {
+    pub status: crate::state::WorkerStatus,
+    pub consent_version: i32,
+    pub accepted_consent_version: Option<i32>,
+    pub consent_flags: ConsentFlags,
+    #[serde(default)]
+    pub consent_accepted_at: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -178,6 +249,124 @@ impl ApiClient {
             Ok(res)
         } else {
             Err(AgentError::ServerError(status.as_u16()))
+        }
+    }
+
+    /// Calls `POST /workers/enroll` with 15s timeout to redeem a one-time token.
+    pub async fn enroll(
+        &self,
+        token: &str,
+        device_identifier: &str,
+        device_info: &DeviceInfo,
+    ) -> Result<EnrollResponse, AgentError> {
+        let url = format!("{}/workers/enroll", self.base_url.trim_end_matches('/'));
+        let body = EnrollRequest {
+            token,
+            device_identifier,
+            device_info,
+        };
+
+        let resp = self
+            .client
+            .post(&url)
+            .timeout(Duration::from_secs(15))
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let wrapped: SingleResponse<EnrollResponse> =
+                resp.json().await.map_err(AgentError::Reqwest)?;
+            Ok(wrapped.data)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
+    /// Calls `GET /workers/me` with Bearer auth to fetch current worker lifecycle state.
+    pub async fn get_me(&self, access_token: &str) -> Result<crate::state::WorkerSelf, AgentError> {
+        let url = format!("{}/workers/me", self.base_url.trim_end_matches('/'));
+        let resp = self
+            .client
+            .get(&url)
+            .bearer_auth(access_token)
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let wrapped: SingleResponse<crate::state::WorkerSelf> =
+                resp.json().await.map_err(AgentError::Reqwest)?;
+            Ok(wrapped.data)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
+    /// Calls `PATCH /workers/:id/consent` to record consent decision.
+    pub async fn patch_consent(
+        &self,
+        worker_id: &str,
+        access_token: &str,
+        decision: &str,
+        consent_version: i32,
+        manifest_hash: &str,
+    ) -> Result<ConsentDecisionResponse, AgentError> {
+        let url = format!(
+            "{}/workers/{}/consent",
+            self.base_url.trim_end_matches('/'),
+            worker_id
+        );
+        let body = ConsentDecisionRequest {
+            decision,
+            consent_version,
+            manifest_hash,
+        };
+
+        let resp = self
+            .client
+            .patch(&url)
+            .bearer_auth(access_token)
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let wrapped: SingleResponse<ConsentDecisionResponse> =
+                resp.json().await.map_err(AgentError::Reqwest)?;
+            Ok(wrapped.data)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
+    /// Calls `POST /auth/logout` to revoke refresh token.
+    pub async fn logout(&self, refresh_token: &str) -> Result<(), AgentError> {
+        let url = format!("{}/auth/logout", self.base_url.trim_end_matches('/'));
+        let body = serde_json::json!({ "refresh_token": refresh_token });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+
+        let status = resp.status();
+        if status.is_success() || status == StatusCode::NO_CONTENT {
+            Ok(())
+        } else {
+            Self::handle_error_response(status, resp).await
         }
     }
 

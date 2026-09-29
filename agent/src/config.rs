@@ -1,8 +1,9 @@
+use crate::credentials::CredentialStore;
 use crate::device::get_device_identifier;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConsentSettings {
     pub system_activity: bool,
     pub network_activity: bool,
@@ -13,11 +14,13 @@ pub struct ConsentSettings {
 }
 
 impl Default for ConsentSettings {
+    /// DP-08: Default consent settings are ALL FALSE.
+    /// No categories are enabled by default.
     fn default() -> Self {
         Self {
-            system_activity: true,
-            network_activity: true,
-            productivity_basic: true,
+            system_activity: false,
+            network_activity: false,
+            productivity_basic: false,
             productivity_screenshots: false,
             file_activity: false,
             location: false,
@@ -28,17 +31,29 @@ impl Default for ConsentSettings {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorkerConfig {
     pub api_base_url: String,
-    pub worker_id: Option<String>,
-    pub admin_public_key: Option<String>,
-    pub access_token: Option<String>,
-    pub refresh_token: Option<String>,
     pub device_identifier: String,
-    pub worker_role: String,      // "OFFICE" or "FIELD"
-    pub work_hours_start: String, // "09:00"
-    pub work_hours_end: String,   // "18:00"
-    pub timezone: String,         // "America/Santiago"
     pub flush_interval_secs: u64,
+    #[serde(default)]
     pub consents: ConsentSettings,
+
+    // Sensitive and server-managed fields: deserialized on read for backward-compat migration,
+    // but never serialized back out to config.json (SEC-05).
+    #[serde(default, skip_serializing)]
+    pub worker_id: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub admin_public_key: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub access_token: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub worker_role: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub work_hours_start: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub work_hours_end: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub timezone: Option<String>,
 }
 
 impl WorkerConfig {
@@ -59,6 +74,31 @@ impl WorkerConfig {
         let _ = dotenvy::dotenv();
         let (mut cfg, is_new) = if let Ok(data) = std::fs::read_to_string(path) {
             if let Ok(loaded) = serde_json::from_str::<Self>(&data) {
+                // Check if old sensitive fields were present on disk
+                let had_sensitive_data = loaded.admin_public_key.is_some()
+                    || loaded.access_token.is_some()
+                    || loaded.refresh_token.is_some()
+                    || loaded.worker_id.is_some();
+                if had_sensitive_data {
+                    let keystore = crate::credentials::KeyringCredentialStore::new();
+                    if loaded.admin_public_key.is_some()
+                        && keystore.get_pinned_admin_public_key().is_none()
+                    {
+                        let _ = keystore
+                            .set_pinned_admin_public_key(loaded.admin_public_key.as_deref());
+                    }
+                    if loaded.access_token.is_some() && keystore.get_access_token().is_none() {
+                        let _ = keystore.set_access_token(loaded.access_token.as_deref());
+                    }
+                    if loaded.refresh_token.is_some() && keystore.get_refresh_token().is_none() {
+                        let _ = keystore.set_refresh_token(loaded.refresh_token.as_deref());
+                    }
+                    if loaded.worker_id.is_some() && keystore.get_worker_id().is_none() {
+                        let _ = keystore.set_worker_id(loaded.worker_id.as_deref());
+                    }
+                    // Re-save without sensitive fields to remove them from disk
+                    let _ = loaded.save_to(path);
+                }
                 (loaded, false)
             } else {
                 (Self::default_config(), true)
@@ -71,12 +111,6 @@ impl WorkerConfig {
             if let Ok(env_url) = std::env::var("TELEMETRY_API_URL") {
                 if !env_url.trim().is_empty() {
                     cfg.api_base_url = env_url.trim().to_string();
-                }
-            }
-            if let Ok(env_role) = std::env::var("WORKER_ROLE") {
-                let role_upper = env_role.trim().to_uppercase();
-                if role_upper == "FIELD" || role_upper == "OFFICE" {
-                    cfg.worker_role = role_upper;
                 }
             }
             if let Ok(env_flush) = std::env::var("WORKER_FLUSH_INTERVAL") {
@@ -100,17 +134,17 @@ impl WorkerConfig {
         Self {
             api_base_url: std::env::var("TELEMETRY_API_URL")
                 .unwrap_or_else(|_| "http://localhost:8080/api/v1".to_string()),
+            device_identifier: get_device_identifier(),
+            flush_interval_secs: 30,
+            consents: ConsentSettings::default(),
             worker_id: None,
             admin_public_key: None,
             access_token: None,
             refresh_token: None,
-            device_identifier: get_device_identifier(),
-            worker_role: std::env::var("WORKER_ROLE").unwrap_or_else(|_| "OFFICE".to_string()),
-            work_hours_start: "09:00".to_string(),
-            work_hours_end: "18:00".to_string(),
-            timezone: "America/Santiago".to_string(),
-            flush_interval_secs: 30,
-            consents: ConsentSettings::default(),
+            worker_role: None,
+            work_hours_start: None,
+            work_hours_end: None,
+            timezone: None,
         }
     }
 
@@ -129,28 +163,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_serialization_roundtrip() {
+    fn test_default_consent_is_all_false() {
+        let consents = ConsentSettings::default();
+        assert!(!consents.system_activity);
+        assert!(!consents.network_activity);
+        assert!(!consents.productivity_basic);
+        assert!(!consents.productivity_screenshots);
+        assert!(!consents.file_activity);
+        assert!(!consents.location);
+    }
+
+    #[test]
+    fn test_config_serialization_roundtrip_never_writes_credentials() {
         let config = WorkerConfig {
             api_base_url: "https://test.telemetry.com/api/v1".into(),
-            worker_id: Some("worker-123".into()),
-            admin_public_key: Some("dummy-b64-key".into()),
-            access_token: None,
-            refresh_token: None,
             device_identifier: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                 .into(),
-            worker_role: "FIELD".into(),
-            work_hours_start: "08:30".into(),
-            work_hours_end: "17:30".into(),
-            timezone: "America/Santiago".into(),
             flush_interval_secs: 60,
             consents: ConsentSettings::default(),
+            worker_id: Some("worker-123".into()),
+            admin_public_key: Some("dummy-b64-key".into()),
+            access_token: Some("secret_access".into()),
+            refresh_token: Some("secret_refresh".into()),
+            worker_role: Some("FIELD".into()),
+            work_hours_start: Some("08:30".into()),
+            work_hours_end: Some("17:30".into()),
+            timezone: Some("America/Santiago".into()),
         };
 
         let json = serde_json::to_string(&config).expect("Serialize failed");
-        let deserialized: WorkerConfig = serde_json::from_str(&json).expect("Deserialize failed");
+        assert!(!json.contains("worker-123"));
+        assert!(!json.contains("dummy-b64-key"));
+        assert!(!json.contains("secret_access"));
+        assert!(!json.contains("secret_refresh"));
 
+        let deserialized: WorkerConfig = serde_json::from_str(&json).expect("Deserialize failed");
         assert_eq!(config.api_base_url, deserialized.api_base_url);
-        assert_eq!(config.worker_role, deserialized.worker_role);
+        assert_eq!(config.device_identifier, deserialized.device_identifier);
+        assert_eq!(config.flush_interval_secs, deserialized.flush_interval_secs);
         assert_eq!(config.consents, deserialized.consents);
     }
 
@@ -163,12 +213,12 @@ mod tests {
         let mut config = WorkerConfig::load_or_init_at(&config_path);
         assert!(config_path.exists());
 
-        config.worker_role = "FIELD".into();
+        config.flush_interval_secs = 45;
         config
             .save_to(&config_path)
             .expect("Failed to save to injected path");
 
         let reloaded = WorkerConfig::load_or_init_at(&config_path);
-        assert_eq!(reloaded.worker_role, "FIELD");
+        assert_eq!(reloaded.flush_interval_secs, 45);
     }
 }

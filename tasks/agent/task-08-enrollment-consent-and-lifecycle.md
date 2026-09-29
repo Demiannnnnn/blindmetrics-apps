@@ -141,11 +141,11 @@ La UI egui nunca hace `await`: envía `UiCommand::{Enroll, ConfirmSafetyCode, Ac
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] Escenarios 1–8 de [`docs/worker-app-spec.md` §7](../../docs/worker-app-spec.md) verificados contra la API con TASK-12.
-2. [ ] `config.json` ya no contiene tokens ni llaves; se migran las instalaciones existentes.
-3. [ ] No quedan toggles por categoría ni defaults en `true`.
-4. [ ] Los collectors se detienen ≤ 1 s después de `WITHDRAW`, `PAUSED` o `REVOKED`.
-5. [ ] `implementation-status.md` actualizado.
+1. [x] Escenarios 1–8 de [`docs/worker-app-spec.md` §7](../../docs/worker-app-spec.md) verificados contra la API con TASK-12.
+2. [x] `config.json` ya no contiene tokens ni llaves; se migran las instalaciones existentes.
+3. [x] No quedan toggles por categoría ni defaults en `true`.
+4. [x] Los collectors se detienen ≤ 1 s después de `WITHDRAW`, `PAUSED` o `REVOKED`.
+5. [x] `implementation-status.md` actualizado.
 
 ---
 

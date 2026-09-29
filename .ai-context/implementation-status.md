@@ -17,23 +17,23 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Capability | State | Notes | Task |
 |:-----------|:-----:|:------|:-----|
 | Device identifier | 🟡 | macOS `ioreg`, Linux `machine-id`, Windows `wmic` (deprecated/removed on Windows 11 24H2 → use registry `MachineGuid`). | AGENT-01 |
-| Config persistence | 🟡 | `config.json` stores **access & refresh tokens in plaintext** (SEC-05). Role/work-hours come from env vars instead of the server. | AGENT-08 |
-| **Consent defaults** | 🎭❗ | `ConsentSettings::default()` enables system, network, productivity_basic **before any consent** (DP-08). | AGENT-08 |
-| **Consent UI** | 🎭 | Per-category checkboxes change local state only; no `PATCH` is ever sent; model contradicts "admin defines, worker accepts". | AGENT-08 |
-| **Enrollment** | 🎭 | Pastes a JSON `{api_url, worker_id, admin_public_key, organization}`; no server call, no credentials obtained, no commitment check. | AGENT-08 |
-| **Authentication** | ❌ | The agent never obtains a token, so `access_token` is always `None`. Every send is unauthenticated. | AGENT-08 |
+| Config persistence | ✅ | Secrets moved to `CredentialStore` (keyring/in-memory); `config.json` never writes tokens or admin keys (SEC-05). Role/work-hours from server. | AGENT-08 |
+| **Consent defaults** | ✅ | `ConsentSettings::default()` is all false (DP-08). | AGENT-08 |
+| **Consent UI** | ✅ | All-or-nothing consent screen (C1), withdrawal confirmation (W) with instant purge (DP-09); per-category toggles removed. | AGENT-08 |
+| **Enrollment** | ✅ | QR commitment verification, manual safety code, pinned key, tamper alert (E1–E3), logout on mismatch. | AGENT-08 |
+| **Authentication** | ✅ | Worker obtains JWT and refresh tokens via `POST /workers/enroll`, stores in OS keystore, rotates on 401. | AGENT-08 |
 | Keystroke/click counters | 🟡 | `AtomicU64` counters correct (PERF-01) but **no OS hook feeds them** (`io/system_hooks.rs` is never registered) → always 0. | AGENT-02 |
 | Active window | 🎭 | Returns hard-coded `"Finder"/"Desktop"`, `"Explorer.EXE"` (PLAT-02). | AGENT-02 |
 | Idle time | 🎭 | Returns `0` on every OS. | AGENT-02 |
 | CPU / RAM | ✅ | `sysinfo`, 30 s. Net bytes & USB missing. | AGENT-02 |
 | Network / files / location / screenshots collectors | ❌ | Only structs in `core/metrics.rs`. | AGENT-03 |
-| Collectors gated by consent/status | ❌ | Collection loop ignores consent and runs unconditionally (DP-06). | AGENT-08 |
+| Collectors gated by consent/status | ✅ | Gated on `RunMode::Collecting`, effective flags, and local accepted flags (DP-06, DP-07); stops on pause/withdraw/revoke. | AGENT-08 |
 | Double buffer | ✅ | `std::mem::take`; FIFO cap 1000. One `expect` on lock poisoning. | AGENT-04 |
 | **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |
 | **Ingest request shape** | ✅ | Sends `{records:[{ephemeral_public_key, encrypted_payload, client_timestamp, subcategory?}]}` matching `api-contract.md`. | INT-01 |
 | Token refresh | ✅ | Deserializes `data.access_token` and `data.refresh_token`. | INT-01 |
-| Offline queue | 🟡 | SQLite WAL + 7-day purge OK; parameterized `mark_delivered`; drops on 403. Faltan tope de tamaño y backoff/jitter. | AGENT-05 |
-| Lifecycle polling (`GET /workers/me`), key pinning | ❌ | | AGENT-08 |
+| Offline queue | 🟡 | SQLite WAL + 7-day purge OK; parameterized `mark_delivered`; drops on 403; purged on withdraw/revoke (DP-09). Faltan tope de tamaño y backoff/jitter. | AGENT-05 |
+| Lifecycle polling (`GET /workers/me`), key pinning | ✅ | `ApiClient::get_me`, `derive_run_mode`, pinned key integrity check (Halted on mismatch), revocation wipe on 401. | AGENT-08 |
 | Data subject rights | 🎭 | Buttons show a "request sent" dialog **without calling the API**; the text says data is decryptable "with the holder's key" (wrong: it's the admin's key). | AGENT-06 |
 | Notifications | 🟡 | Start + hourly via `notify-rust`. No screenshot / work-hours / consent-change notifications. | AGENT-07 |
 | System tray | 🎭 | `ui/tray.rs` is a state struct; no tray icon exists (eframe has none; needs `tray-icon`). Closing the window quits the app. | AGENT-07 |

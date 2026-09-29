@@ -3,11 +3,14 @@ pub mod app;
 pub mod background;
 pub mod config;
 pub mod core;
+pub mod credentials;
 pub mod device;
+pub mod enrollment;
 pub mod errors;
 pub mod io;
 pub mod notifications;
 pub mod pipeline;
+pub mod state;
 pub mod ui;
 
 use app::WorkerDesktopApp;
@@ -32,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(
         "Telemetry Worker starting. Device ID: {}, Role: {}",
         &config.device_identifier[..8],
-        config.worker_role
+        config.worker_role.as_deref().unwrap_or("OFFICE")
     );
 
     // 4. Initialize metrics buffer

@@ -93,6 +93,7 @@ dependencies = [
  "dirs 5.0.1",
  "dotenvy",
  "eframe",
+ "keyring",
  "notify-rust",
  "rand 0.8.8",
  "reqwest 0.12.28",

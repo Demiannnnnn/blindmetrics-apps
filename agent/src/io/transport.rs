@@ -138,6 +138,12 @@ impl OfflineQueue {
         Ok(count as usize)
     }
 
+    /// Purges all queued envelopes upon consent withdrawal or revocation (DP-09).
+    pub fn clear(&mut self) -> SqlResult<()> {
+        self.conn.execute("DELETE FROM offline_queue", [])?;
+        Ok(())
+    }
+
     fn enforce_retention(&mut self) -> SqlResult<()> {
         // Discard entries older than 7 days
         self.conn.execute(

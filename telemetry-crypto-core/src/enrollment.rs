@@ -257,7 +257,8 @@ mod tests {
             .expect("Failed to build manifest");
 
         let commitment = manifest_commitment(&manifest).expect("Failed to compute commitment");
-        const EXPECTED_HEX: &str = "472eb081f962210500e25b6fe56327e86e8596cdbbb8c839265b7a50d1202bd1";
+        const EXPECTED_HEX: &str =
+            "472eb081f962210500e25b6fe56327e86e8596cdbbb8c839265b7a50d1202bd1";
 
         // Verify deterministic commitment against canonical protocol hash
         assert_eq!(commitment, EXPECTED_HEX);
