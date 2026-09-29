@@ -1,25 +1,67 @@
 import React, { useState } from 'react';
-import { Lock, KeyRound, ShieldAlert } from 'lucide-react';
+import { Lock, KeyRound, ShieldAlert, Fingerprint, LogOut, AlertCircle } from 'lucide-react';
+import { adminUnlock, adminUnlockWithBiometric, AdminProfile } from '../api/tauri-bridge';
 
 interface AutoLockModalProps {
   isLocked: boolean;
-  onUnlock: () => void;
+  onUnlock: (profile?: AdminProfile) => void;
+  onForcedLogout: () => void;
 }
 
-export const AutoLockModal: React.FC<AutoLockModalProps> = ({ isLocked, onUnlock }) => {
+export const AutoLockModal: React.FC<AutoLockModalProps> = ({
+  isLocked,
+  onUnlock,
+  onForcedLogout,
+}) => {
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [attempts, setAttempts] = useState(0);
 
   if (!isLocked) return null;
 
-  const handleUnlock = (e: React.FormEvent) => {
+  const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'admin123' || password.length >= 6) {
-      setError(false);
+    if (!password) return;
+
+    setLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const profile = await adminUnlock(password);
       setPassword('');
-      onUnlock();
-    } else {
-      setError(true);
+      setErrorMessage(null);
+      setAttempts(0);
+      onUnlock(profile);
+    } catch (err: any) {
+      const newAttempts = attempts + 1;
+      setAttempts(newAttempts);
+      const errMsg = err?.message || String(err);
+      setErrorMessage(errMsg);
+
+      // Force logout after 5 failed attempts (RF-ADMIN-07-3 & Section 5)
+      if (newAttempts >= 5 || errMsg.includes('Límite de intentos')) {
+        alert("Demasiados intentos fallidos. Por seguridad, la sesión ha sido revocada.");
+        onForcedLogout();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBiometricUnlock = async () => {
+    setLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const profile = await adminUnlockWithBiometric();
+      setPassword('');
+      setAttempts(0);
+      onUnlock(profile);
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Biometría no disponible o rechazada");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -33,13 +75,13 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({ isLocked, onUnlock
         <div>
           <h2 className="text-xl font-bold text-white">Consola Administrativa Bloqueada</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Por inactividad, los datos descifrados en RAM han sido purgados para proteger la privacidad de los trabajadores.
+            Por inactividad, los datos descifrados en RAM han sido purgados para proteger la privacidad de los trabajadores (SEC-11).
           </p>
         </div>
 
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-center gap-2.5 text-xs text-amber-300 text-left">
           <ShieldAlert className="w-5 h-5 flex-shrink-0" />
-          <span>Ingrese su contraseña de administrador o utilice Touch ID / Windows Hello.</span>
+          <span>Reingrese su contraseña o use biometría para regenerar credenciales de sesión en RAM.</span>
         </div>
 
         <form onSubmit={handleUnlock} className="space-y-4">
@@ -52,21 +94,56 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({ isLocked, onUnlock
               onChange={e => setPassword(e.target.value)}
               className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:border-indigo-500"
               autoFocus
+              disabled={loading}
             />
           </div>
 
-          {error && (
-            <p className="text-xs text-rose-400 font-medium">Contraseña incorrecta. Intente de nuevo.</p>
+          {errorMessage && (
+            <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center gap-2 text-left">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{errorMessage}</span>
+            </div>
           )}
 
-          <button
-            type="submit"
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30"
-          >
-            Desbloquear y Restaurar Sesión
-          </button>
+          <div className="space-y-2">
+            <button
+              type="submit"
+              disabled={loading || !password}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <span>Desbloquear y Restaurar Sesión</span>
+              )}
+            </button>
+
+            {/* Biometric Quick Unlock (RF-ADMIN-07-3) */}
+            <button
+              type="button"
+              onClick={handleBiometricUnlock}
+              disabled={loading}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl text-xs transition border border-slate-700 flex items-center justify-center gap-2"
+            >
+              <Fingerprint className="w-4 h-4 text-indigo-400" />
+              <span>Desbloquear con Biometría (Touch ID / Windows Hello)</span>
+            </button>
+          </div>
         </form>
+
+        <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+          <span className="font-mono">Intentos: {attempts}/5</span>
+          <button
+            onClick={onForcedLogout}
+            className="text-rose-400 hover:text-rose-300 flex items-center gap-1 transition"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Cerrar sesión completamente</span>
+          </button>
+        </div>
       </div>
     </div>
   );
 };
+
+export default AutoLockModal;

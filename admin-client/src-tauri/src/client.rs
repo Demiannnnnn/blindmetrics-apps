@@ -79,6 +79,7 @@ pub struct AdminApiClient {
     base_url: RwLock<String>,
     access_token: RwLock<Option<String>>,
     current_user: RwLock<Option<AdminProfile>>,
+    failed_unlock_attempts: std::sync::atomic::AtomicUsize,
 }
 
 static API_CLIENT: std::sync::OnceLock<AdminApiClient> = std::sync::OnceLock::new();
@@ -104,6 +105,7 @@ impl AdminApiClient {
             base_url: RwLock::new(base_url),
             access_token: RwLock::new(None),
             current_user: RwLock::new(None),
+            failed_unlock_attempts: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -131,6 +133,19 @@ impl AdminApiClient {
             profile.public_key = Some(pubkey);
             profile.public_key_fingerprint = Some(fp);
         }
+    }
+
+    #[cfg(test)]
+    pub fn set_access_token_for_test(&self, token: Option<String>) {
+        *self.access_token.write().unwrap_or_else(|p| p.into_inner()) = token;
+    }
+
+    #[cfg(test)]
+    pub fn get_access_token_for_test(&self) -> Option<String> {
+        self.access_token
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<AdminProfile, String> {
@@ -294,9 +309,94 @@ impl AdminApiClient {
         Ok(auth_data.access_token)
     }
 
+    pub fn lock_and_flush(&self) {
+        if let Ok(mut token_lock) = self.access_token.write() {
+            if let Some(ref mut token) = *token_lock {
+                use zeroize::Zeroize;
+                token.zeroize();
+            }
+            *token_lock = None;
+        }
+        tracing::info!("Admin lock_and_flush: access_token zeroized in RAM (SEC-11)");
+    }
+
+    pub fn is_locked(&self) -> bool {
+        self.access_token
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_none()
+            && self
+                .current_user
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_some()
+    }
+
+    pub async fn unlock_with_password(&self, password: &str) -> Result<AdminProfile, String> {
+        let email = {
+            let user_lock = self.current_user.read().unwrap_or_else(|p| p.into_inner());
+            user_lock
+                .as_ref()
+                .map(|u| u.email.clone())
+                .ok_or_else(|| "No active session to unlock".to_string())?
+        };
+
+        match self.login(&email, password).await {
+            Ok(profile) => {
+                self.failed_unlock_attempts
+                    .store(0, std::sync::atomic::Ordering::SeqCst);
+                tracing::info!("Workspace unlocked successfully via password verification");
+                Ok(profile)
+            }
+            Err(e) => {
+                let attempts = self
+                    .failed_unlock_attempts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    + 1;
+                tracing::warn!("Failed unlock attempt {}/5 for {}", attempts, email);
+                if attempts >= 5 {
+                    self.logout();
+                    tracing::error!(
+                        "Maximum unlock attempts exceeded (5). Session purged and revoked (SEC-11)"
+                    );
+                    return Err(
+                        "Límite de intentos fallidos alcanzado (5). Sesión cerrada por seguridad."
+                            .to_string(),
+                    );
+                }
+                Err(format!(
+                    "Contraseña incorrecta (Intento {} de 5): {}",
+                    attempts, e
+                ))
+            }
+        }
+    }
+
+    pub async fn unlock_with_refresh(&self) -> Result<AdminProfile, String> {
+        let _ = self.refresh_session().await?;
+        self.failed_unlock_attempts
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        let profile = self
+            .current_user
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| "No user profile available after refresh".to_string())?;
+        tracing::info!("Workspace unlocked successfully via refresh token / biometrics");
+        Ok(profile)
+    }
+
     pub fn logout(&self) {
-        *self.access_token.write().unwrap_or_else(|p| p.into_inner()) = None;
+        if let Ok(mut token_lock) = self.access_token.write() {
+            if let Some(ref mut token) = *token_lock {
+                use zeroize::Zeroize;
+                token.zeroize();
+            }
+            *token_lock = None;
+        }
         *self.current_user.write().unwrap_or_else(|p| p.into_inner()) = None;
+        self.failed_unlock_attempts
+            .store(0, std::sync::atomic::Ordering::SeqCst);
         let _ = crate::keystore::delete_admin_refresh_token();
     }
 

@@ -136,10 +136,10 @@ export const useAutoLock = (timeoutMinutes: number = 5) => {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] Al permanecer inactivo durante el tiempo configurado, la interfaz muestra la pantalla de bloqueo y oculta los dashboards.
-2. [ ] El comando de purga de memoria en Rust se ejecuta y elimina el access token de RAM.
-3. [ ] El desbloqueo con credenciales válidas restaura el acceso al dashboard sin perder el estado de la sesión.
-4. [ ] Intentos excesivos de desbloqueo erróneo fuerzan un logout de seguridad.
+1. [x] Al permanecer inactivo durante el tiempo configurado, la interfaz muestra la pantalla de bloqueo y oculta los dashboards.
+2. [x] El comando de purga de memoria en Rust se ejecuta y elimina el access token de RAM.
+3. [x] El desbloqueo con credenciales válidas restaura el acceso al dashboard sin perder el estado de la sesión.
+4. [x] Intentos excesivos de desbloqueo erróneo fuerzan un logout de seguridad.
 
 ---
 

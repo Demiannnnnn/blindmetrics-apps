@@ -828,3 +828,52 @@ export async function lockAndFlushMemory(): Promise<void> {
   currentSession = null;
   console.info("Security Auto-lock: Session memory and decrypted records purged.");
 }
+
+export async function adminUnlock(password: string): Promise<AdminProfile> {
+  if (isTauri()) {
+    const profile = await invoke<AdminProfile>('admin_unlock', { password });
+    currentSession = profile;
+    return profile;
+  }
+  if (isDemoMode) {
+    if (password === 'admin123' || password.length >= 6) {
+      const profile: AdminProfile = {
+        id: 'admin-demo-1',
+        name: 'Administrador Demo',
+        email: 'admin@telemetry.cl',
+        organization: 'Acme Corporation Chile',
+      };
+      currentSession = profile;
+      return profile;
+    }
+    throw new Error("Contraseña incorrecta en modo demostración (Use 'admin123').");
+  }
+  throw new Error("admin_unlock IPC unavailable outside Tauri");
+}
+
+export async function adminUnlockWithBiometric(): Promise<AdminProfile> {
+  if (isTauri()) {
+    const profile = await invoke<AdminProfile>('admin_unlock_with_biometric');
+    currentSession = profile;
+    return profile;
+  }
+  if (isDemoMode) {
+    const profile: AdminProfile = {
+      id: 'admin-demo-1',
+      name: 'Administrador Demo',
+      email: 'admin@telemetry.cl',
+      organization: 'Acme Corporation Chile',
+    };
+    currentSession = profile;
+    return profile;
+  }
+  throw new Error("admin_unlock_with_biometric IPC unavailable outside Tauri");
+}
+
+export async function adminIsLocked(): Promise<boolean> {
+  if (isTauri()) {
+    return await invoke<boolean>('admin_is_locked');
+  }
+  return false;
+}
+

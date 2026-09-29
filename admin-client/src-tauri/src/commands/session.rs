@@ -60,8 +60,35 @@ pub fn admin_get_session() -> Result<Option<AdminProfile>, CommandError> {
 #[tauri::command]
 pub fn admin_lock_and_flush_memory() -> Result<(), CommandError> {
     tracing::info!("Admin lock invoked: In-memory session flushed (SEC-11)");
-    get_api_client().logout();
+    get_api_client().lock_and_flush();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn admin_unlock(password: String) -> Result<AdminProfile, CommandError> {
+    get_api_client()
+        .unlock_with_password(&password)
+        .await
+        .map_err(|e| CommandError {
+            code: "UNLOCK_FAILED".into(),
+            message: e,
+        })
+}
+
+#[tauri::command]
+pub async fn admin_unlock_with_biometric() -> Result<AdminProfile, CommandError> {
+    get_api_client()
+        .unlock_with_refresh()
+        .await
+        .map_err(|e| CommandError {
+            code: "BIOMETRIC_UNLOCK_FAILED".into(),
+            message: e,
+        })
+}
+
+#[tauri::command]
+pub fn admin_is_locked() -> Result<bool, CommandError> {
+    Ok(get_api_client().is_locked())
 }
 
 #[cfg(test)]
@@ -78,6 +105,13 @@ mod tests {
 
     #[test]
     fn test_admin_lock_and_flush() {
+        let client = get_api_client();
+        client.set_access_token_for_test(Some("sensitive-access-token-12345".to_string()));
+
         assert!(admin_lock_and_flush_memory().is_ok());
+
+        // Token must be wiped from memory (zeroized)
+        let token_opt = client.get_access_token_for_test();
+        assert!(token_opt.is_none(), "Access token was not cleared from RAM");
     }
 }

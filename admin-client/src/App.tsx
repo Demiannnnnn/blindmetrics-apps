@@ -18,7 +18,6 @@ import {
   WorkerItem,
   AdminProfile,
   getWorkersList,
-  lockAndFlushMemory,
   getAdminSession,
   adminLogout,
   getApiBaseUrl,
@@ -34,6 +33,7 @@ import { FileActivity } from './components/FileActivity';
 import { FieldMap } from './components/FieldMap';
 import { ConsentSettings } from './components/ConsentSettings';
 import { AutoLockModal } from './components/AutoLockModal';
+import { useAutoLock } from './hooks/useAutoLock';
 
 export const App: React.FC = () => {
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
@@ -42,7 +42,6 @@ export const App: React.FC = () => {
   >('dashboard');
   const [selectedWorker, setSelectedWorker] = useState<WorkerItem | null>(null);
   const [allWorkers, setAllWorkers] = useState<WorkerItem[]>([]);
-  const [isLocked, setIsLocked] = useState<boolean>(false);
 
   // RF-ADMIN-05-1: Global Time Range Context Filter
   const [timeRange, setTimeRange] = useState<TimeRangeFilter>({ preset: 'today' });
@@ -66,28 +65,14 @@ export const App: React.FC = () => {
     }
   }, [adminProfile]);
 
-  // Inactivity Auto-Lock Timer (5 minutes)
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-
-    const resetTimer = () => {
-      if (isLocked || !adminProfile) return;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        setIsLocked(true);
-        lockAndFlushMemory();
-      }, 5 * 60 * 1000); // 5 min
-    };
-
-    const events = ['mousemove', 'keydown', 'mousedown', 'scroll'];
-    events.forEach(e => window.addEventListener(e, resetTimer));
-    resetTimer();
-
-    return () => {
-      events.forEach(e => window.removeEventListener(e, resetTimer));
-      clearTimeout(timer);
-    };
-  }, [isLocked, adminProfile]);
+  // RF-ADMIN-07-1: Configurable Auto-Lock Hook with RAM Purge
+  const {
+    isLocked,
+    setIsLocked,
+    lockApp,
+    timeoutMinutes,
+    setTimeoutMinutes,
+  } = useAutoLock(5);
 
   const handleLogout = async () => {
     await adminLogout();
@@ -128,8 +113,15 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
-      {/* Auto-Lock Security Overlay */}
-      <AutoLockModal isLocked={isLocked} onUnlock={() => setIsLocked(false)} />
+      {/* Auto-Lock Security Overlay (RF-ADMIN-07-1..3) */}
+      <AutoLockModal
+        isLocked={isLocked}
+        onUnlock={profile => {
+          setIsLocked(false);
+          if (profile) setAdminProfile(profile);
+        }}
+        onForcedLogout={handleLogout}
+      />
 
       {/* Sidebar Navigation */}
       <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between flex-shrink-0">
@@ -253,12 +245,9 @@ export const App: React.FC = () => {
 
           <div className="flex gap-2">
             <button
-              onClick={() => {
-                setIsLocked(true);
-                lockAndFlushMemory();
-              }}
+              onClick={lockApp}
               className="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 px-2.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
-              title="Bloquear sesión por inactividad"
+              title="Bloquear sesión por inactividad y purgar RAM"
             >
               <Lock className="w-3.5 h-3.5 text-amber-400" />
               <span>Bloquear</span>
@@ -271,6 +260,21 @@ export const App: React.FC = () => {
             >
               <LogOut className="w-3.5 h-3.5" />
             </button>
+          </div>
+
+          {/* Auto-Lock Inactivity Timeout Configuration (RF-ADMIN-07-1) */}
+          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 pt-0.5">
+            <span>Auto-bloqueo:</span>
+            <select
+              value={timeoutMinutes}
+              onChange={e => setTimeoutMinutes(parseInt(e.target.value, 10))}
+              className="bg-slate-900 border border-slate-700 text-slate-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:border-indigo-500 cursor-pointer"
+            >
+              <option value={5}>5 min</option>
+              <option value={10}>10 min</option>
+              <option value={15}>15 min</option>
+              <option value={30}>30 min</option>
+            </select>
           </div>
 
           <div className="text-[10px] text-slate-500 font-mono text-center flex items-center justify-center gap-1">

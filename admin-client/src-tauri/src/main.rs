@@ -8,7 +8,8 @@ use commands::keys::{
     admin_generate_keypair, admin_get_public_key, keys_register_on_server, keys_status,
 };
 use commands::session::{
-    admin_get_session, admin_lock_and_flush_memory, admin_login, admin_logout, admin_register,
+    admin_get_session, admin_is_locked, admin_lock_and_flush_memory, admin_login, admin_logout,
+    admin_register, admin_unlock, admin_unlock_with_biometric,
 };
 use commands::telemetry::{
     admin_decrypt_records, admin_simulate_and_decrypt, fetch_and_decrypt_telemetry,
@@ -36,6 +37,9 @@ fn main() {
             admin_logout,
             admin_get_session,
             admin_lock_and_flush_memory,
+            admin_unlock,
+            admin_unlock_with_biometric,
+            admin_is_locked,
             admin_generate_keypair,
             admin_get_public_key,
             keys_status,
