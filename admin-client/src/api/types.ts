@@ -79,11 +79,35 @@ export interface ConsentRecord {
   id: string;
   worker_id: string;
   consent_version: number;
-  flags: ConsentFlags;
-  descriptions: ConsentDescriptions;
-  accepted_at: string;
-  withdrawn_at: string | null;
+  decision: 'ACCEPT' | 'REJECT' | 'WITHDRAW' | string;
+  manifest_hash: string;
+  ip_address: string | null;
+  user_agent: string | null;
   created_at: string;
+}
+
+export interface UpdateWorkerForm {
+  name?: string;
+  role_type?: 'OFFICE' | 'FIELD';
+  work_hours_start?: string;
+  work_hours_end?: string;
+  timezone?: string;
+}
+
+export interface WorkerListQuery {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  role_type?: 'OFFICE' | 'FIELD';
+  status?: WorkerStatus;
+  is_active?: boolean;
+}
+
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
 }
 
 export interface KeyStatus {
@@ -97,10 +121,5 @@ export interface KeyStatus {
 
 export interface CollectionResponse<T> {
   data: T[];
-  pagination: {
-    total: number;
-    page: number;
-    per_page: number;
-    total_pages: number;
-  };
+  pagination: PaginationMeta | null;
 }

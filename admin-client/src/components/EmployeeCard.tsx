@@ -5,7 +5,7 @@ import { Shield, Clock, MapPin, Eye, Power, QrCode } from 'lucide-react';
 interface EmployeeCardProps {
   worker: WorkerItem;
   onSelect: (worker: WorkerItem) => void;
-  onToggleStatus: (id: string) => void;
+  onToggleStatus: (worker: WorkerItem) => void;
   onShowEnrollment: (worker: WorkerItem) => void;
 }
 
@@ -124,7 +124,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           <QrCode className="w-4 h-4" />
         </button>
         <button
-          onClick={() => onToggleStatus(worker.id)}
+          onClick={() => onToggleStatus(worker)}
           className={`p-2 rounded-lg text-xs transition ${
             worker.isActive
               ? 'bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/40'

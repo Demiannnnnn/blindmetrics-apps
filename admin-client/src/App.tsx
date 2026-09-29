@@ -365,6 +365,7 @@ export const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'dashboard' && (
             <Dashboard
+              organization={adminProfile.organization}
               onSelectWorker={worker => {
                 setSelectedWorker(worker);
                 setActiveTab('system');

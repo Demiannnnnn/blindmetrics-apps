@@ -4,17 +4,18 @@ import {
   WorkerItem,
   DecryptedTelemetryRecord,
   fetchKpiSummary,
-  getWorkersList,
-  createWorker,
-  toggleWorkerStatus,
+  EnrollmentView,
+  WorkerStatus,
+  getWorkersPage,
+  pauseOrResumeWorker,
   getAdminPublicKey,
   generateAdminKeypair,
   simulateAndDecrypt,
-  getApiBaseUrl,
   workersRegenerateToken,
 } from '../api/tauri-bridge';
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
+import { CreateWorkerModal } from './CreateWorkerModal';
 import {
   Users,
   HardDrive,
@@ -32,16 +33,18 @@ import {
 } from 'lucide-react';
 
 interface DashboardProps {
+  organization: string;
   onSelectWorker: (worker: WorkerItem) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWorker }) => {
   const [kpis, setKpis] = useState<KpiSummary | null>(null);
   const [workers, setWorkers] = useState<WorkerItem[]>([]);
   const [search, setSearch] = useState<string>('');
-  const [roleFilter, setRoleFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'OFFICE' | 'FIELD'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | WorkerStatus>('ALL');
   const [loading, setLoading] = useState<boolean>(true);
+  const [listError, setListError] = useState<string | null>(null);
 
   // Master Crypto Key State
   const [masterPubKey, setMasterPubKey] = useState<string>('Cargando clave...');
@@ -54,29 +57,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
 
   // Modal States
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
-  const [activeEnrollment, setActiveEnrollment] = useState<{ worker: WorkerItem; pkg: any } | null>(null);
-
-  // New Worker Form
-  const [newName, setNewName] = useState<string>('');
-  const [newEmail, setNewEmail] = useState<string>('');
-  const [newRole, setNewRole] = useState<'OFFICE' | 'FIELD'>('OFFICE');
-  const [newStart, setNewStart] = useState<string>('09:00');
-  const [newEnd, setNewEnd] = useState<string>('18:00');
-  const [newTz, setNewTz] = useState<string>('America/Santiago');
+  const [activeEnrollment, setActiveEnrollment] = useState<{
+    worker: { name: string; role?: string };
+    pkg: EnrollmentView;
+  } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
+    setListError(null);
     try {
-      const [k, w, pubKey] = await Promise.all([
+      const [k, page, pubKey] = await Promise.all([
         fetchKpiSummary(),
-        getWorkersList(search, roleFilter, statusFilter),
+        getWorkersPage({
+          search: search.trim().length >= 2 ? search.trim() : undefined,
+          role_type: roleFilter === 'ALL' ? undefined : roleFilter,
+          status: statusFilter === 'ALL' ? undefined : statusFilter,
+        }),
         getAdminPublicKey(),
       ]);
       setKpis(k);
-      setWorkers(w);
+      setWorkers(page.items);
       setMasterPubKey(pubKey);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load dashboard data', e);
+      setListError(e?.message || String(e));
     } finally {
       setLoading(false);
     }
@@ -86,24 +90,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
     loadData();
   }, [search, roleFilter, statusFilter]);
 
-  const handleToggle = async (id: string) => {
-    await toggleWorkerStatus(id);
-    loadData();
+  const handleToggle = async (worker: WorkerItem) => {
+    try {
+      await pauseOrResumeWorker(worker, 'Estado actualizado por el administrador');
+      loadData();
+    } catch (e: any) {
+      setListError(e?.message || String(e));
+    }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName || !newEmail) return;
-
+  const handleShowEnrollment = async (worker: WorkerItem) => {
+    // RF-ADMIN-08-5: regenerating a code for a bound worker unlinks the current device.
+    if (
+      worker.deviceHostname &&
+      !confirm(`Esto desvincula el equipo actual (${worker.deviceHostname}). ¿Generar un nuevo código?`)
+    ) {
+      return;
+    }
     try {
-      const res = await createWorker(newName, newEmail, newRole, newStart, newEnd, newTz);
-      setShowCreateModal(false);
-      setActiveEnrollment({ worker: res.worker, pkg: res.enrollment });
-      setNewName('');
-      setNewEmail('');
+      const tokenView = await workersRegenerateToken(worker.id, 24);
+      setActiveEnrollment({ worker, pkg: tokenView });
       loadData();
-    } catch (err) {
-      console.error(err);
+    } catch (e: any) {
+      setListError(`No se pudo generar el código de enrolamiento: ${e?.message || e}`);
     }
   };
 
@@ -318,7 +327,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
             <Filter className="w-3.5 h-3.5 text-slate-400" />
             <select
               value={roleFilter}
-              onChange={e => setRoleFilter(e.target.value)}
+              onChange={e => setRoleFilter(e.target.value as 'ALL' | 'OFFICE' | 'FIELD')}
               className="bg-transparent focus:outline-none cursor-pointer"
             >
               <option value="ALL">Todos los Roles</option>
@@ -331,12 +340,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
           <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
             <select
               value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
+              onChange={e => setStatusFilter(e.target.value as 'ALL' | WorkerStatus)}
               className="bg-transparent focus:outline-none cursor-pointer"
             >
               <option value="ALL">Todos los Estados</option>
               <option value="ACTIVE">Activos</option>
-              <option value="INACTIVE">Inactivos</option>
+              <option value="PENDING_CONSENT">Esperando consentimiento</option>
+              <option value="PENDING_ENROLLMENT">Invitados (sin vincular)</option>
+              <option value="PAUSED">Pausados</option>
+              <option value="REVOKED">Revocados</option>
             </select>
           </div>
         </div>
@@ -359,6 +371,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
         </div>
       </div>
 
+      {listError && (
+        <div className="p-3 bg-rose-950/50 border border-rose-800/60 rounded-xl text-xs text-rose-300">{listError}</div>
+      )}
+
       {/* Workers Grid */}
       {loading ? (
         <div className="py-20 text-center text-slate-400 text-sm">Descargando y actualizando lista de trabajadores...</div>
@@ -374,129 +390,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
               worker={w}
               onSelect={onSelectWorker}
               onToggleStatus={handleToggle}
-              onShowEnrollment={async worker => {
-                try {
-                  const tokenView = await workersRegenerateToken(worker.id, 24);
-                  setActiveEnrollment({
-                    worker,
-                    pkg: tokenView,
-                  });
-                } catch (e) {
-                  const pubKey = await getAdminPublicKey();
-                  setActiveEnrollment({
-                    worker,
-                    pkg: {
-                      api_url: getApiBaseUrl(),
-                      worker_id: worker.id,
-                      admin_public_key: pubKey,
-                      organization: 'Acme SpA',
-                    },
-                  });
-                }
-              }}
+              onShowEnrollment={handleShowEnrollment}
             />
           ))}
         </div>
       )}
 
-      {/* Create Worker Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-slate-700 pb-3">
-              <h3 className="text-base font-semibold text-white">Registrar Nuevo Trabajador</h3>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreate} className="space-y-3">
-              <div>
-                <label className="text-xs text-slate-400 font-medium">Nombre Completo</label>
-                <input
-                  type="text"
-                  required
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  placeholder="Ej. Roberto Muñoz"
-                  className="w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 font-medium">Correo Electrónico Corporativo</label>
-                <input
-                  type="email"
-                  required
-                  value={newEmail}
-                  onChange={e => setNewEmail(e.target.value)}
-                  placeholder="roberto.munoz@empresa.com"
-                  className="w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-400 font-medium">Rol Laboral</label>
-                  <select
-                    value={newRole}
-                    onChange={e => setNewRole(e.target.value as any)}
-                    className="w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="OFFICE">Oficina (OFFICE)</option>
-                    <option value="FIELD">Terreno (FIELD)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 font-medium">Zona Horaria</label>
-                  <input
-                    type="text"
-                    value={newTz}
-                    onChange={e => setNewTz(e.target.value)}
-                    className="w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-400 font-medium">Hora Inicio Turno</label>
-                  <input
-                    type="time"
-                    value={newStart}
-                    onChange={e => setNewStart(e.target.value)}
-                    className="w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 font-medium">Hora Fin Turno</label>
-                  <input
-                    type="time"
-                    value={newEnd}
-                    onChange={e => setNewEnd(e.target.value)}
-                    className="w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg text-xs hover:bg-slate-600 transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition"
-                >
-                  Crear y Generar Enrolamiento
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <CreateWorkerModal
+          organization={organization}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={created => {
+            setShowCreateModal(false);
+            setActiveEnrollment({
+              worker: { name: created.worker.name, role: created.worker.role_type },
+              pkg: created.enrollment,
+            });
+            loadData();
+          }}
+        />
       )}
     </div>
   );

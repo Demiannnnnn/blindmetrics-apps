@@ -11,6 +11,9 @@ import type {
   ConsentRecord,
   KeyStatus,
   CollectionResponse,
+  PaginationMeta,
+  UpdateWorkerForm,
+  WorkerListQuery,
 } from './types';
 
 export * from './types';
@@ -27,28 +30,24 @@ export interface WorkerItem {
   name: string;
   email: string;
   role: 'OFFICE' | 'FIELD';
+  /** True only when the worker is ACTIVE on a bound device (collection allowed). */
   isActive: boolean;
   workHoursStart: string;
   workHoursEnd: string;
   timezone: string;
-  consents: {
-    system_activity: boolean;
-    network_activity: boolean;
-    productivity_basic: boolean;
-    productivity_screenshots: boolean;
-    file_activity: boolean;
-    location: boolean;
-  };
-  status?: WorkerStatus;
-  consentDescriptions?: ConsentDescriptions;
-  consentVersion?: number;
+  /** Effective consent (what the worker accepted). */
+  consents: ConsentFlags;
+  status: WorkerStatus;
+  consentDescriptions: ConsentDescriptions;
+  consentVersion: number;
+  acceptedConsentVersion: number | null;
+  deviceHostname: string | null;
+  raw: WorkerResponse;
 }
 
-export interface EnrollmentPackage {
-  api_url: string;
-  worker_id: string;
-  admin_public_key: string;
-  organization: string;
+export interface WorkersPage {
+  items: WorkerItem[];
+  pagination: PaginationMeta;
 }
 
 export interface DecryptedTelemetryRecord {
@@ -117,62 +116,98 @@ export function validateFqdnPrivacy(fqdn: string): { isValid: boolean; sanitized
 export const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
 
 // Demo store strictly guarded behind VITE_DEMO_MODE=true
-let mockWorkers: WorkerItem[] = isDemoMode ? [
-  {
-    id: "01912345-6789-7abc-def0-000000000001",
-    name: "Carlos Valenzuela",
-    email: "carlos.valenzuela@acme.cl",
-    role: "OFFICE",
-    isActive: true,
-    workHoursStart: "09:00",
-    workHoursEnd: "18:00",
-    timezone: "America/Santiago",
-    consents: {
-      system_activity: true,
-      network_activity: true,
-      productivity_basic: true,
-      productivity_screenshots: true,
-      file_activity: true,
-      location: false, // Prohibited for OFFICE
+const EMPTY_DESCRIPTIONS: ConsentDescriptions = {
+  system_activity: null,
+  network_activity: null,
+  productivity_basic: null,
+  productivity_screenshots: null,
+  file_activity: null,
+  location: null,
+};
+
+const ALL_FALSE: ConsentFlags = {
+  system_activity: false,
+  network_activity: false,
+  productivity_basic: false,
+  productivity_screenshots: false,
+  file_activity: false,
+  location: false,
+};
+
+function demoWorker(
+  id: string,
+  name: string,
+  email: string,
+  role: 'OFFICE' | 'FIELD',
+  status: WorkerStatus,
+  flags: ConsentFlags,
+): WorkerResponse {
+  const now = new Date().toISOString();
+  const bound = status !== 'PENDING_ENROLLMENT';
+  return {
+    id,
+    admin_id: 'admin-demo',
+    email,
+    name,
+    device_identifier: bound ? 'demo-device' : null,
+    device_info: bound ? { hostname: `${name.split(' ')[0].toUpperCase()}-PC`, os: 'demo', app_version: '0.1.0' } : null,
+    role_type: role,
+    is_active: status !== 'REVOKED',
+    status,
+    status_changed_at: now,
+    consent_flags: status === 'ACTIVE' || status === 'PAUSED' ? flags : { ...flags, ...ALL_FALSE },
+    requested_consent_flags: flags,
+    consent_descriptions: EMPTY_DESCRIPTIONS,
+    consent_version: 1,
+    accepted_consent_version: status === 'ACTIVE' || status === 'PAUSED' ? 1 : null,
+    consent_accepted_at: status === 'ACTIVE' ? now : null,
+    enrollment_completed_at: bound ? now : null,
+    enrollment_expires_at: bound ? null : new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    work_hours_start: '09:00:00',
+    work_hours_end: '18:00:00',
+    timezone: 'America/Santiago',
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+let demoWorkers: WorkerResponse[] = isDemoMode
+  ? [
+      demoWorker('01912345-6789-7abc-def0-000000000001', 'Carlos Valenzuela', 'carlos.valenzuela@acme.cl', 'OFFICE', 'ACTIVE', {
+        ...ALL_FALSE,
+        system_activity: true,
+        network_activity: true,
+        productivity_basic: true,
+      }),
+      demoWorker('01912345-6789-7abc-def0-000000000002', 'Fernanda Morales', 'fernanda.morales@acme.cl', 'FIELD', 'PAUSED', {
+        ...ALL_FALSE,
+        system_activity: true,
+        location: true,
+      }),
+      demoWorker('01912345-6789-7abc-def0-000000000003', 'Rodrigo Tapia', 'rodrigo.tapia@acme.cl', 'OFFICE', 'PENDING_ENROLLMENT', ALL_FALSE),
+    ]
+  : [];
+
+function demoPage(query: WorkerListQuery): CollectionResponse<WorkerResponse> {
+  const search = (query.search || '').trim().toLowerCase();
+  const filtered = demoWorkers.filter(w =>
+    (search.length < 2 || w.name.toLowerCase().includes(search) || w.email.toLowerCase().includes(search)) &&
+    (!query.role_type || w.role_type === query.role_type) &&
+    (!query.status || w.status === query.status) &&
+    (query.is_active === undefined || w.is_active === query.is_active)
+  );
+  const perPage = query.per_page || 20;
+  const page = query.page || 1;
+  return {
+    data: filtered.slice((page - 1) * perPage, page * perPage),
+    pagination: {
+      total: filtered.length,
+      page,
+      per_page: perPage,
+      total_pages: Math.max(1, Math.ceil(filtered.length / perPage)),
     },
-  },
-  {
-    id: "01912345-6789-7abc-def0-000000000002",
-    name: "Fernanda Morales",
-    email: "fernanda.morales@acme.cl",
-    role: "FIELD",
-    isActive: true,
-    workHoursStart: "08:30",
-    workHoursEnd: "17:30",
-    timezone: "America/Santiago",
-    consents: {
-      system_activity: true,
-      network_activity: true,
-      productivity_basic: true,
-      productivity_screenshots: false,
-      file_activity: false,
-      location: true,
-    },
-  },
-  {
-    id: "01912345-6789-7abc-def0-000000000003",
-    name: "Rodrigo Tapia",
-    email: "rodrigo.tapia@acme.cl",
-    role: "OFFICE",
-    isActive: false,
-    workHoursStart: "09:00",
-    workHoursEnd: "18:00",
-    timezone: "America/Santiago",
-    consents: {
-      system_activity: false,
-      network_activity: false,
-      productivity_basic: false,
-      productivity_screenshots: false,
-      file_activity: false,
-      location: false,
-    },
-  },
-] : [];
+  };
+}
 
 let cachedAdminKey: string | null = null;
 let currentSession: AdminProfile | null = null;
@@ -445,323 +480,163 @@ export async function fetchAndDecryptTelemetry(
 }
 
 export function toWorkerItem(w: WorkerResponse): WorkerItem {
-
   return {
     id: w.id,
     name: w.name,
     email: w.email,
     role: w.role_type,
     isActive: w.is_active && w.status === 'ACTIVE',
-    workHoursStart: w.work_hours_start,
-    workHoursEnd: w.work_hours_end,
+    workHoursStart: (w.work_hours_start || '').slice(0, 5),
+    workHoursEnd: (w.work_hours_end || '').slice(0, 5),
     timezone: w.timezone,
     consents: { ...w.consent_flags },
     status: w.status,
     consentDescriptions: w.consent_descriptions,
     consentVersion: w.consent_version,
+    acceptedConsentVersion: w.accepted_consent_version,
+    deviceHostname: w.device_info?.hostname ?? null,
+    raw: w,
   };
+}
+
+/** Number of workers matching `query`, read from the API pagination total. */
+async function countWorkers(query: WorkerListQuery): Promise<number> {
+  const resp = await workersList({ ...query, page: 1, per_page: 1 });
+  return resp.pagination?.total ?? resp.data.length;
 }
 
 export async function fetchKpiSummary(): Promise<KpiSummary> {
-  if (isTauri()) {
-    try {
-      const resp = await invoke<CollectionResponse<WorkerResponse>>('workers_list', { query: {} });
-      const total = resp.pagination.total;
-      const active = resp.data.filter(w => w.status === 'ACTIVE').length;
-      let hasLocalKey = false;
-      let systemAlerts = 0;
-      try {
-        const keyStat = await invoke<KeyStatus>('keys_status');
-        hasLocalKey = keyStat.has_local_key;
-        systemAlerts = keyStat.matches_server ? 0 : 1;
-      } catch (e) {
-        console.warn("keys_status check failed:", e);
-      }
-      return {
-        activeWorkers: active,
-        totalWorkers: total,
-        packetsDecrypted24h: 0,
-        keystoreProtected: hasLocalKey,
-        systemAlerts,
-      };
-    } catch (err) {
-      console.warn("fetchKpiSummary IPC error:", err);
-      if (!isDemoMode) {
-        return {
-          activeWorkers: 0,
-          totalWorkers: 0,
-          packetsDecrypted24h: 0,
-          keystoreProtected: true,
-          systemAlerts: 0,
-        };
-      }
-    }
+  if (!isTauri() && !isDemoMode) {
+    throw new Error('KPI summary requires the Tauri desktop client.');
   }
-
-  const active = isDemoMode ? mockWorkers.filter(w => w.isActive).length : 0;
+  const [total, active] = await Promise.all([countWorkers({}), countWorkers({ status: 'ACTIVE' })]);
+  let keystoreProtected = false;
+  let systemAlerts = 0;
+  try {
+    const keyStat = await keysStatus();
+    keystoreProtected = keyStat.has_local_key;
+    systemAlerts = keyStat.matches_server ? 0 : 1;
+  } catch (e) {
+    console.warn('keys_status check failed:', e);
+  }
   return {
     activeWorkers: active,
-    totalWorkers: isDemoMode ? mockWorkers.length : 0,
-    packetsDecrypted24h: isDemoMode ? 8492 : 0,
-    keystoreProtected: true,
-    systemAlerts: 0,
+    totalWorkers: total,
+    packetsDecrypted24h: isDemoMode && !isTauri() ? 8492 : 0,
+    keystoreProtected,
+    systemAlerts,
   };
 }
 
-export async function getWorkersList(
-  searchQuery: string = "",
-  roleFilter: string = "ALL",
-  statusFilter: string = "ALL"
-): Promise<WorkerItem[]> {
-  if (isTauri()) {
-    try {
-      const resp = await invoke<CollectionResponse<WorkerResponse>>('workers_list', {
-        query: {
-          search: searchQuery || null,
-          role_type: roleFilter !== 'ALL' ? roleFilter : null,
-          status: statusFilter !== 'ALL' ? statusFilter : null,
-        }
-      });
-      return resp.data.map(toWorkerItem);
-    } catch (err) {
-      console.error("IPC workers_list failure:", err);
-      if (!isDemoMode) {
-        throw err;
-      }
-    }
-  }
-
-  const workers = isDemoMode ? mockWorkers : [];
-  return workers.filter(w => {
-    const matchesSearch =
-      w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      w.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = roleFilter === "ALL" || w.role === roleFilter;
-    const matchesStatus =
-      statusFilter === "ALL" ||
-      (statusFilter === "ACTIVE" && w.isActive) ||
-      (statusFilter === "INACTIVE" && !w.isActive);
-    return matchesSearch && matchesRole && matchesStatus;
-  });
-}
-
-export async function createWorker(
-  name: string,
-  email: string,
-  role: 'OFFICE' | 'FIELD',
-  workHoursStart: string,
-  workHoursEnd: string,
-  timezone: string,
-  consentFlags?: ConsentFlags,
-  consentDescriptions?: ConsentDescriptions,
-): Promise<{ worker: WorkerItem; rawWorker: WorkerResponse; enrollment: EnrollmentPackage }> {
-  const flags: ConsentFlags = consentFlags || {
-    system_activity: true,
-    network_activity: true,
-    productivity_basic: true,
-    productivity_screenshots: false,
-    file_activity: false,
-    location: role === 'FIELD',
+/** One page of workers from `GET /workers` (RF-ADMIN-03-1). */
+export async function getWorkersPage(query: WorkerListQuery): Promise<WorkersPage> {
+  const resp = await workersList(query);
+  const perPage = query.per_page || resp.data.length || 1;
+  return {
+    items: resp.data.map(toWorkerItem),
+    pagination: resp.pagination ?? {
+      total: resp.data.length,
+      page: query.page || 1,
+      per_page: perPage,
+      total_pages: 1,
+    },
   };
-
-  const descriptions: ConsentDescriptions = consentDescriptions || {
-    system_activity: flags.system_activity ? "Monitoreo de aplicaciones y ventanas activas" : null,
-    network_activity: flags.network_activity ? "Registro de dominios y conectividad laboral" : null,
-    productivity_basic: flags.productivity_basic ? "Métricas agregadas de actividad de teclado y ratón" : null,
-    productivity_screenshots: flags.productivity_screenshots ? "Capturas periódicas de pantalla" : null,
-    file_activity: flags.file_activity ? "Auditoría de archivos en directorios designados" : null,
-    location: flags.location ? "Geolocalización laboral para personal de terreno" : null,
-  };
-
-  if (isTauri()) {
-    const form: CreateWorkerForm = {
-      name,
-      email,
-      role_type: role,
-      work_hours_start: workHoursStart.length === 5 ? `${workHoursStart}:00` : workHoursStart,
-      work_hours_end: workHoursEnd.length === 5 ? `${workHoursEnd}:00` : workHoursEnd,
-      timezone,
-      consent_flags: flags,
-      consent_descriptions: descriptions,
-      enrollment_ttl_hours: 24,
-    };
-
-    const res = await invoke<CreatedWorker>('workers_create', { form });
-    return {
-      worker: toWorkerItem(res.worker),
-      rawWorker: res.worker,
-      enrollment: {
-        api_url: getApiBaseUrl(),
-        worker_id: res.worker.id,
-        admin_public_key: await getAdminPublicKey(),
-        organization: currentSession?.organization || "Acme SpA",
-      },
-    };
-  }
-
-  if (isDemoMode) {
-    const newId = `01912345-6789-7abc-def0-${Date.now().toString().slice(-12)}`;
-    const newWorker: WorkerItem = {
-      id: newId,
-      name,
-      email,
-      role,
-      isActive: true,
-      workHoursStart,
-      workHoursEnd,
-      timezone,
-      consents: flags,
-    };
-
-    mockWorkers.unshift(newWorker);
-
-    const adminPublicKey = await getAdminPublicKey();
-    const currentUrl = getApiBaseUrl();
-    const org = currentSession?.organization || "Acme SpA";
-
-    const enrollment: EnrollmentPackage = {
-      api_url: currentUrl,
-      worker_id: newId,
-      admin_public_key: adminPublicKey,
-      organization: org,
-    };
-
-    const rawWorker: WorkerResponse = {
-      id: newId,
-      admin_id: "admin-demo",
-      email,
-      name,
-      device_identifier: null,
-      device_info: null,
-      role_type: role,
-      is_active: true,
-      status: 'PENDING_ENROLLMENT',
-      status_changed_at: null,
-      consent_flags: flags,
-      requested_consent_flags: flags,
-      consent_descriptions: descriptions,
-      consent_version: 1,
-      accepted_consent_version: null,
-      consent_accepted_at: null,
-      enrollment_completed_at: null,
-      enrollment_expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-      work_hours_start: workHoursStart,
-      work_hours_end: workHoursEnd,
-      timezone,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    return { worker: newWorker, rawWorker, enrollment };
-  }
-
-  throw new Error("Worker creation requires Tauri desktop connection.");
 }
 
-export async function toggleWorkerStatus(id: string, currentStatus?: string): Promise<boolean> {
-  if (isTauri()) {
-    try {
-      const nextStatus = currentStatus === 'PAUSED' ? 'ACTIVE' : 'PAUSED';
-      const res = await invoke<WorkerResponse>('workers_set_status', {
-        id,
-        status: nextStatus,
-        reason: 'Estado actualizado por el administrador'
-      });
-      return res.status === 'ACTIVE';
-    } catch (err) {
-      console.error("IPC workers_set_status failure:", err);
-      if (!isDemoMode) {
-        throw err;
-      }
-    }
-  }
-
-  const target = mockWorkers.find(w => w.id === id);
-  if (target) {
-    target.isActive = !target.isActive;
-    return target.isActive;
-  }
-  return false;
+/** First 100 workers, for global selectors (telemetry views). */
+export async function getWorkersList(): Promise<WorkerItem[]> {
+  const page = await getWorkersPage({ page: 1, per_page: 100 });
+  return page.items;
 }
 
-export async function workersList(query?: {
-  page?: number;
-  per_page?: number;
-  search?: string;
-  role_type?: string;
-  is_active?: boolean;
-  status?: string;
-}): Promise<CollectionResponse<WorkerResponse>> {
-  if (isTauri()) {
-    return await invoke<CollectionResponse<WorkerResponse>>('workers_list', { query: query || {} });
-  }
-  if (isDemoMode) {
-    const list: WorkerResponse[] = mockWorkers.map(w => ({
-      id: w.id,
-      admin_id: "admin-demo",
-      email: w.email,
-      name: w.name,
-      device_identifier: null,
-      device_info: null,
-      role_type: w.role,
-      is_active: w.isActive,
-      status: (w.isActive ? 'ACTIVE' : 'PAUSED') as WorkerStatus,
-      status_changed_at: null,
-      consent_flags: { ...w.consents },
-      requested_consent_flags: { ...w.consents },
-      consent_descriptions: {
-        system_activity: null,
-        network_activity: null,
-        productivity_basic: null,
-        productivity_screenshots: null,
-        file_activity: null,
-        location: null,
-      },
-      consent_version: 1,
-      accepted_consent_version: 1,
-      consent_accepted_at: new Date().toISOString(),
-      enrollment_completed_at: new Date().toISOString(),
-      enrollment_expires_at: null,
-      work_hours_start: w.workHoursStart,
-      work_hours_end: w.workHoursEnd,
-      timezone: w.timezone,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }));
-    return {
-      data: list,
-      pagination: { total: list.length, page: 1, per_page: 50, total_pages: 1 }
-    };
-  }
-  throw new Error("workers_list IPC unavailable outside Tauri");
-}
-
-export async function workersCreate(form: CreateWorkerForm): Promise<CreatedWorker> {
+/**
+ * Creates a worker with the admin-defined consent package and returns the
+ * one-time enrollment view (QR with commitment). The code is never persisted.
+ */
+export async function createWorker(form: CreateWorkerForm): Promise<CreatedWorker> {
   if (isTauri()) {
     return await invoke<CreatedWorker>('workers_create', { form });
   }
-  throw new Error("workers_create IPC unavailable outside Tauri");
+  if (isDemoMode) {
+    const worker = demoWorker(
+      `01912345-6789-7abc-def0-${Date.now().toString().slice(-12)}`,
+      form.name,
+      form.email,
+      form.role_type,
+      'PENDING_ENROLLMENT',
+      form.consent_flags,
+    );
+    worker.consent_descriptions = form.consent_descriptions;
+    demoWorkers = [worker, ...demoWorkers];
+    return {
+      worker,
+      enrollment: {
+        qr_payload: JSON.stringify({ t: 'telemetry-enroll', v: 1, demo: true }),
+        code: 'DEMO-DEMO-DEMO',
+        safety_code: '0000 0000 0000',
+        expires_at: worker.enrollment_expires_at || new Date().toISOString(),
+      },
+    };
+  }
+  throw new Error('workers_create IPC unavailable outside Tauri');
+}
+
+/** Pause an ACTIVE worker or resume a PAUSED one. Other states are rejected. */
+export async function pauseOrResumeWorker(worker: WorkerItem, reason?: string): Promise<WorkerResponse> {
+  const next: WorkerStatus | null =
+    worker.status === 'ACTIVE' ? 'PAUSED' : worker.status === 'PAUSED' ? 'ACTIVE' : null;
+  if (!next) {
+    throw new Error(`No se puede pausar/reanudar un trabajador en estado ${worker.status}.`);
+  }
+  return workersSetStatus(worker.id, next, reason);
+}
+
+export async function workersList(query: WorkerListQuery = {}): Promise<CollectionResponse<WorkerResponse>> {
+  if (isTauri()) {
+    return await invoke<CollectionResponse<WorkerResponse>>('workers_list', { query });
+  }
+  if (isDemoMode) {
+    return demoPage(query);
+  }
+  throw new Error('workers_list IPC unavailable outside Tauri');
 }
 
 export async function workersGet(id: string): Promise<WorkerResponse> {
   if (isTauri()) {
     return await invoke<WorkerResponse>('workers_get', { id });
   }
-  throw new Error("workers_get IPC unavailable outside Tauri");
+  const demo = isDemoMode ? demoWorkers.find(w => w.id === id) : undefined;
+  if (demo) return demo;
+  throw new Error('workers_get IPC unavailable outside Tauri');
+}
+
+export async function workersUpdate(id: string, form: UpdateWorkerForm): Promise<WorkerResponse> {
+  if (isTauri()) {
+    return await invoke<WorkerResponse>('workers_update', { id, form });
+  }
+  if (isDemoMode) {
+    demoWorkers = demoWorkers.map(w => (w.id === id ? { ...w, ...form, updated_at: new Date().toISOString() } : w));
+    return workersGet(id);
+  }
+  throw new Error('workers_update IPC unavailable outside Tauri');
 }
 
 export async function workersSetStatus(id: string, status: WorkerStatus, reason?: string): Promise<WorkerResponse> {
   if (isTauri()) {
     return await invoke<WorkerResponse>('workers_set_status', { id, status, reason });
   }
-  throw new Error("workers_set_status IPC unavailable outside Tauri");
+  if (isDemoMode) {
+    demoWorkers = demoWorkers.map(w => (w.id === id ? { ...w, status, is_active: status !== 'REVOKED' } : w));
+    return workersGet(id);
+  }
+  throw new Error('workers_set_status IPC unavailable outside Tauri');
 }
 
 export async function workersRegenerateToken(id: string, ttlHours?: number): Promise<EnrollmentView> {
   if (isTauri()) {
     return await invoke<EnrollmentView>('workers_regenerate_token', { id, ttlHours });
   }
-  throw new Error("workers_regenerate_token IPC unavailable outside Tauri");
+  throw new Error('workers_regenerate_token IPC unavailable outside Tauri');
 }
 
 export async function workersUpdateConsentConfig(
@@ -776,21 +651,26 @@ export async function workersUpdateConsentConfig(
       consentDescriptions,
     });
   }
-  throw new Error("workers_update_consent_config IPC unavailable outside Tauri");
+  throw new Error('workers_update_consent_config IPC unavailable outside Tauri');
 }
 
 export async function workersGetConsentRecords(id: string): Promise<ConsentRecord[]> {
   if (isTauri()) {
     return await invoke<ConsentRecord[]>('workers_get_consent_records', { id });
   }
-  throw new Error("workers_get_consent_records IPC unavailable outside Tauri");
+  if (isDemoMode) return [];
+  throw new Error('workers_get_consent_records IPC unavailable outside Tauri');
 }
 
 export async function workersDelete(id: string): Promise<void> {
   if (isTauri()) {
     return await invoke<void>('workers_delete', { id });
   }
-  throw new Error("workers_delete IPC unavailable outside Tauri");
+  if (isDemoMode) {
+    demoWorkers = demoWorkers.filter(w => w.id !== id);
+    return;
+  }
+  throw new Error('workers_delete IPC unavailable outside Tauri');
 }
 
 export async function keysStatus(): Promise<KeyStatus> {

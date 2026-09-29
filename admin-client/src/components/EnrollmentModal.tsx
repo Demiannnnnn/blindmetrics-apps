@@ -1,26 +1,41 @@
-import React, { useState } from 'react';
-import { Copy, Check, X, Shield, Laptop, AlertTriangle, QrCode, Key, Clock } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Copy, Check, X, Shield, Laptop, AlertTriangle, QrCode, Key, Clock, Download } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import type { EnrollmentView, EnrollmentPackage, WorkerItem } from '../api/tauri-bridge';
+import type { EnrollmentView } from '../api/tauri-bridge';
 
 interface EnrollmentModalProps {
-  worker: WorkerItem | { name: string; role?: string; id?: string };
-  enrollment: EnrollmentView | EnrollmentPackage | any;
+  worker: { name: string; role?: string };
+  enrollment: EnrollmentView;
   onClose: () => void;
 }
 
+function formatRemaining(ms: number): string {
+  if (ms <= 0) return 'Expirado';
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+
+/**
+ * W3 — one-time enrollment view (RF-ADMIN-08-4). The code lives only in this
+ * component's props; closing the modal discards it (SEC-05).
+ */
 export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enrollment, onClose }) => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const qrRef = useRef<HTMLDivElement>(null);
 
-  const isView = 'qr_payload' in enrollment && 'code' in enrollment;
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
-  const rawCode = isView ? enrollment.code : (enrollment as EnrollmentPackage).worker_id;
-  const formattedCode = rawCode.includes('-')
-    ? rawCode
-    : rawCode.length === 12
-    ? `${rawCode.slice(0, 4)}-${rawCode.slice(4, 8)}-${rawCode.slice(8, 12)}`
-    : rawCode;
+  const raw = enrollment.code.replace(/[-\s]/g, '');
+  const formattedCode = raw.length === 12 ? `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}` : enrollment.code;
+  const expiresAt = new Date(enrollment.expires_at).getTime();
+  const remainingMs = Number.isNaN(expiresAt) ? 0 : expiresAt - now;
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(formattedCode);
@@ -29,10 +44,31 @@ export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enroll
   };
 
   const handleCopyPayload = () => {
-    const payload = isView ? enrollment.qr_payload : JSON.stringify(enrollment, null, 2);
-    navigator.clipboard.writeText(payload);
+    navigator.clipboard.writeText(enrollment.qr_payload);
     setCopiedPayload(true);
     setTimeout(() => setCopiedPayload(false), 2500);
+  };
+
+  const handleSavePng = () => {
+    const svg = qrRef.current?.querySelector('svg');
+    if (!svg) return;
+    const size = 512;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, 32, 32, size - 64, size - 64);
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `enrolamiento-${worker.name.replace(/\s+/g, '_')}.png`;
+      a.click();
+    };
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`;
   };
 
   return (
@@ -70,101 +106,93 @@ export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enroll
           </div>
         </div>
 
-        {isView ? (
-          <div className="space-y-4">
-            {/* QR Code Container */}
-            <div className="flex flex-col items-center justify-center p-4 bg-slate-950/80 border border-slate-800 rounded-xl">
-              <div className="p-3 bg-white rounded-xl shadow-lg">
-                <QRCodeSVG
-                  value={enrollment.qr_payload}
-                  size={180}
-                  level="M"
-                  includeMargin={false}
-                />
-              </div>
-              <p className="text-xs text-slate-400 mt-2.5 flex items-center gap-1.5">
-                <Laptop className="w-3.5 h-3.5 text-indigo-400" />
-                Escanee este código QR desde la app Telemetry en el equipo del trabajador
-              </p>
+        <div className="space-y-4">
+          {/* QR Code Container */}
+          <div className="flex flex-col items-center justify-center p-4 bg-slate-950/80 border border-slate-800 rounded-xl">
+            <div className="p-3 bg-white rounded-xl shadow-lg">
+              <QRCodeSVG
+                value={enrollment.qr_payload}
+                size={180}
+                level="M"
+                includeMargin={false}
+              />
             </div>
+            <p className="text-xs text-slate-400 mt-2.5 flex items-center gap-1.5">
+              <Laptop className="w-3.5 h-3.5 text-indigo-400" />
+              Escanee este código QR desde la app Telemetry en el equipo del trabajador
+            </p>
+          </div>
 
-            {/* Manual Code & Safety Code */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {/* 12-char Crockford code */}
-              <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
-                <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
-                  <Key className="w-3 h-3 text-indigo-400" />
-                  Código de Enrolamiento
+          {/* Manual Code & Safety Code */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* 12-char Crockford code */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
+              <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+                <Key className="w-3 h-3 text-indigo-400" />
+                Código de Enrolamiento
+              </span>
+              <div className="flex items-center justify-between mt-1">
+                <span className="font-mono text-sm font-bold text-indigo-300 tracking-wider">
+                  {formattedCode}
                 </span>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="font-mono text-sm font-bold text-indigo-300 tracking-wider">
-                    {formattedCode}
-                  </span>
-                  <button
-                    onClick={handleCopyCode}
-                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-                    title="Copiar código"
-                  >
-                    {copiedCode ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* 12-digit Safety Code */}
-              <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
-                <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
-                  <Shield className="w-3 h-3 text-emerald-400" />
-                  Safety Code (12 dígitos)
-                </span>
-                <div className="mt-1">
-                  <span className="font-mono text-sm font-bold text-emerald-400 tracking-wider">
-                    {enrollment.safety_code}
-                  </span>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    Verifique que coincida en la pantalla del trabajador
-                  </p>
-                </div>
+                <button
+                  onClick={handleCopyCode}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+                  title="Copiar código"
+                >
+                  {copiedCode ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
-            {/* Expiration date */}
-            {enrollment.expires_at && (
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 px-1">
-                <Clock className="w-3.5 h-3.5 text-slate-500" />
-                <span>
-                  Expira el: <span className="text-slate-300 font-medium">
-                    {new Date(enrollment.expires_at).toLocaleString()}
-                  </span>
+            {/* 12-digit Safety Code */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
+              <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+                <Shield className="w-3 h-3 text-emerald-400" />
+                Safety Code (12 dígitos)
+              </span>
+              <div className="mt-1">
+                <span className="font-mono text-sm font-bold text-emerald-400 tracking-wider">
+                  {enrollment.safety_code}
                 </span>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  Verifique que coincida en la pantalla del trabajador
+                </p>
               </div>
-            )}
+            </div>
           </div>
-        ) : (
-          /* Fallback for legacy packages */
-          <div className="relative mb-4">
-            <pre className="p-4 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto max-h-56 leading-relaxed select-all">
-              {JSON.stringify(enrollment, null, 2)}
-            </pre>
-            <button
-              onClick={handleCopyPayload}
-              className="absolute top-3 right-3 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white shadow-md"
-            >
-              {copiedPayload ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedPayload ? '¡Copiado!' : 'Copiar JSON'}</span>
-            </button>
-          </div>
-        )}
+
+          {/* Expiration date */}
+          {enrollment.expires_at && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-400 px-1">
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <span>
+                Expira el: <span className="text-slate-300 font-medium">
+                  {new Date(enrollment.expires_at).toLocaleString()}
+                </span>{' '}
+                <span className={remainingMs < 2 * 3600 * 1000 ? 'text-amber-400' : 'text-slate-500'}>
+                  ({formatRemaining(remainingMs)})
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
 
         <div className="flex justify-between items-center gap-3 mt-5 pt-3 border-t border-slate-800">
-          {isView && (
-            <button
-              onClick={handleCopyPayload}
-              className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition"
-            >
-              <Copy className="w-3.5 h-3.5" />
-              <span>{copiedPayload ? '¡Payload Copiado!' : 'Copiar Payload QR'}</span>
-            </button>
-          )}
+          <button
+            onClick={handleCopyPayload}
+            className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>{copiedPayload ? '¡Payload Copiado!' : 'Copiar Payload QR'}</span>
+          </button>
+          <button
+            onClick={handleSavePng}
+            className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Guardar PNG</span>
+          </button>
           <div className="flex-1" />
           <button
             onClick={onClose}

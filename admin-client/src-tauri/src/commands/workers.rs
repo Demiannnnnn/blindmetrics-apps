@@ -142,8 +142,9 @@ impl CreateWorkerForm {
         let check_desc =
             |flag: bool, desc: Option<&str>, cat_name: &str| -> Result<(), CommandError> {
                 if flag {
-                    let d = desc.unwrap_or("").trim();
-                    if d.len() < 10 || d.len() > 500 {
+                    // Count characters, not bytes: accented text must match the UI limit.
+                    let len = desc.unwrap_or("").trim().chars().count();
+                    if !(10..=500).contains(&len) {
                         return Err(CommandError {
                             code: "VALIDATION_ERROR".into(),
                             message: format!(
@@ -1361,6 +1362,16 @@ mod tests {
         ] {
             assert!(validate_timezone(bad).is_err(), "accepted {bad:?}");
         }
+    }
+
+    #[test]
+    fn test_workers_create_description_limit_counts_chars_not_bytes() {
+        let mut form = make_valid_form();
+        // 500 two-byte characters = 1000 bytes, still within the 500-char limit.
+        form.consent_descriptions.system_activity = Some("é".repeat(500));
+        assert!(form.validate().is_ok());
+        form.consent_descriptions.system_activity = Some("é".repeat(501));
+        assert!(form.validate().is_err());
     }
 
     #[test]
