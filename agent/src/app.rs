@@ -15,6 +15,7 @@ use crate::ui::tray::{SystemTrayManager, TrayAction};
 use eframe::egui::{self, Color32, RichText};
 use std::future::Future;
 use std::sync::{mpsc, Arc};
+use telemetry_crypto_core::EnrollmentQr;
 
 /// Results of async work spawned on the engine runtime, drained every frame.
 enum UiEvent {
@@ -66,6 +67,9 @@ pub struct WorkerDesktopApp {
     pub screen: ActiveScreen,
     pub enrollment_code: String,
     pub enrollment_server_url: String,
+    /// E1 mode: pasted QR payload (verified automatically) or manual code.
+    enroll_with_qr: bool,
+    enrollment_qr_text: String,
     pub pending_enrollment: Option<PendingEnrollment>,
     pub worker_self: Option<WorkerSelf>,
     pub run_mode: RunMode,
@@ -116,6 +120,8 @@ impl WorkerDesktopApp {
             consent_offer: None,
             screen: initial_screen,
             enrollment_code: String::new(),
+            enroll_with_qr: true,
+            enrollment_qr_text: String::new(),
             pending_enrollment: None,
             worker_self: None,
             run_mode: RunMode::Unenrolled,
@@ -358,6 +364,33 @@ impl WorkerDesktopApp {
     }
 }
 
+/// Builds the enrollment input from the E1 form (RF-AGENT-08-1): a pasted QR
+/// payload (verified against its commitment) or a manual code + server URL.
+fn parse_enrollment_input(
+    with_qr: bool,
+    qr_text: &str,
+    code: &str,
+    server_url: &str,
+) -> Result<EnrollmentInput, String> {
+    if with_qr {
+        let qr = EnrollmentQr::parse(qr_text.trim()).map_err(|_| {
+            "El contenido pegado no es un código QR de vinculación válido.".to_string()
+        })?;
+        return Ok(EnrollmentInput::Qr(qr));
+    }
+    let code = normalize_code(code);
+    if code.len() != 12 {
+        return Err("El código debe tener 12 caracteres válidos.".into());
+    }
+    if server_url.trim().is_empty() {
+        return Err("Ingrese la dirección del servidor.".into());
+    }
+    Ok(EnrollmentInput::Manual {
+        api_url: server_url.to_string(),
+        code,
+    })
+}
+
 fn enrollment_error_message(e: &EnrollmentError) -> String {
     use crate::errors::AgentError;
     match e {
@@ -531,42 +564,55 @@ impl WorkerDesktopApp {
     fn render_screen_e1(&mut self, ui: &mut egui::Ui) {
         ui.heading("Vincular este equipo a su empleador");
         ui.add_space(6.0);
-        ui.label("Ingrese el código de vinculación provisto por su administrador o escanee el código QR:");
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.enroll_with_qr, true, "Código QR");
+            ui.selectable_value(&mut self.enroll_with_qr, false, "Ingresar código");
+        });
+        ui.add_space(10.0);
+
+        if self.enroll_with_qr {
+            ui.label("Pegue el contenido del código QR que le entregó su administrador:");
+            ui.add(
+                egui::TextEdit::multiline(&mut self.enrollment_qr_text)
+                    .desired_rows(4)
+                    .hint_text("{\"t\":\"telemetry-enroll\", ...}"),
+            );
+            ui.label(
+                RichText::new(
+                    "El QR incluye la dirección del servidor y se verifica automáticamente.",
+                )
+                .small()
+                .color(Color32::LIGHT_GRAY),
+            );
+        } else {
+            ui.label("Dirección del servidor:");
+            ui.text_edit_singleline(&mut self.enrollment_server_url);
+            ui.add_space(6.0);
+            ui.label("Código de 12 caracteres (ej. K7QM-4XRT-9PWD):");
+            ui.text_edit_singleline(&mut self.enrollment_code);
+        }
 
         ui.add_space(10.0);
-        ui.label("URL de la API:");
-        ui.text_edit_singleline(&mut self.enrollment_server_url);
-
-        ui.add_space(6.0);
-        ui.label("Código de 12 caracteres (ej. K7QM-4XRT-9PWD):");
-        ui.text_edit_singleline(&mut self.enrollment_code);
-
-        ui.add_space(10.0);
-        if ui
-            .add_enabled(
-                !self.busy,
-                egui::Button::new(RichText::new("🔗 Vincular Equipo").strong()),
-            )
-            .clicked()
-        {
-            let normalized = normalize_code(&self.enrollment_code);
-            if normalized.len() != 12 {
-                self.error_message = Some("El código debe tener 12 caracteres válidos.".into());
-                return;
-            }
-
-            self.error_message = None;
-            let api = match ApiClient::new(self.enrollment_server_url.trim().to_string()) {
+        let link = egui::Button::new(RichText::new("🔗 Vincular Equipo").strong());
+        if ui.add_enabled(!self.busy, link).clicked() {
+            let input = match self.enrollment_input() {
+                Ok(input) => input,
+                Err(msg) => {
+                    self.error_message = Some(msg);
+                    return;
+                }
+            };
+            // The QR carries the server address; manual codes use the typed one.
+            self.enrollment_server_url =
+                input.api_url(&self.config.api_base_url).trim().to_string();
+            let api = match ApiClient::new(self.enrollment_server_url.clone()) {
                 Ok(api) => api,
                 Err(e) => {
                     self.error_message = Some(format!("Dirección de servidor inválida: {}", e));
                     return;
                 }
             };
-            let input = EnrollmentInput::Manual {
-                api_url: self.enrollment_server_url.clone(),
-                code: normalized,
-            };
+            self.error_message = None;
             let device_id = self.config.device_identifier.clone();
             self.spawn(&ui.ctx().clone(), async move {
                 let dev_info = DeviceInfo::collect();
@@ -576,6 +622,15 @@ impl WorkerDesktopApp {
         if self.busy {
             ui.spinner();
         }
+    }
+
+    fn enrollment_input(&self) -> Result<EnrollmentInput, String> {
+        parse_enrollment_input(
+            self.enroll_with_qr,
+            &self.enrollment_qr_text,
+            &self.enrollment_code,
+            &self.enrollment_server_url,
+        )
     }
 
     fn render_screen_e2(&mut self, ui: &mut egui::Ui, safety_code: &str) {
@@ -1094,5 +1149,40 @@ impl WorkerDesktopApp {
             self.send_engine(EngineCommand::SyncNow);
             self.screen = ActiveScreen::E1Enrollment;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_enrollment_input_manual_code_normalized() {
+        let input =
+            parse_enrollment_input(false, "", "k7qm-4xrt-9pwo", "https://api.acme.cl/api/v1")
+                .unwrap();
+        assert_eq!(
+            input,
+            EnrollmentInput::Manual {
+                api_url: "https://api.acme.cl/api/v1".into(),
+                code: "K7QM4XRT9PW0".into(),
+            }
+        );
+        assert!(parse_enrollment_input(false, "", "K7QM", "https://x").is_err());
+        assert!(parse_enrollment_input(false, "", "K7QM-4XRT-9PWD", " ").is_err());
+    }
+
+    #[test]
+    fn test_enrollment_input_pasted_qr_carries_server_url() {
+        let qr = EnrollmentQr::new(
+            "https://api.acme.cl/api/v1".into(),
+            "K7QM-4XRT-9PWD".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        let input = parse_enrollment_input(true, &qr.to_json().unwrap(), "", "").unwrap();
+        assert_eq!(input.api_url("fallback"), "https://api.acme.cl/api/v1");
+        assert!(matches!(input, EnrollmentInput::Qr(_)));
+        assert!(parse_enrollment_input(true, "not a qr", "", "").is_err());
     }
 }
