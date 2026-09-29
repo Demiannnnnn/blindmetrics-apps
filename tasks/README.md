@@ -127,7 +127,7 @@ Leyenda: 🟢 Completada · 🟡 Parcial (existe con defectos o partes faltantes
 | **ADMIN-05** | [`admin-client/task-05-telemetry-analytics-dashboard.md`](admin-client/task-05-telemetry-analytics-dashboard.md) | Componentes de UI sobre datos generados. | 🎭 |
 | **ADMIN-06** | [`admin-client/task-06-field-worker-map-tracking.md`](admin-client/task-06-field-worker-map-tracking.md) | Mapa Leaflet sobre datos generados. | 🎭 |
 | **ADMIN-07** | [`admin-client/task-07-security-hardening-and-autolock.md`](admin-client/task-07-security-hardening-and-autolock.md) | Timer de 5 min y limpieza del token; purga de estado sin verificar; no configurable. | 🟡 |
-| **ADMIN-08** | [`admin-client/task-08-enrollment-and-worker-lifecycle.md`](admin-client/task-08-enrollment-and-worker-lifecycle.md) | Registro de llave, alta con descripciones, QR con compromiso, acciones de ciclo de vida, evidencia. | 🔴 |
+| **ADMIN-08** | [`admin-client/task-08-enrollment-and-worker-lifecycle.md`](admin-client/task-08-enrollment-and-worker-lifecycle.md) | Registro de llave, alta con descripciones, QR con compromiso, acciones de ciclo de vida, evidencia. | 🟢 |
 
 ---
 

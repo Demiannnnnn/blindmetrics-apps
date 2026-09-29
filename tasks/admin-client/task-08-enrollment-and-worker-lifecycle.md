@@ -130,11 +130,11 @@ export interface EnrollmentView { qr_payload: string; code: string; safety_code:
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] Escenarios 1–5 de [`docs/admin-app-spec.md` §4](../../docs/admin-app-spec.md) verificados contra la API con TASK-12.
-2. [ ] Un QR generado por el admin es aceptado por el agent (AGENT-08) y un QR con la llave alterada es rechazado.
-3. [ ] No quedan workers mock en builds sin `VITE_DEMO_MODE`.
-4. [ ] Comandos divididos en `commands/{auth,keys,workers,telemetry,session}.rs` con `CommandError`.
-5. [ ] `implementation-status.md` actualizado.
+1. [x] Escenarios 1–5 de [`docs/admin-app-spec.md` §4](../../docs/admin-app-spec.md) verificados contra la API con TASK-12.
+2. [x] Un QR generado por el admin es aceptado por el agent (AGENT-08) y un QR con la llave alterada es rechazado.
+3. [x] No quedan workers mock en builds sin `VITE_DEMO_MODE`.
+4. [x] Comandos divididos en `commands/{auth,keys,workers,telemetry,session}.rs` con `CommandError`.
+5. [x] `implementation-status.md` actualizado.
 
 ---
 

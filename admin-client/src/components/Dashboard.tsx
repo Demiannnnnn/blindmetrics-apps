@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   KpiSummary,
   WorkerItem,
-  EnrollmentPackage,
   DecryptedTelemetryRecord,
   fetchKpiSummary,
   getWorkersList,
@@ -12,6 +11,7 @@ import {
   generateAdminKeypair,
   simulateAndDecrypt,
   getApiBaseUrl,
+  workersRegenerateToken,
 } from '../api/tauri-bridge';
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
@@ -54,7 +54,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
 
   // Modal States
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
-  const [activeEnrollment, setActiveEnrollment] = useState<{ worker: WorkerItem; pkg: EnrollmentPackage } | null>(null);
+  const [activeEnrollment, setActiveEnrollment] = useState<{ worker: WorkerItem; pkg: any } | null>(null);
 
   // New Worker Form
   const [newName, setNewName] = useState<string>('');
@@ -375,16 +375,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectWorker }) => {
               onSelect={onSelectWorker}
               onToggleStatus={handleToggle}
               onShowEnrollment={async worker => {
-                const pubKey = await getAdminPublicKey();
-                setActiveEnrollment({
-                  worker,
-                  pkg: {
-                    api_url: getApiBaseUrl(),
-                    worker_id: worker.id,
-                    admin_public_key: pubKey,
-                    organization: 'Acme SpA',
-                  },
-                });
+                try {
+                  const tokenView = await workersRegenerateToken(worker.id, 24);
+                  setActiveEnrollment({
+                    worker,
+                    pkg: tokenView,
+                  });
+                } catch (e) {
+                  const pubKey = await getAdminPublicKey();
+                  setActiveEnrollment({
+                    worker,
+                    pkg: {
+                      api_url: getApiBaseUrl(),
+                      worker_id: worker.id,
+                      admin_public_key: pubKey,
+                      organization: 'Acme SpA',
+                    },
+                  });
+                }
               }}
             />
           ))}

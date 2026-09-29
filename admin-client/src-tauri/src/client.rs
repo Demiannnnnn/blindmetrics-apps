@@ -11,6 +11,21 @@ pub struct SingleResponse<T> {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CollectionResponse<T> {
+    pub data: Vec<T>,
+    #[serde(default)]
+    pub pagination: Option<PaginationMeta>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PaginationMeta {
+    pub total: usize,
+    pub page: usize,
+    pub per_page: usize,
+    pub total_pages: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct UserDto {
     pub id: String,
     pub email: String,
@@ -33,6 +48,10 @@ pub struct AdminMeResponse {
     pub email: String,
     pub name: String,
     pub organization: String,
+    #[serde(default)]
+    pub public_key: Option<String>,
+    #[serde(default)]
+    pub public_key_fingerprint: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -41,6 +60,18 @@ pub struct AdminProfile {
     pub email: String,
     pub name: String,
     pub organization: String,
+    #[serde(default)]
+    pub public_key: Option<String>,
+    #[serde(default)]
+    pub public_key_fingerprint: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RegisterPublicKeyResponse {
+    pub public_key: String,
+    pub public_key_fingerprint: String,
+    #[serde(default)]
+    pub public_key_registered_at: Option<String>,
 }
 
 pub struct AdminApiClient {
@@ -94,6 +125,14 @@ impl AdminApiClient {
             .clone()
     }
 
+    pub fn set_current_user_public_key(&self, pubkey: String, fp: String) {
+        let mut lock = self.current_user.write().unwrap_or_else(|p| p.into_inner());
+        if let Some(ref mut profile) = *lock {
+            profile.public_key = Some(pubkey);
+            profile.public_key_fingerprint = Some(fp);
+        }
+    }
+
     pub async fn login(&self, email: &str, password: &str) -> Result<AdminProfile, String> {
         let base = self.get_base_url();
         let url = format!("{}/auth/login", base.trim_end_matches('/'));
@@ -130,9 +169,9 @@ impl AdminApiClient {
         *self.access_token.write().unwrap_or_else(|p| p.into_inner()) =
             Some(auth_data.access_token.clone());
 
-        // Fetch /admins/me to retrieve the admin's organization
+        // Fetch /admins/me to retrieve organization and registered public key
         let me_url = format!("{}/admins/me", base.trim_end_matches('/'));
-        let org = match self
+        let (org, pub_key, pub_fp) = match self
             .client
             .get(&me_url)
             .header(APP_VERSION_HEADER, APP_VERSION)
@@ -142,12 +181,16 @@ impl AdminApiClient {
         {
             Ok(me_resp) if me_resp.status().is_success() => {
                 if let Ok(me_data) = me_resp.json::<SingleResponse<AdminMeResponse>>().await {
-                    me_data.data.organization
+                    (
+                        me_data.data.organization,
+                        me_data.data.public_key,
+                        me_data.data.public_key_fingerprint,
+                    )
                 } else {
-                    "Acme SpA".to_string()
+                    ("Acme SpA".to_string(), None, None)
                 }
             }
-            _ => "Acme SpA".to_string(),
+            _ => ("Acme SpA".to_string(), None, None),
         };
 
         let profile = AdminProfile {
@@ -155,6 +198,8 @@ impl AdminApiClient {
             email: auth_data.user.email,
             name: auth_data.user.name,
             organization: org,
+            public_key: pub_key,
+            public_key_fingerprint: pub_fp,
         };
 
         *self.current_user.write().unwrap_or_else(|p| p.into_inner()) = Some(profile.clone());
@@ -207,6 +252,8 @@ impl AdminApiClient {
             email: auth_data.user.email,
             name: auth_data.user.name,
             organization: organization.to_string(),
+            public_key: None,
+            public_key_fingerprint: None,
         };
 
         *self.current_user.write().unwrap_or_else(|p| p.into_inner()) = Some(profile.clone());
@@ -253,7 +300,12 @@ impl AdminApiClient {
         let _ = crate::keystore::delete_admin_refresh_token();
     }
 
-    pub async fn get_with_auth(&self, endpoint: &str) -> Result<reqwest::Response, String> {
+    async fn send_with_auth(
+        &self,
+        method: reqwest::Method,
+        endpoint: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<reqwest::Response, String> {
         let base = self.get_base_url();
         let url = format!("{}{}", base.trim_end_matches('/'), endpoint);
         let token = self
@@ -263,27 +315,30 @@ impl AdminApiClient {
             .clone()
             .unwrap_or_default();
 
-        let res = self
+        let mut req = self
             .client
-            .get(&url)
+            .request(method.clone(), &url)
             .header(APP_VERSION_HEADER, APP_VERSION)
-            .bearer_auth(&token)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+            .bearer_auth(&token);
+
+        if let Some(ref b) = body {
+            req = req.json(b);
+        }
+
+        let res = req.send().await.map_err(|e| e.to_string())?;
 
         if res.status() == StatusCode::UNAUTHORIZED {
             tracing::info!("Received 401 on admin endpoint, attempting refresh...");
             if let Ok(new_token) = self.refresh_session().await {
-                let retry = self
+                let mut retry_req = self
                     .client
-                    .get(&url)
+                    .request(method, &url)
                     .header(APP_VERSION_HEADER, APP_VERSION)
-                    .bearer_auth(&new_token)
-                    .send()
-                    .await
-                    .map_err(|e| e.to_string())?;
-
+                    .bearer_auth(&new_token);
+                if let Some(ref b) = body {
+                    retry_req = retry_req.json(b);
+                }
+                let retry = retry_req.send().await.map_err(|e| e.to_string())?;
                 if retry.status() == StatusCode::UNAUTHORIZED {
                     self.logout();
                     return Err("Session expired or unauthorized".to_string());
@@ -294,6 +349,75 @@ impl AdminApiClient {
         }
 
         Ok(res)
+    }
+
+    pub async fn get_with_auth(&self, endpoint: &str) -> Result<reqwest::Response, String> {
+        self.send_with_auth(reqwest::Method::GET, endpoint, None)
+            .await
+    }
+
+    pub async fn post_with_auth<B: Serialize>(
+        &self,
+        endpoint: &str,
+        body: &B,
+    ) -> Result<reqwest::Response, String> {
+        let val = serde_json::to_value(body).map_err(|e| e.to_string())?;
+        self.send_with_auth(reqwest::Method::POST, endpoint, Some(val))
+            .await
+    }
+
+    pub async fn put_with_auth<B: Serialize>(
+        &self,
+        endpoint: &str,
+        body: &B,
+    ) -> Result<reqwest::Response, String> {
+        let val = serde_json::to_value(body).map_err(|e| e.to_string())?;
+        self.send_with_auth(reqwest::Method::PUT, endpoint, Some(val))
+            .await
+    }
+
+    pub async fn patch_with_auth<B: Serialize>(
+        &self,
+        endpoint: &str,
+        body: &B,
+    ) -> Result<reqwest::Response, String> {
+        let val = serde_json::to_value(body).map_err(|e| e.to_string())?;
+        self.send_with_auth(reqwest::Method::PATCH, endpoint, Some(val))
+            .await
+    }
+
+    pub async fn delete_with_auth(&self, endpoint: &str) -> Result<reqwest::Response, String> {
+        self.send_with_auth(reqwest::Method::DELETE, endpoint, None)
+            .await
+    }
+
+    pub async fn get_admin_me(&self) -> Result<AdminMeResponse, String> {
+        let resp = self.get_with_auth("/admins/me").await?;
+        if !resp.status().is_success() {
+            return Err(format!("Failed to fetch /admins/me: {}", resp.status()));
+        }
+        let wrapped: SingleResponse<AdminMeResponse> =
+            resp.json().await.map_err(|e| e.to_string())?;
+        Ok(wrapped.data)
+    }
+
+    pub async fn register_public_key(
+        &self,
+        public_key: &str,
+    ) -> Result<RegisterPublicKeyResponse, String> {
+        let body = serde_json::json!({ "public_key": public_key });
+        let resp = self.put_with_auth("/admins/me/public-key", &body).await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!(
+                "Failed to register public key ({}): {}",
+                status, text
+            ));
+        }
+        let wrapped: SingleResponse<RegisterPublicKeyResponse> =
+            resp.json().await.map_err(|e| e.to_string())?;
+        Ok(wrapped.data)
     }
 }
 
@@ -339,6 +463,8 @@ mod tests {
                     "organization": "Acme Global",
                     "is_active": true,
                     "worker_count": 5,
+                    "public_key": null,
+                    "public_key_fingerprint": null,
                     "created_at": "2026-09-28T00:00:00Z",
                     "updated_at": "2026-09-28T00:00:00Z"
                 }
@@ -356,5 +482,6 @@ mod tests {
         assert_eq!(profile.email, "ana@acme.cl");
         assert_eq!(profile.name, "Ana Admin");
         assert_eq!(profile.organization, "Acme Global");
+        assert!(profile.public_key.is_none());
     }
 }

@@ -45,19 +45,19 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Capability | State | Notes | Task |
 |:-----------|:-----:|:------|:-----|
 | Keypair generation + keystore | ✅ | `keyring`, service `TelemetryAdminVault`. | ADMIN-01 |
-| Register `K_admin_pub` on server | ❌ | Needs API [T12]. | ADMIN-08 |
+| Register `K_admin_pub` on server | ✅ | Auto-registration upon login (`PUT /admins/me/public-key`), mismatch detection (K2). | ADMIN-08 |
 | Backup export/import | ❌ | | ADMIN-01 |
 | **Login** | ✅ | Rust client sends `role: "ADMIN"`, reads `{data}`, saves refresh token in keystore, fetches `GET /admins/me`. No silent fake profile. | INT-01 |
 | Register | ✅ | Reads `{data}` from `POST /auth/register`, sets session and saves refresh token. | INT-01 |
 | Refresh token handling | 🟡 | Stored in keystore (`admin_refresh_token`); 401 retry in `get_with_auth`. | ADMIN-02 |
 | **Browser-mode `fetch`** | ✅ | Direct API calls from JS removed; demo mocks strictly guarded behind `VITE_DEMO_MODE=true` (SEC-06). | INT-01 |
-| **Workers list / create / toggle / KPIs** | 🎭 | `mockWorkers` array in `tauri-bridge.ts`; no Tauri command exists for workers. | ADMIN-03 / ADMIN-08 |
-| Enrollment modal | 🎭 | Shows the obsolete JSON package with a fake worker id. | ADMIN-08 |
+| **Workers list / create / toggle / KPIs** | ✅ | Full IPC commands (`workers_list`, `workers_create`, `workers_set_status`, `workers_regenerate_token`, etc.) connected in UI; no mock workers outside demo mode. | ADMIN-08 |
+| Enrollment modal | ✅ | Interactive `QRCodeSVG` from `EnrollmentQr`, 12-char Crockford code, 12-digit safety code, ephemeral warning (SEC-05). | ADMIN-08 |
 | Parallel decryption | ✅ | `rayon` pipeline tested with 50 records. | ADMIN-04 |
 | Fetch telemetry from API | ❌ | Only `admin_simulate_and_decrypt`. Charts use generated data. | ADMIN-04 / ADMIN-05 |
 | Charts, network explorer, screenshot gallery, field map | 🎭 | UI components on mock data. | ADMIN-05 / ADMIN-06 |
 | Auto-lock | 🟡 | UI timer (5 min) + `admin_lock_and_flush_memory` clears the token; decrypted state purge not verified; not configurable. | ADMIN-07 |
-| Command structure | 🟡 | Single `commands.rs`; errors as `String`. Target: `commands/{auth,keys,workers,telemetry,session}.rs` + `CommandError`. | ADMIN-02 |
+| Command structure | ✅ | Divided into `commands/{mod,session,keys,workers,telemetry}.rs` with structured `CommandError`. | ADMIN-08 |
 
 ## 4. Server dependencies
 

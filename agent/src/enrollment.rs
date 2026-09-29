@@ -17,7 +17,7 @@ pub enum EnrollmentInput {
 impl EnrollmentInput {
     pub fn code(&self) -> String {
         match self {
-            EnrollmentInput::Qr(qr) => qr.code.clone(),
+            EnrollmentInput::Qr(qr) => normalize_code(&qr.code),
             EnrollmentInput::Manual { code, .. } => normalize_code(code),
         }
     }
