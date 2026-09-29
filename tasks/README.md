@@ -118,7 +118,7 @@ Leyenda: 🟢 Completada · 🟡 Parcial (existe con defectos o partes faltantes
 | **AGENT-03** | [`agent/task-03-network-files-and-location-collectors.md`](agent/task-03-network-files-and-location-collectors.md) | Agregación FQDN limpia (DP-02), watcher reactivo de metadatos de archivos (DP-03), geolocalización solo para FIELD en horario laboral (DP-04). | 🟢 |
 
 | **AGENT-04** | [`agent/task-04-metrics-buffer-and-encryption.md`](agent/task-04-metrics-buffer-and-encryption.md) | Doble búfer OK; el cifrado mezcla categorías (lo corrige INT-01). | 🟡 |
-| **AGENT-05** | [`agent/task-05-offline-queue-and-transport.md`](agent/task-05-offline-queue-and-transport.md) | Cola SQLite OK; faltan tope de tamaño, backoff/jitter y descarte en 403. | 🟡 |
+| **AGENT-05** | [`agent/task-05-offline-queue-and-transport.md`](agent/task-05-offline-queue-and-transport.md) | Cola SQLite WAL con retención 7 días, límite 5MB por payload, tope 100MB, cuarentena 10 reintentos, backoff exponencial con jitter y auto-renovación JWT en 401. | 🟢 |
 | **AGENT-06** | [`agent/task-06-egui-transparency-ui-and-consent.md`](agent/task-06-egui-transparency-ui-and-consent.md) | Semáforo, horario, derechos ARCO. ⚠️ Los toggles por categoría fueron reemplazados por AGENT-08. Los botones ARCO no llaman a la API. | 🎭 |
 | **AGENT-07** | [`agent/task-07-system-notifications-and-tray.md`](agent/task-07-system-notifications-and-tray.md) | Notificaciones de inicio y cada hora; la bandeja no existe. ⚠️ Se elimina la "pausa 15 min" del worker. | 🟡 |
 | **AGENT-08** | [`agent/task-08-enrollment-consent-and-lifecycle.md`](agent/task-08-enrollment-consent-and-lifecycle.md) | Enrollment con verificación, llave fijada, consentimiento todo o nada, `RunMode`, retiro, revocación. | 🟢 |

@@ -267,10 +267,10 @@ pub enum TransportError {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] Los registros se encolan en SQLite cuando la API está fuera de línea sin causar errores en la UI.
-2. [ ] Al volver la conectividad, la cola SQLite se vacía secuencialmente en orden FIFO.
-3. [ ] El interceptor HTTP detecta un `401 Unauthorized`, renueva el par de JWTs y reenvía el lote de forma transparente.
-4. [ ] Pruebas unitarias pasan con base de datos SQLite en memoria (`Connection::open_in_memory()`).
+1. [x] Los registros se encolan en SQLite cuando la API está fuera de línea sin causar errores en la UI.
+2. [x] Al volver la conectividad, la cola SQLite se vacía secuencialmente en orden FIFO.
+3. [x] El interceptor HTTP detecta un `401 Unauthorized`, renueva el par de JWTs y reenvía el lote de forma transparente.
+4. [x] Pruebas unitarias pasan con base de datos SQLite en memoria (`Connection::open_in_memory()`).
 
 ---
 

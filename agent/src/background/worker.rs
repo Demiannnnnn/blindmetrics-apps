@@ -12,7 +12,7 @@ use crate::credentials::{CredentialStore, KeyringCredentialStore};
 use crate::errors::AgentError;
 use crate::io::system_hooks::SystemHooksManager;
 
-use crate::io::transport::{IngestOutcome, OfflineQueue, TelemetryTransport};
+use crate::io::transport::{BackoffPolicy, IngestOutcome, OfflineQueue, TelemetryTransport};
 use crate::notifications::NotificationDispatcher;
 use crate::pipeline::build_envelopes;
 use crate::state::RunMode;
@@ -394,6 +394,8 @@ impl BackgroundEngine {
         let mut transport = TelemetryTransport::new(self.config.clone());
         let dispatch_cred = self.cred_store.clone();
         let dispatch_run_mode = self.run_mode.clone();
+        let mut backoff = BackoffPolicy::default();
+        let mut next_retry_at: Option<std::time::Instant> = None;
 
         loop {
             sleep(flush_interval).await;
@@ -403,12 +405,19 @@ impl BackgroundEngine {
                 continue;
             }
 
+            let mut is_in_backoff = if let Some(retry_time) = next_retry_at {
+                if std::time::Instant::now() < retry_time {
+                    true
+                } else {
+                    next_retry_at = None;
+                    false
+                }
+            } else {
+                false
+            };
+
             // Extract snapshot via std::mem::take
             let batch = self.buffer.drain_for_flush();
-            if batch.is_empty() {
-                continue;
-            }
-
             let worker_id = dispatch_cred
                 .get_worker_id()
                 .as_deref()
@@ -416,44 +425,13 @@ impl BackgroundEngine {
                 .unwrap_or_else(uuid::Uuid::nil);
 
             // SEC-07, SEC-08: Encrypt only to pinned admin public key
-            if let Some(admin_key) = dispatch_cred.get_pinned_admin_public_key() {
-                let records = build_envelopes(batch, worker_id, &admin_key);
-                for rec_res in records {
-                    match rec_res {
-                        Ok(record) => {
-                            let endpoint = record.category.api_endpoint();
-                            let outcome = transport
-                                .send_record(
-                                    endpoint,
-                                    &record.ephemeral_public_key,
-                                    &record.encrypted_payload,
-                                    record.client_timestamp,
-                                    record.subcategory,
-                                )
-                                .await;
-
-                            match outcome {
-                                IngestOutcome::Delivered => {}
-                                IngestOutcome::DroppedForbidden(reason) => {
-                                    tracing::warn!(
-                                        "Record dropped: 403 reason={:?} category={}",
-                                        reason,
-                                        record.category.as_str()
-                                    );
-                                }
-                                IngestOutcome::DroppedValidation(code) => {
-                                    tracing::error!(
-                                        "Record dropped: validation error ({}) category={}",
-                                        code,
-                                        record.category.as_str()
-                                    );
-                                }
-                                IngestOutcome::NeedsQueue(err) => {
-                                    tracing::info!(
-                                        "Enqueuing record into SQLite queue ({}): category={}",
-                                        err,
-                                        record.category.as_str()
-                                    );
+            if !batch.is_empty() {
+                if let Some(admin_key) = dispatch_cred.get_pinned_admin_public_key() {
+                    let records = build_envelopes(batch, worker_id, &admin_key);
+                    for rec_res in records {
+                        match rec_res {
+                            Ok(record) => {
+                                if is_in_backoff {
                                     let _ = queue.enqueue(
                                         record.category.as_str(),
                                         &record.ephemeral_public_key,
@@ -461,51 +439,114 @@ impl BackgroundEngine {
                                         record.client_timestamp,
                                         record.subcategory,
                                     );
+                                    continue;
+                                }
+
+                                let endpoint = record.category.api_endpoint();
+                                let outcome = transport
+                                    .send_record(
+                                        endpoint,
+                                        &record.ephemeral_public_key,
+                                        &record.encrypted_payload,
+                                        record.client_timestamp,
+                                        record.subcategory,
+                                    )
+                                    .await;
+
+                                match outcome {
+                                    IngestOutcome::Delivered => {
+                                        backoff.reset();
+                                        next_retry_at = None;
+                                    }
+                                    IngestOutcome::DroppedForbidden(reason) => {
+                                        tracing::warn!(
+                                            "Record dropped: 403 reason={:?} category={}",
+                                            reason,
+                                            record.category.as_str()
+                                        );
+                                    }
+                                    IngestOutcome::DroppedValidation(code) => {
+                                        tracing::error!(
+                                            "Record dropped: validation error ({}) category={}",
+                                            code,
+                                            record.category.as_str()
+                                        );
+                                    }
+                                    IngestOutcome::NeedsQueue(err) => {
+                                        tracing::info!(
+                                            "Enqueuing record into SQLite queue ({}): category={}",
+                                            err,
+                                            record.category.as_str()
+                                        );
+                                        let _ = queue.enqueue(
+                                            record.category.as_str(),
+                                            &record.ephemeral_public_key,
+                                            &record.encrypted_payload,
+                                            record.client_timestamp,
+                                            record.subcategory,
+                                        );
+                                        let delay = backoff.next_backoff();
+                                        next_retry_at = Some(std::time::Instant::now() + delay);
+                                        is_in_backoff = true;
+                                    }
                                 }
                             }
-                        }
-                        Err(err) => {
-                            tracing::error!("Batch encryption failed: {:?}", err);
+                            Err(err) => {
+                                tracing::error!("Batch encryption failed: {:?}", err);
+                            }
                         }
                     }
                 }
             }
 
-            // Attempt to deliver queued offline records
-            if let Ok(queued_items) = queue.peek_batch(10) {
-                let mut delivered_ids = Vec::new();
-                for item in queued_items {
-                    let endpoint = match item.category.as_str() {
-                        "productivity_basic" | "productivity_screenshot" | "productivity" => {
-                            "productivity"
-                        }
-                        other => other,
-                    };
+            // Attempt to deliver queued offline records if not in backoff
+            if !is_in_backoff {
+                if let Ok(queued_items) = queue.peek_batch(10) {
+                    let mut delivered_ids = Vec::new();
+                    for item in queued_items {
+                        let endpoint = match item.category.as_str() {
+                            "productivity_basic" | "productivity_screenshot" | "productivity" => {
+                                "productivity"
+                            }
+                            other => other,
+                        };
 
-                    let outcome = transport
-                        .send_record(
-                            endpoint,
-                            &item.ephemeral_public_key,
-                            &item.encrypted_payload,
-                            item.client_timestamp,
-                            item.subcategory.as_deref(),
-                        )
-                        .await;
+                        let outcome = transport
+                            .send_record(
+                                endpoint,
+                                &item.ephemeral_public_key,
+                                &item.encrypted_payload,
+                                item.client_timestamp,
+                                item.subcategory.as_deref(),
+                            )
+                            .await;
 
-                    match outcome {
-                        IngestOutcome::Delivered => {
-                            delivered_ids.push(item.id);
-                        }
-                        IngestOutcome::DroppedForbidden(_)
-                        | IngestOutcome::DroppedValidation(_) => {
-                            delivered_ids.push(item.id);
-                        }
-                        IngestOutcome::NeedsQueue(_) => {
-                            break;
+                        match outcome {
+                            IngestOutcome::Delivered => {
+                                delivered_ids.push(item.id);
+                                backoff.reset();
+                                next_retry_at = None;
+                            }
+                            IngestOutcome::DroppedForbidden(_)
+                            | IngestOutcome::DroppedValidation(_) => {
+                                delivered_ids.push(item.id);
+                            }
+                            IngestOutcome::NeedsQueue(err) => {
+                                let _ = queue.increment_retries(&[item.id]);
+                                let delay = backoff.next_backoff();
+                                next_retry_at = Some(std::time::Instant::now() + delay);
+                                tracing::warn!(
+                                    "Failed delivering queued item {}: backing off for {:?} ({})",
+                                    item.id,
+                                    delay,
+                                    err
+                                );
+                                break;
+                            }
                         }
                     }
+                    let _ = queue.mark_delivered(&delivered_ids);
                 }
-                let _ = queue.mark_delivered(&delivered_ids);
             }
         }
     }

@@ -102,10 +102,14 @@ pub type ProductivityCollector = KeystrokeCollector;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use std::thread;
+
+    static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_atomic_counters_record_and_reset() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         KeystrokeCollector::snapshot_and_reset(); // Clean slate
 
         KeystrokeCollector::record_keystroke();
@@ -124,6 +128,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_resets_counter() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         KeystrokeCollector::snapshot_and_reset(); // Clean slate
 
         for _ in 0..50 {
@@ -139,6 +144,7 @@ mod tests {
 
     #[test]
     fn test_atomic_counters_concurrency() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         KeystrokeCollector::snapshot_and_reset(); // Clean slate
 
         let mut handles = Vec::new();
@@ -163,6 +169,7 @@ mod tests {
 
     #[test]
     fn test_hook_enabled_toggle() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         KeystrokeCollector::set_hook_enabled(false);
         assert!(!KeystrokeCollector::is_hook_enabled());
 

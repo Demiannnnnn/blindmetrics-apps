@@ -36,7 +36,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | **Envelope grouping** | ✅ | Groups by Category in `build_envelopes`, one envelope per category (and screenshots separated), with `worker_id` and window timestamps. | INT-01 |
 | **Ingest request shape** | ✅ | Sends `{records:[{ephemeral_public_key, encrypted_payload, client_timestamp, subcategory?}]}` matching `api-contract.md`. | INT-01 |
 | Token refresh | ✅ | Deserializes `data.access_token` and `data.refresh_token`. | INT-01 |
-| Offline queue | 🟡 | SQLite WAL + 7-day purge OK; parameterized `mark_delivered`; drops on 403; purged on withdraw/revoke (DP-09). Faltan tope de tamaño y backoff/jitter. | AGENT-05 |
+| Offline queue | ✅ | SQLite WAL + retención 7 días, límite 5MB por payload, tope 100MB, cuarentena a 10 reintentos, backoff exponencial con jitter (+/-20%) y auto-renovación JWT transparente (DP-09, RF-AGENT-05). | AGENT-05 |
 | Lifecycle polling (`GET /workers/me`), key pinning | ✅ | `ApiClient::get_me`, `derive_run_mode`, pinned key integrity check (Halted on mismatch), revocation wipe on 401. | AGENT-08 |
 | Data subject rights | 🎭 | Buttons show a "request sent" dialog **without calling the API**; the text says data is decryptable "with the holder's key" (wrong: it's the admin's key). | AGENT-06 |
 | Notifications | 🟡 | Start + hourly via `notify-rust`. No screenshot / work-hours / consent-change notifications. | AGENT-07 |

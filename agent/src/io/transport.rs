@@ -31,6 +31,73 @@ pub struct OfflineQueue {
     conn: Connection,
 }
 
+pub const MAX_PAYLOAD_SIZE_BYTES: usize = 5 * 1024 * 1024; // 5 MB per payload
+pub const MAX_QUEUE_CAPACITY_BYTES: i64 = 100 * 1024 * 1024; // 100 MB max queue capacity
+pub const MAX_RETRIES_BEFORE_QUARANTINE: i64 = 10; // Max 10 attempts
+
+#[derive(Clone, Debug)]
+pub struct BackoffPolicy {
+    pub base: Duration,
+    pub max: Duration,
+    pub multiplier: f64,
+    pub jitter_pct: f64,
+    pub consecutive_failures: u32,
+}
+
+impl Default for BackoffPolicy {
+    fn default() -> Self {
+        Self {
+            base: Duration::from_secs(2),
+            max: Duration::from_secs(300),
+            multiplier: 2.0,
+            jitter_pct: 0.20,
+            consecutive_failures: 0,
+        }
+    }
+}
+
+impl BackoffPolicy {
+    pub fn new(base: Duration, max: Duration) -> Self {
+        Self {
+            base,
+            max,
+            multiplier: 2.0,
+            jitter_pct: 0.20,
+            consecutive_failures: 0,
+        }
+    }
+
+    pub fn next_backoff(&mut self) -> Duration {
+        let failures = self.consecutive_failures;
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+
+        let base_secs = self.base.as_secs_f64();
+        let max_secs = self.max.as_secs_f64();
+
+        // Exponential backoff: base * 2^failures capped at max (RF-AGENT-05-4)
+        let exp_secs = (base_secs * self.multiplier.powi(failures as i32)).min(max_secs);
+
+        // Jitter factor in [-jitter_pct, +jitter_pct] (RF-AGENT-05-4)
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(42);
+        let rand_factor = (((nanos % 4001) as f64 / 10000.0) - self.jitter_pct)
+            .clamp(-self.jitter_pct, self.jitter_pct);
+        let jittered_secs = (exp_secs * (1.0 + rand_factor)).max(0.1);
+
+        Duration::from_secs_f64(jittered_secs)
+    }
+
+    pub fn reset(&mut self) {
+        self.consecutive_failures = 0;
+    }
+
+    pub fn failures(&self) -> u32 {
+        self.consecutive_failures
+    }
+}
+
 impl OfflineQueue {
     pub fn open<P: AsRef<Path>>(path: P) -> SqlResult<Self> {
         let conn = Connection::open(path)?;
@@ -77,6 +144,16 @@ impl OfflineQueue {
         client_timestamp: DateTime<Utc>,
         subcategory: Option<&str>,
     ) -> SqlResult<()> {
+        if payload.len() > MAX_PAYLOAD_SIZE_BYTES {
+            return Err(rusqlite::Error::ToSqlConversionFailure(
+                format!(
+                    "Payload exceeds maximum allowed size of 5 MB ({})",
+                    payload.len()
+                )
+                .into(),
+            ));
+        }
+
         self.conn.execute(
             "INSERT INTO offline_queue (category, ephemeral_public_key, encrypted_payload, client_timestamp, subcategory) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![category, eph_pub, payload, client_timestamp.to_rfc3339(), subcategory],
@@ -131,6 +208,30 @@ impl OfflineQueue {
         Ok(())
     }
 
+    pub fn increment_retries(&mut self, ids: &[i64]) -> SqlResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
+        let query = format!(
+            "UPDATE offline_queue SET retry_count = retry_count + 1 WHERE id IN ({})",
+            placeholders.join(",")
+        );
+        let mut stmt = self.conn.prepare(&query)?;
+        let params_iter = ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect::<Vec<_>>();
+        stmt.execute(rusqlite::params_from_iter(params_iter))?;
+
+        // Quarantine packets that reached 10 attempts (RF-AGENT-05-1 & Section 5)
+        self.conn.execute(
+            "DELETE FROM offline_queue WHERE retry_count >= ?1",
+            params![MAX_RETRIES_BEFORE_QUARANTINE],
+        )?;
+        Ok(())
+    }
+
     pub fn count(&self) -> SqlResult<usize> {
         let count: i64 = self
             .conn
@@ -144,12 +245,33 @@ impl OfflineQueue {
         Ok(())
     }
 
-    fn enforce_retention(&mut self) -> SqlResult<()> {
-        // Discard entries older than 7 days
+    pub fn enforce_retention(&mut self) -> SqlResult<()> {
+        // Discard entries older than 7 days (RF-AGENT-05-1)
         self.conn.execute(
             "DELETE FROM offline_queue WHERE created_at < datetime('now', '-7 days')",
             [],
         )?;
+
+        // Quarantine records exceeding max retries
+        self.conn.execute(
+            "DELETE FROM offline_queue WHERE retry_count >= ?1",
+            params![MAX_RETRIES_BEFORE_QUARANTINE],
+        )?;
+
+        // Cap to 100 MB or 50,000 entries (FIFO eviction)
+        let total_bytes: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(length(encrypted_payload)), 0) FROM offline_queue",
+            [],
+            |r| r.get(0),
+        )?;
+
+        if total_bytes > MAX_QUEUE_CAPACITY_BYTES {
+            self.conn.execute(
+                "DELETE FROM offline_queue WHERE id IN (SELECT id FROM offline_queue ORDER BY id ASC LIMIT (SELECT MAX(1, COUNT(*) / 10) FROM offline_queue))",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -313,6 +435,12 @@ impl TelemetryTransport {
             self.config.save().ok();
             Ok(())
         } else {
+            if res.status() == StatusCode::UNAUTHORIZED {
+                // Refresh token invalid or revoked: wipe local session (RF-AGENT-05-3 & Sec 4)
+                self.config.access_token = None;
+                self.config.refresh_token = None;
+                self.config.save().ok();
+            }
             Err(AgentError::Unauthorized)
         }
     }
@@ -445,5 +573,151 @@ mod tests {
             transport.config.refresh_token.as_deref(),
             Some("new_refresh_token")
         );
+    }
+
+    #[test]
+    fn test_sqlite_queue_fifo_three_items() {
+        let mut queue = OfflineQueue::open_in_memory().expect("Open in-memory SQLite failed");
+        let ts = Utc::now();
+
+        queue
+            .enqueue("system", "key_A", b"payload_A", ts, None)
+            .unwrap();
+        queue
+            .enqueue("network", "key_B", b"payload_B", ts, None)
+            .unwrap();
+        queue
+            .enqueue("files", "key_C", b"payload_C", ts, None)
+            .unwrap();
+
+        assert_eq!(queue.count().unwrap(), 3);
+
+        let batch = queue.peek_batch(2).unwrap();
+        assert_eq!(batch.len(), 2);
+        assert_eq!(batch[0].category, "system");
+        assert_eq!(batch[0].ephemeral_public_key, "key_A");
+        assert_eq!(batch[1].category, "network");
+        assert_eq!(batch[1].ephemeral_public_key, "key_B");
+    }
+
+    #[test]
+    fn test_sqlite_delivered_deletion() {
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        let ts = Utc::now();
+
+        queue.enqueue("system", "key1", b"p1", ts, None).unwrap();
+        queue.enqueue("system", "key2", b"p2", ts, None).unwrap();
+        assert_eq!(queue.count().unwrap(), 2);
+
+        let items = queue.peek_batch(10).unwrap();
+        let id_1 = items[0].id;
+        let id_2 = items[1].id;
+
+        queue.mark_delivered(&[id_1]).unwrap();
+        assert_eq!(queue.count().unwrap(), 1);
+
+        let remaining = queue.peek_batch(10).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, id_2);
+
+        queue.mark_delivered(&[id_2]).unwrap();
+        assert_eq!(queue.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_retention_policy_purges_old_records() {
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+
+        // Insert record artificially created 8 days ago
+        queue.conn.execute(
+            "INSERT INTO offline_queue (category, ephemeral_public_key, encrypted_payload, created_at)
+             VALUES ('system', 'old_key', X'010203', datetime('now', '-8 days'))",
+            [],
+        ).unwrap();
+
+        // Insert record artificially created 2 days ago
+        queue.conn.execute(
+            "INSERT INTO offline_queue (category, ephemeral_public_key, encrypted_payload, created_at)
+             VALUES ('system', 'recent_key', X'040506', datetime('now', '-2 days'))",
+            [],
+        ).unwrap();
+
+        assert_eq!(queue.count().unwrap(), 2);
+
+        queue.enforce_retention().unwrap();
+
+        assert_eq!(queue.count().unwrap(), 1);
+        let items = queue.peek_batch(10).unwrap();
+        assert_eq!(items[0].ephemeral_public_key, "recent_key");
+    }
+
+    #[test]
+    fn test_payload_size_limit_and_quarantine() {
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        let ts = Utc::now();
+
+        // 1. Attempt payload exceeding 5 MB limit
+        let huge_payload = vec![0u8; MAX_PAYLOAD_SIZE_BYTES + 10];
+        let res = queue.enqueue("system", "key", &huge_payload, ts, None);
+        assert!(res.is_err(), "Payload > 5MB must be rejected");
+
+        // 2. Enqueue valid payload and verify 10 retries quarantine
+        let valid_payload = vec![1u8, 2, 3];
+        queue
+            .enqueue("system", "key_retries", &valid_payload, ts, None)
+            .unwrap();
+        let item = queue.peek_batch(1).unwrap();
+        let id = item[0].id;
+
+        // Increment 9 times
+        for _ in 0..9 {
+            queue.increment_retries(&[id]).unwrap();
+        }
+        assert_eq!(
+            queue.count().unwrap(),
+            1,
+            "Should still be present at 9 retries"
+        );
+
+        // 10th retry -> triggers quarantine / deletion
+        queue.increment_retries(&[id]).unwrap();
+        assert_eq!(
+            queue.count().unwrap(),
+            0,
+            "Record reaching 10 retries must be quarantined/purged"
+        );
+    }
+
+    #[test]
+    fn test_backoff_exponential_with_jitter() {
+        let mut backoff = BackoffPolicy::new(Duration::from_secs(2), Duration::from_secs(300));
+        assert_eq!(backoff.failures(), 0);
+
+        // Failure 0: base 2s * 2^0 = 2s, +/- 20% jitter -> [1.6s, 2.4s]
+        let b0 = backoff.next_backoff();
+        assert!(b0 >= Duration::from_millis(1500) && b0 <= Duration::from_millis(2500));
+        assert_eq!(backoff.failures(), 1);
+
+        // Failure 1: base 2s * 2^1 = 4s, +/- 20% jitter -> [3.2s, 4.8s]
+        let b1 = backoff.next_backoff();
+        assert!(b1 >= Duration::from_millis(3000) && b1 <= Duration::from_millis(5000));
+        assert_eq!(backoff.failures(), 2);
+
+        // Failure 2: base 2s * 2^2 = 8s, +/- 20% jitter -> [6.4s, 9.6s]
+        let b2 = backoff.next_backoff();
+        assert!(b2 >= Duration::from_millis(6000) && b2 <= Duration::from_millis(10000));
+
+        // Advance to high failure count to test cap
+        for _ in 0..10 {
+            backoff.next_backoff();
+        }
+        let capped = backoff.next_backoff();
+        // Capped at 300s +/- 20% jitter -> [240s, 360s]
+        assert!(capped >= Duration::from_secs(230) && capped <= Duration::from_secs(370));
+
+        backoff.reset();
+        assert_eq!(backoff.failures(), 0);
+        let b_reset = backoff.next_backoff();
+        assert!(b_reset >= Duration::from_millis(1500) && b_reset <= Duration::from_millis(2500));
     }
 }
