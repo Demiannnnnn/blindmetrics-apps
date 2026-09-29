@@ -6,8 +6,10 @@ import {
   fetchKpiSummary,
   EnrollmentView,
   WorkerStatus,
+  PaginationMeta,
   getWorkersPage,
   pauseOrResumeWorker,
+  toWorkerItem,
   getAdminPublicKey,
   generateAdminKeypair,
   simulateAndDecrypt,
@@ -16,6 +18,8 @@ import {
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
 import { CreateWorkerModal } from './CreateWorkerModal';
+import { WorkerEditModal } from './WorkerEditModal';
+import { ConfirmDeleteWorkerModal } from './ConfirmDeleteWorkerModal';
 import {
   Users,
   HardDrive,
@@ -30,7 +34,11 @@ import {
   Check,
   Cpu,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+
+const PER_PAGE = 12;
 
 interface DashboardProps {
   organization: string;
@@ -40,7 +48,12 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWorker }) => {
   const [kpis, setKpis] = useState<KpiSummary | null>(null);
   const [workers, setWorkers] = useState<WorkerItem[]>([]);
+  const [searchInput, setSearchInput] = useState<string>('');
   const [search, setSearch] = useState<string>('');
+  const [page, setPage] = useState<number>(1);
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null);
+  const [editingWorker, setEditingWorker] = useState<WorkerItem | null>(null);
+  const [deletingWorker, setDeletingWorker] = useState<WorkerItem | null>(null);
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'OFFICE' | 'FIELD'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | WorkerStatus>('ALL');
   const [loading, setLoading] = useState<boolean>(true);
@@ -66,9 +79,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
     setLoading(true);
     setListError(null);
     try {
-      const [k, page, pubKey] = await Promise.all([
+      const [k, result, pubKey] = await Promise.all([
         fetchKpiSummary(),
         getWorkersPage({
+          page,
+          per_page: PER_PAGE,
           search: search.trim().length >= 2 ? search.trim() : undefined,
           role_type: roleFilter === 'ALL' ? undefined : roleFilter,
           status: statusFilter === 'ALL' ? undefined : statusFilter,
@@ -76,7 +91,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
         getAdminPublicKey(),
       ]);
       setKpis(k);
-      setWorkers(page.items);
+      setWorkers(result.items);
+      setPagination(result.pagination);
       setMasterPubKey(pubKey);
     } catch (e: any) {
       console.error('Failed to load dashboard data', e);
@@ -86,14 +102,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
     }
   };
 
+  // Debounce free-text search; the server only filters from 2 characters.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, roleFilter, statusFilter]);
+
   useEffect(() => {
     loadData();
-  }, [search, roleFilter, statusFilter]);
+  }, [search, roleFilter, statusFilter, page]);
+
+  const replaceWorker = (updated: WorkerItem) =>
+    setWorkers(list => list.map(w => (w.id === updated.id ? updated : w)));
 
   const handleToggle = async (worker: WorkerItem) => {
     try {
-      await pauseOrResumeWorker(worker, 'Estado actualizado por el administrador');
-      loadData();
+      const updated = await pauseOrResumeWorker(worker, 'Estado actualizado por el administrador');
+      // Reflect the new badge immediately, then refresh KPIs.
+      replaceWorker(toWorkerItem(updated));
+      fetchKpiSummary().then(setKpis).catch(() => undefined);
     } catch (e: any) {
       setListError(e?.message || String(e));
     }
@@ -316,8 +347,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <input
               type="text"
               placeholder="Buscar por nombre o correo corporativo..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-indigo-500"
             />
           </div>
@@ -391,9 +422,59 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
               onSelect={onSelectWorker}
               onToggleStatus={handleToggle}
               onShowEnrollment={handleShowEnrollment}
+              onEdit={setEditingWorker}
+              onDelete={setDeletingWorker}
             />
           ))}
         </div>
+      )}
+
+      {pagination && pagination.total_pages > 1 && (
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span>
+            {pagination.total} trabajadores · página {pagination.page} de {pagination.total_pages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page <= 1 || loading}
+              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 disabled:opacity-40"
+              title="Página anterior"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setPage(p => Math.min(pagination.total_pages, p + 1))}
+              disabled={page >= pagination.total_pages || loading}
+              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 disabled:opacity-40"
+              title="Página siguiente"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editingWorker && (
+        <WorkerEditModal
+          worker={editingWorker}
+          onClose={() => setEditingWorker(null)}
+          onSaved={updated => {
+            setEditingWorker(null);
+            replaceWorker(toWorkerItem(updated));
+          }}
+        />
+      )}
+
+      {deletingWorker && (
+        <ConfirmDeleteWorkerModal
+          worker={deletingWorker}
+          onClose={() => setDeletingWorker(null)}
+          onDeleted={() => {
+            setDeletingWorker(null);
+            loadData();
+          }}
+        />
       )}
 
       {showCreateModal && (
