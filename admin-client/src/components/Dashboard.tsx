@@ -20,6 +20,7 @@ import { EnrollmentModal } from './EnrollmentModal';
 import { CreateWorkerModal } from './CreateWorkerModal';
 import { WorkerEditModal } from './WorkerEditModal';
 import { ConfirmDeleteWorkerModal } from './ConfirmDeleteWorkerModal';
+import { WorkerDetailModal } from './WorkerDetailModal';
 import {
   Users,
   HardDrive,
@@ -54,6 +55,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
   const [editingWorker, setEditingWorker] = useState<WorkerItem | null>(null);
   const [deletingWorker, setDeletingWorker] = useState<WorkerItem | null>(null);
+  const [detailWorker, setDetailWorker] = useState<WorkerItem | null>(null);
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'OFFICE' | 'FIELD'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | WorkerStatus>('ALL');
   const [loading, setLoading] = useState<boolean>(true);
@@ -290,7 +292,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
         </div>
       )}
 
-      {/* KPI Cards */}
+      {/* KPI Cards (RF-ADMIN-08-9) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
@@ -304,13 +306,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
           </div>
         </div>
 
-        <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-            <HardDrive className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-400 font-medium">Paquetes Descifrados (24h)</p>
-            <h3 className="text-2xl font-bold text-white">{kpis?.packetsDecrypted24h ?? 0}</h3>
+        <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg">
+          <p className="text-xs text-slate-400 font-medium mb-1.5 flex items-center gap-1.5">
+            <HardDrive className="w-3.5 h-3.5" /> Por estado
+          </p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+            <span className="text-sky-300">Esperando consentimiento</span>
+            <span className="text-right text-white font-semibold">{kpis?.byStatus.PENDING_CONSENT ?? 0}</span>
+            <span className="text-slate-300">Invitados</span>
+            <span className="text-right text-white font-semibold">{kpis?.byStatus.PENDING_ENROLLMENT ?? 0}</span>
+            <span className="text-amber-300">Pausados</span>
+            <span className="text-right text-white font-semibold">{kpis?.byStatus.PAUSED ?? 0}</span>
+            <span className="text-rose-300">Revocados</span>
+            <span className="text-right text-white font-semibold">{kpis?.byStatus.REVOKED ?? 0}</span>
           </div>
         </div>
 
@@ -321,8 +329,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
           <div>
             <p className="text-xs text-slate-400 font-medium">Bóveda OS Keystore</p>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-sm font-semibold text-emerald-300">Protegida & Conectada</span>
+              <span className={`w-2.5 h-2.5 rounded-full ${kpis?.keystoreProtected ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
+              <span className={`text-sm font-semibold ${kpis?.keystoreProtected ? 'text-emerald-300' : 'text-rose-300'}`}>
+                {kpis?.keystoreProtected ? 'Llave local cargada' : 'Sin llave local'}
+              </span>
             </div>
           </div>
         </div>
@@ -331,9 +341,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
           <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center">
             <ShieldCheck className="w-6 h-6" />
           </div>
-          <div>
-            <p className="text-xs text-slate-400 font-medium">Cumplimiento Legal</p>
-            <h3 className="text-sm font-semibold text-purple-300 mt-1">GDPR & Ley 19.628 OK</h3>
+          <div className="text-xs space-y-0.5">
+            <p className="text-slate-400 font-medium">Alertas</p>
+            {kpis?.keyMismatch && <p className="text-rose-300 font-semibold">Llave del servidor distinta a la local (K2)</p>}
+            <p className={kpis?.expiringCodes ? 'text-amber-300 font-semibold' : 'text-slate-300'}>
+              {kpis?.expiringCodes ?? 0} código(s) por vencer (&lt; 2 h)
+            </p>
           </div>
         </div>
       </div>
@@ -424,6 +437,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
               onShowEnrollment={handleShowEnrollment}
               onEdit={setEditingWorker}
               onDelete={setDeletingWorker}
+              onOpenDetail={setDetailWorker}
             />
           ))}
         </div>
@@ -453,6 +467,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             </button>
           </div>
         </div>
+      )}
+
+      {detailWorker && (
+        <WorkerDetailModal
+          worker={detailWorker}
+          organization={organization}
+          onClose={() => setDetailWorker(null)}
+          onChanged={updated => {
+            replaceWorker(updated);
+            fetchKpiSummary().then(setKpis).catch(() => undefined);
+          }}
+          onRegenerate={worker => {
+            setDetailWorker(null);
+            handleShowEnrollment(worker);
+          }}
+          onDelete={worker => {
+            setDetailWorker(null);
+            setDeletingWorker(worker);
+          }}
+          onViewTelemetry={worker => {
+            setDetailWorker(null);
+            onSelectWorker(worker);
+          }}
+        />
       )}
 
       {editingWorker && (

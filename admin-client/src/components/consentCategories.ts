@@ -1,4 +1,4 @@
-import type { ConsentDescriptions, ConsentFlags } from '../api/tauri-bridge';
+import type { ConsentDescriptions, ConsentFlags, ConsentRecord } from '../api/types';
 
 export type ConsentKey = keyof ConsentFlags;
 
@@ -124,4 +124,18 @@ export function isValidTimezone(tz: string): boolean {
   } catch {
     return false;
   }
+}
+
+function csvCell(v: string | number | null): string {
+  const s = v === null ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** RF-ADMIN-08-8: consent evidence export for legal requests. */
+export function consentRecordsToCsv(records: ConsentRecord[]): string {
+  const header = ['created_at', 'consent_version', 'decision', 'ip_address', 'user_agent', 'manifest_hash'];
+  const rows = records.map(r =>
+    [r.created_at, r.consent_version, r.decision, r.ip_address, r.user_agent, r.manifest_hash].map(csvCell).join(','),
+  );
+  return [header.join(','), ...rows].join('\n');
 }

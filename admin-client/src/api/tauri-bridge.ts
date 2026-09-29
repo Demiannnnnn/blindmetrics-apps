@@ -59,9 +59,12 @@ export interface DecryptedTelemetryRecord {
 export interface KpiSummary {
   activeWorkers: number;
   totalWorkers: number;
-  packetsDecrypted24h: number;
+  byStatus: Record<WorkerStatus, number>;
+  /** Invited workers whose one-time code expires within 2 h (RF-ADMIN-08-9). */
+  expiringCodes: number;
   keystoreProtected: boolean;
-  systemAlerts: number;
+  /** Local key differs from the one registered on the server (K2). */
+  keyMismatch: boolean;
 }
 
 export type TimeRangePreset = 'today' | 'yesterday' | '7days' | 'custom';
@@ -505,26 +508,41 @@ async function countWorkers(query: WorkerListQuery): Promise<number> {
   return resp.pagination?.total ?? resp.data.length;
 }
 
+const ALL_STATUSES: WorkerStatus[] = ['ACTIVE', 'PENDING_CONSENT', 'PENDING_ENROLLMENT', 'PAUSED', 'REVOKED'];
+const EXPIRING_WINDOW_MS = 2 * 3600 * 1000;
+
 export async function fetchKpiSummary(): Promise<KpiSummary> {
   if (!isTauri() && !isDemoMode) {
     throw new Error('KPI summary requires the Tauri desktop client.');
   }
-  const [total, active] = await Promise.all([countWorkers({}), countWorkers({ status: 'ACTIVE' })]);
+  const [total, counts, invited] = await Promise.all([
+    countWorkers({}),
+    Promise.all(ALL_STATUSES.map(status => countWorkers({ status }))),
+    workersList({ status: 'PENDING_ENROLLMENT', per_page: 100 }),
+  ]);
+  const byStatus = Object.fromEntries(ALL_STATUSES.map((st, i) => [st, counts[i]])) as Record<WorkerStatus, number>;
+  const now = Date.now();
+  const expiringCodes = invited.data.filter(w => {
+    const exp = w.enrollment_expires_at ? new Date(w.enrollment_expires_at).getTime() : NaN;
+    return exp > now && exp - now < EXPIRING_WINDOW_MS;
+  }).length;
+
   let keystoreProtected = false;
-  let systemAlerts = 0;
+  let keyMismatch = false;
   try {
     const keyStat = await keysStatus();
     keystoreProtected = keyStat.has_local_key;
-    systemAlerts = keyStat.matches_server ? 0 : 1;
+    keyMismatch = keyStat.is_registered_on_server && !keyStat.matches_server;
   } catch (e) {
     console.warn('keys_status check failed:', e);
   }
   return {
-    activeWorkers: active,
+    activeWorkers: byStatus.ACTIVE,
     totalWorkers: total,
-    packetsDecrypted24h: isDemoMode && !isTauri() ? 8492 : 0,
+    byStatus,
+    expiringCodes,
     keystoreProtected,
-    systemAlerts,
+    keyMismatch,
   };
 }
 

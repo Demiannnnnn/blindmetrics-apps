@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+// Imports the real module (Node >= 22.18 strips TypeScript types natively).
+import {
+  consentRecordsToCsv,
+  descriptionErrors,
+  normalizeDescriptions,
+  workHoursError,
+  isValidTimezone,
+  NO_CONSENT,
+  NO_DESCRIPTIONS,
+} from '../src/components/consentCategories.ts';
+
+test('workers: malformed work hours are rejected before any IPC call', () => {
+  assert.notEqual(workHoursError('25:99', '18:00'), null);
+  assert.notEqual(workHoursError('9:00', '18:00'), null);
+  assert.notEqual(workHoursError('18:00', '09:00'), null);
+  assert.notEqual(workHoursError('09:00', '09:00'), null);
+  assert.equal(workHoursError('09:00', '18:00'), null);
+  assert.equal(workHoursError('09:00:00', '18:00:00'), null);
+});
+
+test('workers: timezone must be a real IANA zone', () => {
+  assert.equal(isValidTimezone('America/Santiago'), true);
+  assert.equal(isValidTimezone('Mars/Olympus'), false);
+  assert.equal(isValidTimezone(''), false);
+});
+
+test('workers: consent defaults collect nothing (DP-08)', () => {
+  assert.ok(Object.values(NO_CONSENT).every(v => v === false));
+});
+
+test('workers: enabled category requires a 10-500 char description', () => {
+  const flags = { ...NO_CONSENT, system_activity: true };
+  assert.ok(descriptionErrors(flags, { ...NO_DESCRIPTIONS, system_activity: 'corto' }).system_activity);
+  assert.deepEqual(descriptionErrors(flags, { ...NO_DESCRIPTIONS, system_activity: 'Aplicaciones en uso' }), {});
+  assert.ok(descriptionErrors(flags, { ...NO_DESCRIPTIONS, system_activity: 'x'.repeat(501) }).system_activity);
+});
+
+test('workers: descriptions of disabled categories are dropped', () => {
+  const flags = { ...NO_CONSENT, network_activity: true };
+  const out = normalizeDescriptions(flags, {
+    ...NO_DESCRIPTIONS,
+    network_activity: '  Dominios visitados  ',
+    location: 'no debería enviarse',
+  });
+  assert.equal(out.network_activity, 'Dominios visitados');
+  assert.equal(out.location, null);
+});
+
+test('workers: consent evidence CSV escapes quotes, commas and nulls', () => {
+  const csv = consentRecordsToCsv([
+    {
+      id: 'r1',
+      worker_id: 'w1',
+      consent_version: 2,
+      decision: 'ACCEPT',
+      manifest_hash: 'ab'.repeat(32),
+      ip_address: null,
+      user_agent: 'Agent "x", v1',
+      created_at: '2026-09-29T10:00:00Z',
+    },
+  ]);
+  const [header, row] = csv.split('\n');
+  assert.equal(header, 'created_at,consent_version,decision,ip_address,user_agent,manifest_hash');
+  assert.equal(row, `2026-09-29T10:00:00Z,2,ACCEPT,,"Agent ""x"", v1",${'ab'.repeat(32)}`);
+});

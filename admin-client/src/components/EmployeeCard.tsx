@@ -9,6 +9,7 @@ interface EmployeeCardProps {
   onShowEnrollment: (worker: WorkerItem) => void;
   onEdit: (worker: WorkerItem) => void;
   onDelete: (worker: WorkerItem) => void;
+  onOpenDetail: (worker: WorkerItem) => void;
 }
 
 export const STATUS_BADGES: Record<WorkerStatus, { label: string; className: string }> = {
@@ -35,6 +36,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   onShowEnrollment,
   onEdit,
   onDelete,
+  onOpenDetail,
 }) => {
   const badge = STATUS_BADGES[worker.status];
   const canToggle = worker.status === 'ACTIVE' || worker.status === 'PAUSED';
@@ -46,7 +48,13 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
       <div>
         <div className="flex justify-between items-start mb-3 gap-2">
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-white truncate">{worker.name}</h3>
+            <button
+              onClick={() => onOpenDetail(worker)}
+              className="text-base font-semibold text-white truncate hover:text-indigo-300 hover:underline text-left max-w-full"
+              title="Ver detalle, consentimiento y acciones"
+            >
+              {worker.name}
+            </button>
             <p className="text-xs text-slate-400 font-mono mt-0.5 truncate">{worker.email}</p>
           </div>
           <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border whitespace-nowrap ${badge.className}`}>
