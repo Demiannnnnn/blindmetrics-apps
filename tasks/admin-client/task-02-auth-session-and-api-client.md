@@ -175,10 +175,10 @@ impl AdminApiClient {
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] El login y registro comunican correctamente con la API REST.
-2. [ ] El `access_token` nunca se escribe en el almacenamiento local del navegador (`localStorage`).
-3. [ ] Al expirar el access token, las peticiones HTTP se renuevan automáticamente en segundo plano.
-4. [ ] Cerrar sesión limpia todos los tokens en memoria y en el OS Keystore.
+1. [x] El login y registro comunican correctamente con la API REST.
+2. [x] El `access_token` nunca se escribe en el almacenamiento local del navegador (`localStorage`).
+3. [x] Al expirar el access token, las peticiones HTTP se renuevan automáticamente en segundo plano.
+4. [x] Cerrar sesión limpia todos los tokens en memoria y en el OS Keystore.
 
 ---
 

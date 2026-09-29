@@ -584,4 +584,104 @@ mod tests {
         assert_eq!(profile.organization, "Acme Global");
         assert!(profile.public_key.is_none());
     }
+
+    #[tokio::test]
+    async fn test_transparent_refresh_on_401() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+
+        let server = MockServer::start().await;
+
+        crate::keystore::save_admin_refresh_token("valid_initial_refresh_token").unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/workers"))
+            .and(header("Authorization", "Bearer expired_old_token"))
+            .respond_with(ResponseTemplate::new(401))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/auth/refresh"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "access_token": "brand_new_access_token",
+                    "refresh_token": "brand_new_refresh_token",
+                    "token_type": "Bearer",
+                    "expires_in": 900,
+                    "user": {
+                        "id": "admin-1",
+                        "email": "admin@acme.cl",
+                        "name": "Admin",
+                        "role": "ADMIN"
+                    }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/workers"))
+            .and(header("Authorization", "Bearer brand_new_access_token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": []
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("expired_old_token".to_string()));
+
+        let resp = client
+            .get_with_auth("/workers")
+            .await
+            .expect("Request should succeed after auto-refresh");
+        assert_eq!(resp.status(), 200);
+
+        assert_eq!(
+            client.get_access_token_for_test(),
+            Some("brand_new_access_token".to_string())
+        );
+        assert_eq!(
+            crate::keystore::load_admin_refresh_token().unwrap(),
+            "brand_new_refresh_token"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_refresh_failure_revokes_session() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+
+        let server = MockServer::start().await;
+        crate::keystore::save_admin_refresh_token("revoked_refresh_token").unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/workers"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/auth/refresh"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "INVALID_TOKEN",
+                    "message": "Token family revoked"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("expired_token".to_string()));
+
+        let result = client.get_with_auth("/workers").await;
+        assert!(result.is_err());
+        assert!(client.get_access_token_for_test().is_none());
+        assert!(crate::keystore::load_admin_refresh_token().is_err());
+    }
 }

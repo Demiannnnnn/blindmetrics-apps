@@ -53,7 +53,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Backup export/import | ✅ | `admin_export_backup` y `admin_import_backup` IPC commands y controles en UI con frase de paso (PBKDF2/AES-GCM). | ADMIN-01 |
 | **Login** | ✅ | Rust client sends `role: "ADMIN"`, reads `{data}`, saves refresh token in keystore, fetches `GET /admins/me`. No silent fake profile. | INT-01 |
 | Register | ✅ | Reads `{data}` from `POST /auth/register`, sets session and saves refresh token. | INT-01 |
-| Refresh token handling | 🟡 | Stored in keystore (`admin_refresh_token`); 401 retry in `get_with_auth`. | ADMIN-02 |
+| Refresh token handling | ✅ | Stored in keystore (`admin_refresh_token`), rotación transparente en 401 en `send_with_auth`, revocación de sesión en fallo. | ADMIN-02 |
 | **Browser-mode `fetch`** | ✅ | Direct API calls from JS removed; demo mocks strictly guarded behind `VITE_DEMO_MODE=true` (SEC-06). | INT-01 |
 | **Workers list / create / toggle / KPIs** | ✅ | Full IPC commands (`workers_list`, `workers_create`, `workers_set_status`, `workers_regenerate_token`, etc.) connected in UI; no mock workers outside demo mode. | ADMIN-08 |
 | Enrollment modal | ✅ | Interactive `QRCodeSVG` from `EnrollmentQr`, 12-char Crockford code, 12-digit safety code, ephemeral warning (SEC-05). | ADMIN-08 |
