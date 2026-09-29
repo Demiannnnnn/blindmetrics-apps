@@ -138,10 +138,10 @@ export const FieldMap: React.FC<FieldMapProps> = ({ workerRole, workHours, point
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [ ] El componente bloquea la visualización para trabajadores de rol `OFFICE`.
-2. [ ] La polilínea de ruta se dibuja correctamente en orden cronológico para trabajadores `FIELD`.
-3. [ ] Cada marcador muestra hora y precisión estimada del GPS al hacer clic.
-4. [ ] Se confirma que ninguna coordenada cae fuera de la ventana de trabajo del empleado.
+1. [x] El componente bloquea la visualización para trabajadores de rol `OFFICE`.
+2. [x] La polilínea de ruta se dibuja correctamente en orden cronológico para trabajadores `FIELD`.
+3. [x] Cada marcador muestra hora y precisión estimada del GPS al hacer clic.
+4. [x] Se confirma que ninguna coordenada cae fuera de la ventana de trabajo del empleado.
 
 ---
 

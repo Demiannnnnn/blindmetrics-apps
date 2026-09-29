@@ -60,7 +60,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Parallel decryption | ✅ | `rayon` pipeline in memory, tolerant to tampered/corrupted records, tested with 1,000 records in <100ms. | ADMIN-04 |
 | Fetch telemetry from API | ✅ | `fetch_and_decrypt_telemetry` IPC command downloads batches from `GET /telemetry/{category}` and decrypts in memory. | ADMIN-04 |
 | Charts, network explorer, screenshot gallery, files | ✅ | Vistas especializadas sobre datos reales descifrados en RAM con muestreo LTTB, minimización FQDN, modo blur y selector global de contexto. | ADMIN-05 |
-| Field map | 🎭 | Mapa Leaflet sobre datos generados. | ADMIN-06 |
+| Field map | ✅ | Mapa Leaflet con polilínea cronológica, geocercas corporativas, bloqueo absoluto para trabajadores OFFICE (DP-04) y auditoría de jornada. | ADMIN-06 |
 | Auto-lock | 🟡 | UI timer (5 min) + `admin_lock_and_flush_memory` clears the token; decrypted state purge not verified; not configurable. | ADMIN-07 |
 | Command structure | ✅ | Divided into `commands/{mod,session,keys,workers,telemetry}.rs` with structured `CommandError`. | ADMIN-08 |
 

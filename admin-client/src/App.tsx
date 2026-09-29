@@ -403,12 +403,15 @@ export const App: React.FC = () => {
 
           {activeTab === 'location' && (
             <FieldMap
+              workerId={selectedWorker?.id}
               workerName={selectedWorker?.name ?? 'Empleado'}
               workerRole={selectedWorker?.role ?? 'OFFICE'}
               workHours={{
                 start: selectedWorker?.workHoursStart ?? '09:00',
                 end: selectedWorker?.workHoursEnd ?? '18:00',
               }}
+              timezone={selectedWorker?.timezone ?? 'America/Santiago'}
+              timeRange={timeRange}
             />
           )}
 
