@@ -19,14 +19,22 @@ flowchart LR
     end
 
     API["telemetry-api (Axum)<br/>blind relay + PostgreSQL"]
+    WEB["telemetry-web (Next.js)<br/>landing, sign-up, billing, downloads"]
+    FLOW["Flow (payments)"]
+    GOOGLE["Google (OAuth)"]
 
-    ARS -- "HTTPS /api/v1 (admin JWT)" --> API
+    ARS -- "HTTPS /api/v1 (admin JWT + device)" --> API
     AG -- "HTTPS /api/v1 (worker JWT)" --> API
+    WEB -- "HTTPS /api/v1 (server-side BFF)" --> API
+    API -- "payment/create, getStatus" --> FLOW
+    FLOW -- "confirmation webhook" --> API
+    ARS -. "system browser: sign-in (loopback + PKCE)" .-> GOOGLE
+    ARS -. "system browser: portal_url" .-> WEB
     AdminPC -. "QR / code (physical channel)" .-> WorkerPC
 ```
 
 Rules that shape everything:
-1. **Only Rust talks to the API.** The WebView never calls `fetch` against the API and never sees a token or key. (The current `tauri-bridge.ts` browser fallback violates this — see `implementation-status.md`.)
+1. **Only Rust talks to the API.** The WebView never calls `fetch` against the API and never sees a token, key or Master Password after the command that received it. URLs opened in the system browser are chosen by Rust from server data (SEC-17).
 2. **All crypto lives in `telemetry-crypto-core`.** Both apps depend on it; neither re-implements a primitive.
 3. **The server is untrusted for integrity of keys and consent** — the agent verifies the enrollment commitment and pins the key.
 
@@ -55,8 +63,10 @@ telemetry-apps/
 | `symmetric.rs` | AES-256-GCM, framing `nonce(12) ‖ tag(16) ‖ ct`. | Done |
 | `lib.rs` | `encrypt_telemetry_batch<T: Serialize>`, `decrypt_telemetry_record<T>`, `EncryptedEnvelope`. | Done |
 | `error.rs` | `CryptoError`. | Done |
-| `enrollment.rs` | `EnrollmentManifest`, canonical serialization, `manifest_commitment`, `safety_code`, `public_key_fingerprint`. | **TASK-CRYPTO-02** |
-| `backup.rs` | Passphrase-protected export/import of `K_admin_priv` (Argon2id + AES-256-GCM). | **TASK-ADMIN-01** (pending part) |
+| `enrollment.rs` | `EnrollmentManifest`, canonical serialization, `manifest_commitment`, `safety_code`, `public_key_fingerprint`, `EnrollmentQr` (`parse_payload` accepts base64 or JSON). | Done (CRYPTO-02, AGENT-09) |
+| `payloads.rs` | Plaintext telemetry batch/item types shared by agent and admin. | Done (INT-01) |
+| `backup.rs` | Legacy v1 `.vault` (PBKDF2-HMAC-SHA256 100k + AES-256-GCM). **Import only.** | Done (ADMIN-01) |
+| `backup_v2.rs` | Key backup v2: Argon2id + AES-256-GCM (AAD `telemetry-key-backup-v2`), `.tkb` container, `import_any_backup`, file name. Same format as the server vault and `telemetry-web`. | **TASK-CRYPTO-03** |
 
 Constraints: pure functions, no filesystem/network, no `unwrap`, every secret in `Zeroizing<…>`.
 
@@ -86,7 +96,8 @@ OS input hook thread ── only AtomicU64::fetch_add(Relaxed)
 | `AwaitingConsent` | Server status `PENDING_CONSENT`, or `consent_version > accepted_consent_version` with nothing accepted yet. |
 | `Collecting(flags)` | Server status `ACTIVE` and effective flags non-empty. |
 | `Paused` | Server status `PAUSED`. |
-| `Halted(reason)` | Key fingerprint mismatch, refresh family revoked, or commitment failure. |
+| `EmployerSuspended { reason }` | Would be `Collecting`, but `/workers/me.ingestion_blocked_reason` is set (employer subscription suspended/cancelled) or ingestion answered `402`/`403 SUBSCRIPTION_*`. No collectors, no ingestion, queue kept (AGENT-09). |
+| `Halted(reason)` | Key fingerprint mismatch. |
 
 ### 4.2 Target module layout
 
@@ -129,18 +140,19 @@ agent/src/
 |:------|:---------|:-----|
 | UI | `admin-client/src/` | Screens, charts, forms. Holds **decrypted data only in component state**, dropped on lock. |
 | IPC bridge | `admin-client/src/api/tauri-bridge.ts` | Typed wrappers over `invoke`. **No mocks in production builds, no direct `fetch` to the API.** |
-| Commands | `admin-client/src-tauri/src/commands/` | One file per domain: `auth.rs`, `keys.rs`, `workers.rs`, `telemetry.rs`, `session.rs`. |
-| API client | `src-tauri/src/client.rs` | Access token in RAM, refresh token in keystore, 401 → refresh → retry, unwraps `{ data }`. |
-| Keystore | `src-tauri/src/keystore.rs` | `K_admin_priv`, refresh token. |
+| Commands | `admin-client/src-tauri/src/commands/` | One file per domain: `session.rs` (login, register, Google, profile), `keys.rs`, `vault.rs` (backups, recovery, rotation), `devices.rs`, `subscription.rs`, `workers.rs`, `telemetry.rs`. |
+| API client | `src-tauri/src/client.rs` | Access token in RAM, refresh token in keystore, **single-flight** 401 → refresh → retry, typed `ApiError`, `session-expired` / `subscription-blocked` events, `X-Trial-Days-Left`. |
+| Device & Google | `src-tauri/src/device.rs`, `src-tauri/src/google_oauth.rs` | Installation id + device descriptor; loopback + PKCE sign-in. |
+| Keystore | `src-tauri/src/keystore.rs` | `K_admin_priv`, refresh token, installation id. |
 | Decryption | `src-tauri/src/commands/telemetry.rs` | Fetch pages → `rayon` parallel decrypt in `spawn_blocking` → verify inner `worker_id`/`category` → return typed items. |
 
 ### 5.2 Screens (details in `docs/admin-app-spec.md`)
 
-Auth → Key vault (first run) → Workers (list, create, enrollment modal, detail with lifecycle actions & consent history) → Telemetry views (system, network, productivity, files, location) → Settings (API URL, auto-lock, backup) → Lock screen.
+Auth (password or Google) → Subscription check (lock screen if suspended) → Key state (K1 create · K2 mismatch · K3 recover) → Workers (list, create, enrollment modal, detail with lifecycle actions & granular consent history) → Telemetry views (system, network, productivity, files, location) → Bóveda & Cumplimiento (key backups, devices, subscription) → Auto-lock screen.
 
 ## 6. End-to-end data flow
 
 1. Collector produces a plaintext item → `MetricsBuffer::push`.
 2. Flush: `drain_for_flush()` → group by category → for each category build `PlaintextBatch { schema_version, category, worker_id, items }` → `encrypt_telemetry_batch(&batch, pinned_key)` → `EncryptedEnvelope`.
-3. Send `POST /telemetry/{category}` with `{ records: [ { ephemeral_public_key, encrypted_payload(b64), client_timestamp } ] }` (productivity adds `subcategory`). On network/5xx/429 → SQLite queue. On 403 `WORKER_NOT_ACTIVE`/`CONSENT_NOT_GRANTED` → **drop** the envelope (never retry data the worker no longer consents to) and refresh `GET /workers/me`.
+3. Send `POST /telemetry/{category}` with `{ records: [ { ephemeral_public_key, encrypted_payload(b64), client_timestamp } ] }` (productivity adds `subcategory`). On network/5xx/429 → SQLite queue. On 403 `WORKER_NOT_ACTIVE`/`CONSENT_NOT_GRANTED` → **drop** the envelope (never retry data the worker no longer consents to) and refresh `GET /workers/me`. On 402/403 `SUBSCRIPTION_*` → keep it queued and switch to `EmployerSuspended`.
 4. Admin: `GET /telemetry/{category}?worker_id=…&from&to&page` → decrypt in parallel → reject records whose inner `worker_id`/`category` don't match the row metadata → render.

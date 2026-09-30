@@ -1,10 +1,11 @@
 # Admin App (`admin-client`) — Functional Specification
 
 The desktop console for the organization's administrator. Its job:
-1. Custody of `K_admin_pub`/`K_admin_priv` (the only place data can be decrypted).
-2. Define what is collected per worker, in plain language, and bind devices via enrollment codes.
-3. Show the worker lifecycle and consent evidence; pause/resume/revoke.
+1. Custody of `K_admin_pub`/`K_admin_priv` (the only place data can be decrypted) and of its encrypted backups.
+2. Define what may be collected per worker, in plain language, and bind devices via verified enrollment codes.
+3. Show the worker lifecycle and granular consent evidence; pause/resume/revoke.
 4. Fetch ciphertext, decrypt locally, visualize — and forget it on lock.
+5. Respect the subscription: when it is suspended, lock the console and send the admin to the web portal.
 
 Stack: Tauri 2, Rust backend (`admin-client-core`), React 18 + TypeScript + Tailwind, ECharts, Leaflet, `keyring`, `rayon`. Window 1280×840 (min 1024×700).
 
@@ -12,116 +13,126 @@ Stack: Tauri 2, Rust backend (`admin-client-core`), React 18 + TypeScript + Tail
 
 ```mermaid
 flowchart TD
-    Start([Launch]) --> A1[A1 Server & login]
+    Start([Launch]) --> Sess{Session in keystore?}
+    Sess -- No --> A1[A1 Server & login]
     A1 -- register --> A2[A2 Register]
-    A2 --> K1
-    A1 -- login --> KeyCheck{Key in keystore?}
-    KeyCheck -- No --> K1[K1 Key setup wizard]
-    KeyCheck -- Yes --> PubCheck{Server has public key?}
-    K1 --> PubCheck
-    PubCheck -- No --> Reg[PUT /admins/me/public-key] --> D
-    PubCheck -- Yes, matches --> D[D Dashboard]
-    PubCheck -- Yes, differs --> KX[K2 Key mismatch]
+    A1 -- Google --> G[Browser: Google sign-in]
+    A2 --> SUB
+    G --> SUB
+    A1 -- login --> SUB
+    Sess -- Yes --> SUB{GET /subscriptions/me}
+    SUB -- SUSPENDED / CANCELLED --> L2[L2 Subscription lock screen]
+    L2 -- "paid, re-check" --> SUB
+    SUB -- TRIAL / ACTIVE --> ORG{Organization set?}
+    ORG -- No --> O1[O1 Organization prompt] --> KS
+    ORG -- Yes --> KS{vault_status.key_state}
+    KS -- NO_KEY --> K1[K1 Create key + backups]
+    KS -- LOCAL_ONLY --> K1b[Register local key]
+    KS -- MISSING_LOCAL --> K3[K3 Recover key: A file · B server · C new]
+    KS -- MISMATCH --> K2[K2 Key mismatch]
+    KS -- OK --> D[D Dashboard]
+    K1 --> D
+    K1b --> D
+    K3 --> D
+    K2 --> D
     D --> WL[W1 Workers]
     WL --> WN[W2 New worker] --> WE[W3 Enrollment QR]
     WL --> WD[W4 Worker detail]
     WD --> WE
     WD --> TV[T Telemetry views]
-    D --> S[S Settings]
-    Any((any screen)) -- idle timeout --> L[L Lock]
+    D --> S[S Bóveda & Cumplimiento]
+    Any((any screen)) -- idle timeout --> L[L Auto-lock]
+    Any -- "402/403 SUBSCRIPTION_*" --> L2
+    Any -- "401 DEVICE_REVOKED" --> A1
     L --> A1
 ```
 
 ## 2. Screens
 
 ### A1 — Server & login
-Server URL (persisted in app config, not `localStorage`; default from `ADMIN_API_URL`), email, password. `POST /auth/login { role: "ADMIN" }`. On failure show the API error — **never** fall back to a fake/offline profile. A separate, clearly labelled *Demo mode* exists only in builds with `VITE_DEMO_MODE=true`.
+Server URL (persisted in app config, not `localStorage`; default from `ADMIN_API_URL`), email, password → `POST /auth/login { role: "ADMIN", device }`. **Continuar con Google** (ADMIN-10) opens the system browser; disabled with an explanation when the build has no Google client id. On failure show the API error — **never** a fake/offline profile. Session-expired reasons are shown here (`DEVICE_REVOKED`: "Este equipo fue revocado desde otra sesión").
 
 ### A2 — Register
-Name, organization, email, password (complexity hint matches the API rule). `POST /auth/register` → logged in with returned tokens.
+Name, organization, email, password (hint matches the API rule: 8–128 with upper, lower, digit and symbol). `POST /auth/register` → logged in, 14-day trial.
 
-### K1 — Key setup wizard (first run on this machine)
-1. Explain: "This key is the only way to read your workers' data. The server never has it."
-2. Generate (`admin_generate_keypair`) → private key into keystore.
-3. **Backup (strongly encouraged):** passphrase (≥ 12 chars, confirm) → save `.vault` file. Skippable, but the dashboard shows a persistent warning until done.
-4. Show fingerprint. Register on server (`PUT /admins/me/public-key`).
-Alternative: **Restore from backup** (`.vault` + passphrase) for a new machine.
+### O1 — Organization prompt (ADMIN-09)
+Shown when `organization` is empty (Google sign-up) or when `POST /workers` answers `409 ORGANIZATION_NAME_MISSING`. 2–255 chars; "Se muestra a tus trabajadores en la pantalla de consentimiento". `PUT /admins/me`.
+
+### L2 — Subscription lock screen (ADMIN-12, `TASK-APP-01`)
+Replaces the whole console (no sidebar). Title and text depend on `effective_status`/`reason` (trial ended, suspended for non-payment, cancelled). Shows the portal URL without scheme, **Abrir en navegador** (opens the server-provided `portal_url`), support e-mail with **Copiar**, **Ya pagué, verificar de nuevo**, **Cerrar sesión**; re-checks every 60 s. Decrypted data is purged when it appears.
+
+### K1 — Create key (first run of the account, ADMIN-11)
+1. Explain: "Esta llave es la única forma de leer los datos de tus trabajadores. El servidor nunca la tiene."
+2. Generate → keystore → `PUT /admins/me/public-key` (rollback if it fails) → device key fingerprint.
+3. **Backups** — Master Password (≥ 12 chars, typed twice; "No es la contraseña de tu cuenta y no la podemos recuperar"):
+   - "Guardar respaldo cifrado en el servidor (recomendado)" → `POST /admins/me/vault/setup`.
+   - "Descargar archivo de respaldo (.tkb)" → Downloads folder, path shown with the safe-keeping warning.
+   Skippable, but a red alert stays in D and S until at least one backup exists.
 
 ### K2 — Key mismatch
-Server already has a different public key (another machine, or reinstall without backup). Options: restore from backup; contact support. No way to overwrite (server is write-once by design). Workers cannot be created until resolved.
+The local key differs from the registered one. Shows both fingerprints (16 hex). Options: **Exportar la llave actual** (in case it decrypts old data) → then **Restaurar la llave registrada** (A file / B server, replacing the local one) or **Generar nueva llave** (C). Workers cannot be created until resolved.
+
+### K3 — Recover key (new device, `TASK-APP-02`)
+No key in this OS keystore but the server has one:
+- **A. "Tengo archivo de respaldo (.tkb)"** — file picker (`.tkb`, also legacy `.vault`) + Master Password.
+- **B. "Recuperar con Master Password"** — only if `key_backup_enabled`; downloads the encrypted backup (audited) and decrypts it locally.
+- **C. "Generar nueva llave"** — destructive: warning ("los datos históricos serán ilegibles y todos tus trabajadores quedarán desvinculados"), checkbox + typing `GENERAR NUEVA LLAVE`; rotates the server key; then goes to K1 step 3.
 
 ### D — Dashboard
-KPI cards: workers by status (Active / Awaiting consent / Invited / Paused / Revoked), records received in 24 h, key status (🟢 loaded & backed up / 🟡 not backed up), pending alerts (codes expiring < 2 h, workers rejected consent, workers offline > 24 h). Global worker selector and date range (Today, Yesterday, 7 days, Custom).
+KPI cards: workers by status (Active / Awaiting consent / Invited / Paused / Revoked), key status (🟢 loaded & backed up / 🟡 not backed up / 🔴 missing), onboarding banner while `onboarding_completed = false`, trial banner (≤ 7 days left, button to the portal), pending alerts (codes expiring < 2 h, codes expired). Global worker selector and date range.
 
 ### W1 — Workers
-Table: name, email, role, **status badge**, accepted/current consent version (e.g. `v2 / v3 ⚠`), device (hostname + OS), last seen, actions. Filters: status, role, search (≥ 2 chars). Pagination from API.
+Table: name, email, role, **status badge** ("Código expirado" when `enrollment_expired`), accepted/current consent version (`v2 / v3 ⚠`), accepted categories (`2/3`), device (hostname + OS), actions. Filters: status, role, search. Server pagination.
 
 ### W2 — New worker
-Form:
-- Identity: name, email, role (`OFFICE`/`FIELD`), work hours (HH:MM start < end), IANA timezone (searchable list).
-- **Data to collect:** the six categories as toggles. Each enabled toggle opens a **description** textarea (10–500 chars) prefilled with an editable template, e.g.:
-  - system_activity: "We record which applications you use and your computer's CPU/memory usage during work hours."
-  - network_activity: "We record the internet domains you visit (e.g. github.com), never full addresses or page content."
-  - productivity_basic: "We count how many keys and clicks you make per minute, never what you type."
-  - productivity_screenshots: "We take a screenshot every ~15 minutes during work hours. You are notified each time."
-  - file_activity: "We record when files are created, changed or deleted in <folder>, never their content."
-  - location: "We record your location during work hours only, for field routes."
-- `location` disabled with tooltip for `OFFICE`.
-- Live **preview** of the worker's consent screen (same layout as the agent C1).
-- Code validity: 1–72 h (default 24).
-Submit → `POST /workers` → W3.
+Identity (name, email, role, work hours HH:MM start < end, IANA timezone), **data that may be collected**: six toggles (default off, DP-08), each enabled one requires a description (10–500 chars) prefilled with an editable template; `location` disabled for `OFFICE`; live **preview** of the worker's consent screen (checkboxes, as the agent shows them); code validity 1–72 h (default 24). Submit → `POST /workers` → W3. `409 ORGANIZATION_NAME_MISSING` → O1 then automatic retry; `409 ADMIN_PUBLIC_KEY_MISSING` → key screens.
 
-### W3 — Enrollment QR
-- QR (`{t,v,api_url,code,commitment}`), the code in large monospace (`K7QM-4XRT-9PWD`), expiry countdown, **safety code** `4821 9930 1157`.
-- Instructions: "Install the Telemetry Worker app, choose *Scan QR* or *Enter code*. If they type the code, read them the safety code and confirm it matches theirs."
-- Copy code / Save QR as PNG. The code is **not stored**: closing the modal loses it (regenerate from W4).
-- Before rendering, verify the server response matches what was sent (security-model §3.2); mismatch → error, no QR.
+### W3 — Enrollment QR (ADMIN-09)
+- Rendered only after the local verification of the server package (commitment and safety code recomputed with the **local** key, `qr_payload` decoded and checked). Mismatch → integrity error, no QR.
+- QR (`qr_payload`, base64), the code in large monospace, expiry countdown, **safety code**, server host.
+- Instructions: "Instala Telemetry Worker, elige *Pegar QR* o *Ingresar código*. Si escribe el código, léele el código de seguridad y confirma que coincide."
+- Copy code / Save QR as PNG. The code is **not stored**; closing the modal loses it (regenerate from W4).
 
 ### W4 — Worker detail
-- Header: name, role, status badge, device info, enrolled at, last seen.
-- **Lifecycle actions** (enabled per status):
-  - *Regenerate code* (PENDING_ENROLLMENT, REVOKED; also "Move to new device" for bound workers — warns it unlinks the current device).
-  - *Pause* (ACTIVE) / *Resume* (PAUSED; disabled if no consent) — optional reason.
-  - *Revoke* (any but REVOKED) — confirmation with typed name.
-  - *Delete* (soft delete).
-- **Consent:** requested vs effective flags, current version vs accepted, descriptions; *Edit data to collect* → same editor as W2 → `PUT /workers/:id/consent-config`; the result states whether the worker must re-accept.
-- **Consent history:** table from `/consent-records` (version, decision, date, IP, manifest hash short). Export CSV for legal requests.
-- Shortcuts to telemetry views for this worker.
+- Header: name, role, status badge, device info, enrolled at.
+- **Lifecycle actions** (per status): *Generar código* (`PENDING_ENROLLMENT`, `REVOKED`, and `PENDING_CONSENT` never accepted); when the API answers `REVOKE_FIRST`, the dialog explains it and offers **Revocar equipo actual** (typed-name confirmation) before a new code; *Pause/Resume* with reason; *Revoke*; *Delete*.
+- **Consent:** requested vs effective flags ("Aceptó 2 de 3 categorías"), current vs accepted version, descriptions; *Editar datos a recolectar* → `PUT /workers/:id/consent-config` (states whether re-acceptance is needed).
+- **Consent history:** decision (Aceptó / Rechazó / Retiró / Reducción del admin), accepted categories, version, date, IP, app version, hash (short). CSV export (formula-safe).
 
-### T — Telemetry views (per worker, date range)
-Two-phase progress: "Downloading encrypted records… (n/N pages)" → "Decrypting locally… (n/N)". Integrity failures (SEC-09 or GCM tag) listed in a collapsible "n records could not be verified" panel, never mixed into charts.
+### T — Telemetry views
+Unchanged from ADMIN-04/05/06: two-phase progress, integrity panel, "No recolectado para este trabajador" for categories outside the effective flags.
 
-1. **System** — app usage timeline (foreground app blocks), top apps by time, idle vs active, CPU/RAM chart, USB events list.
-2. **Network** — top domains bar/pie, by category, per-hour heatmap. Banner: "Only domains are collected."
-3. **Productivity** — keystrokes & clicks per minute chart; screenshot gallery (only if consented) with blur-by-default toggle, zoom, and watermark on export.
-4. **Files** — chronological table with filters (action, extension, watched root).
-5. **Location** (FIELD only) — Leaflet map with route per day; points outside work hours flagged as anomalies (should never exist).
-Categories not in the worker's effective flags show "Not collected for this worker" instead of an empty chart.
+### S — Bóveda & Cumplimiento
+- **Llave:** local and registered fingerprints, state, **Exportar respaldo (.tkb)**, **Respaldo en el servidor** (enable/replace/delete), **Importar respaldo**, **Generar nueva llave (rotación)** (C).
+- **Dispositivos autorizados** (ADMIN-10): list, rename, revoke (not the last active one; revoking this one logs out).
+- **Suscripción** (ADMIN-12): effective status, expiry, trial days, **Gestionar suscripción** (portal).
+- Auto-lock minutes, server URL, logout, version. Privacy principles cards.
 
-### S — Settings
-Server URL, auto-lock minutes (1–60, default 5), key fingerprint, backup export / restore, logout, about/version.
+### L — Auto-lock
+After inactivity: clear decrypted data from React state and Rust caches, drop the access token (keep the refresh token), show unlock (password or, for Google-only accounts, sign in again).
 
-### L — Lock
-After inactivity: clear decrypted data from React state and Rust caches, drop the access token (keep refresh token in keystore), show login. Optional OS biometric unlock is a later enhancement.
+## 3. Tauri commands
 
-## 3. Tauri commands (target)
+| Domain | Commands |
+|:-------|:---------|
+| session | `admin_login(email, password, api_url)`, `admin_register(form)`, `admin_login_google(api_url)`, `google_sign_in_available()`, `admin_logout()`, `admin_get_session()`, `admin_update_profile({ name?, organization? })`, `admin_lock_and_flush_memory()`, `admin_unlock(password)`, `admin_is_locked()` |
+| keys / vault | `keys_status()`, `vault_status()`, `vault_create_initial_key()`, `keys_register_on_server()`, `vault_export_tkb(master_password, confirm_password?)`, `vault_setup_server_backup(master_password, confirm_password)`, `vault_delete_server_backup()`, `vault_import_backup(file_bytes, master_password, replace_local)`, `vault_recover_from_server(master_password, replace_local)`, `vault_generate_new_key(acknowledge_data_loss, confirmation_phrase)` |
+| devices | `devices_list()`, `devices_rename(id, name)`, `devices_revoke(id)` |
+| subscription | `subscription_status()`, `open_billing_portal()` |
+| workers | `workers_list(query)`, `workers_get(id)`, `workers_create(form)`, `workers_update(id, form)`, `workers_delete(id)`, `workers_regenerate_token(id, ttl_hours?)`, `workers_update_consent_config(id, flags, descriptions)`, `workers_set_status(id, status, reason)`, `workers_get_consent_records(id)` |
+| telemetry | `fetch_and_decrypt_telemetry(worker_id, category, from, to)`, `admin_decrypt_records(records)` |
 
-| Domain | Command | Returns |
-|:-------|:--------|:--------|
-| session | `admin_login(email, password, api_url)`, `admin_register(form)`, `admin_logout()`, `admin_get_session()`, `admin_lock()` | `AdminProfile` / `()` |
-| keys | `keys_status()`, `keys_generate()`, `keys_register_on_server()`, `keys_export_backup(passphrase, path)`, `keys_import_backup(path, passphrase)`, `keys_fingerprint()` | status / fingerprint |
-| workers | `workers_list(query)`, `workers_get(id)`, `workers_create(form)`, `workers_update(id, form)`, `workers_delete(id)`, `workers_regenerate_code(id, ttl)`, `workers_update_consent_config(id, flags, descriptions)`, `workers_set_status(id, status, reason)`, `workers_consent_records(id, page)`, `workers_build_enrollment_qr(worker, code)` | DTOs; `EnrollmentQr { qr_payload, code, safety_code, expires_at }` |
-| telemetry | `telemetry_fetch_decrypted(worker_id, category, from, to)` with progress events `telemetry://progress` | typed items + integrity failures |
-
-All return `Result<T, CommandError { code, message }>`. None returns a token, a private key or a raw ciphertext to the UI.
+All return `Result<T, CommandError { code, message, reason?, details? }>`. None returns a token, a private key, a Master Password or a raw ciphertext to the UI. Events: `session-expired { reason }`, `subscription-blocked { status, reason, portal_url, support_email }`.
 
 ## 4. Acceptance scenarios
 
-1. New admin on a fresh machine: register → key wizard → backup → key registered → can create a worker.
-2. Create worker with 3 categories → QR shown with safety code; closing modal and reopening requires regenerate.
-3. After the employee accepts, W1 shows ACTIVE with their hostname within one refresh.
-4. Pause → agent stops; resume → agent restarts; revoke → agent unlinks.
-5. Widen consent → W1 shows `v1 / v2 ⚠` until the employee accepts.
-6. Telemetry view decrypts 1000 records with progress; a tampered record appears only in the integrity panel.
-7. API down at login → error message, no fake session.
-8. 5 min idle → lock; decrypted data no longer in memory (verified by devtools state and Rust cache empty).
+1. New admin on a fresh machine: register → key K1 → Master Password → server backup + `.tkb` → can create a worker.
+2. Google sign-up on the web, first desktop login with Google → O1 (if needed) → K3 (key created on the web) → B with the Master Password → dashboard.
+3. Create worker with 3 categories → QR shown only after local verification; a server answering with another commitment → integrity error, no QR.
+4. After the employee accepts 2 of 3 categories, W1 shows ACTIVE `2/3` with their hostname.
+5. Pause → agent stops; resume → agent restarts; revoke → agent unlinks. Regenerate on an accepted worker → REVOKE_FIRST dialog.
+6. Widen consent → W1 shows `v1 / v2 ⚠` until the employee decides.
+7. Export `.tkb` → delete the local key → import it → telemetry decrypts again.
+8. Lost laptop: from another device, revoke it → its next request fails with `DEVICE_REVOKED`.
+9. Trial expired → L2 at start; pay in the portal → "Ya pagué" → dashboard.
+10. API down at login → error message, no fake session. 5 min idle → lock; decrypted data gone.

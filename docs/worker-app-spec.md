@@ -2,7 +2,7 @@
 
 The app installed on the employee's computer. Its job, in order of importance:
 1. Make it **impossible to be monitored without knowing it**.
-2. Collect **exactly** what the employee accepted, nothing else, only while `ACTIVE`.
+2. Collect **exactly** the categories the employee accepted (a subset of what the employer requested), nothing else, only while `ACTIVE` and while the employer's subscription is active.
 3. Encrypt to the admin's pinned key and deliver reliably without slowing the machine.
 
 Stack: Rust, `eframe`/`egui` (window ≈ 480×680, min 420×520), `tray-icon` (tray), `notify-rust` (notifications), `keyring` (secrets), `rusqlite` (queue), `tokio` (background).
@@ -19,7 +19,7 @@ flowchart TD
     E3 --> E1
     E2 -- ok --> C1[C1 Consent]
     Sync -- PENDING_CONSENT / new version --> C1
-    Sync -- ACTIVE / PAUSED --> M[M Main window]
+    Sync -- ACTIVE / PAUSED / employer suspended --> M[M Main window]
     Sync -- 401 revoked --> R[R Unlinked notice] --> E1
     Sync -- fingerprint mismatch --> H[H Halted]
     C1 -- Accept --> M
@@ -32,10 +32,18 @@ flowchart TD
 
 ### E1 — Enrollment
 - Title: "Link this computer to your employer".
-- Two options: **Scan QR** (camera if available; otherwise "Open QR image…") and **Enter code** (`XXXX-XXXX-XXXX`, auto-uppercase, auto-hyphen, accepts I/L/O and maps them).
+- Two options: **Paste QR** (the QR content: the base64 `qr_payload` shown by the admin app, or the raw JSON of older admin versions; camera/image decoding is a later enhancement) and **Enter code** (`XXXX-XXXX-XXXX`, auto-uppercase, accepts I/L/O and maps them).
 - Manual code also needs the **server address** (prefilled from `TELEMETRY_API_URL` in dev; required field in production). The QR carries it.
 - Button **Link** → `POST /workers/enroll` with `device_identifier` and `device_info`.
-- Errors: invalid/expired code → "This code is invalid or has expired. Ask your administrator for a new one."; 429 → "Too many attempts, try again in 15 minutes."; network → retry.
+- Errors by `details.reason` (AGENT-09):
+
+  | Answer | Message |
+  |:---|:---|
+  | `400 INVALID_ENROLLMENT_TOKEN` | "Este código es inválido o expiró. Pide uno nuevo a tu administrador." |
+  | `409 ENROLLMENT_ALREADY_COMPLETED` | "Este código ya fue utilizado. Si no fuiste tú, avisa a tu administrador de inmediato." |
+  | `409 DEVICE_ALREADY_ENROLLED` | "Este equipo ya está vinculado a otro trabajador de la organización. Pide a tu administrador que lo desvincule." |
+  | `429 ENROLLMENT_LOCKED` | "Demasiados intentos fallidos. Podrás intentarlo de nuevo en N minutos." — the **Link** button stays disabled until `Retry-After` passes. |
+  | Network | "No se pudo contactar al servidor. Verifica la dirección y tu conexión." |
 
 ### E2 — Verification
 - QR path: automatic. Recompute commitment; match → go to C1 (show "Verified ✓" for 1 s).
@@ -44,47 +52,46 @@ flowchart TD
 ### E3 — Tampering alert
 "The information received does not match what your administrator generated. For your protection this computer was **not** linked." Credentials from the redeem are wiped. Button: back to E1.
 
-### C1 — Consent
-Shown on first enrollment and whenever `consent_version > accepted_consent_version`.
+### C1 — Consent (granular, AGENT-09)
+Shown on first enrollment, whenever `consent_version > accepted_consent_version`, and from **Cambiar mi selección**.
 
 ```
-┌─────────────────────────────────────────┐
-│  Acme Corp — Device Telemetry           │
-├─────────────────────────────────────────┤
-│  Your employer will collect the         │
-│  following data from this computer:     │
-│                                         │
-│  ✅ Applications in use                 │
-│     "<admin description, verbatim>"     │
-│  ✅ Web browsing (domains only)         │
-│     "<admin description, verbatim>"     │
-│  ✅ Keyboard/mouse activity (counts)    │
-│     "<admin description, verbatim>"     │
-│                                         │
-│  ❌ Screenshots — NOT active            │
-│  ❌ Files — NOT active                  │
-│  ❌ GPS location — NOT active           │
-│                                         │
-│  Work hours: 09:00–18:00 America/Santiago│
-│  Data is encrypted on this computer;    │
-│  the server cannot read it.             │
-│                                         │
-│  Your rights: you can request a copy or │
-│  deletion of your data, and withdraw    │
-│  this consent at any time from this app.│
-│                                         │
-│  [Read full policy]                     │
-│                                         │
-│  [  REJECT  ]            [  ACCEPT  ]   │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Acme SpA — Telemetría del equipo            │
+├──────────────────────────────────────────────┤
+│  Tu empleador solicita poder recolectar      │
+│  estos datos. Elige cuáles aceptas:          │
+│                                              │
+│  ☐ Aplicaciones en uso                       │
+│     "<descripción del admin, textual>"       │
+│  ☐ Navegación web (solo dominios)            │
+│     "<descripción del admin, textual>"       │
+│  ☐ Actividad de teclado y mouse (conteo)     │
+│     "<descripción del admin, textual>"       │
+│                                              │
+│  — Capturas de pantalla: no solicitado       │
+│  — Archivos: no solicitado                   │
+│  — Ubicación: no solicitado                  │
+│                                              │
+│  Horario: 09:00–18:00 America/Santiago       │
+│  Los datos se cifran en este equipo; el      │
+│  servidor no puede leerlos.                  │
+│  Puedes aceptar solo algunas categorías y    │
+│  cambiar o retirar tu elección cuando        │
+│  quieras. También puedes pedir una copia o   │
+│  la eliminación de tus datos.                │
+│                                              │
+│  [Mantener mi selección anterior]  (si aplica)│
+│  [ RECHAZAR TODO ]   [ ACEPTAR SELECCIÓN (2) ]│
+└──────────────────────────────────────────────┘
 ```
 
 Rules:
-- Category labels are fixed by the app (the six categories in `domain.md`); the quoted text is the admin's description, **verbatim** (LEG-01).
-- For a version update, a banner lists what changed ("New: Screenshots"). Categories already accepted remain active until the worker decides (domain §5).
-- **Accept** → `PATCH /workers/:id/consent { ACCEPT, consent_version, manifest_hash }` → persist the accepted manifest hash → M.
-- **Reject** → `PATCH … { REJECT }` → I.
-- `409 CONSENT_VERSION_MISMATCH` → refetch `/workers/me`, re-render, tell the worker "The request changed; please review again".
+- Category labels are fixed by the app (the six categories in `domain.md`); the quoted text is the admin's description, **verbatim** (LEG-01). Only requested categories have a checkbox; all start **unchecked** (DP-08).
+- For a version update, a banner lists what changed ("Nuevo: Capturas de pantalla"). Categories already accepted remain active until the worker decides (domain §5). **Mantener mi selección anterior** checks exactly the previously accepted categories that are still requested (explicit action).
+- **Aceptar selección (n)** (disabled with n = 0) → `PATCH /workers/me/consent { accepted: true, consent_version, manifest_hash, consent_flags: selection }` → persist hash + selection → M.
+- **Rechazar todo** → `PATCH … { accepted: false }` → I.
+- `409 CONSENT_VERSION_MISMATCH` / `403 CONSENT_FLAG_NOT_REQUESTED` → refetch `/workers/me`, rebuild the offer with the pinned key, re-render with "La solicitud de tu empleador cambió; revísala nuevamente".
 
 ### I — Inactive
 "Monitoring is **off**. Nothing is being collected." Buttons: **Review request again** (C1), **Unlink this computer** (wipe local state). Status indicator ⚪.
@@ -96,17 +103,17 @@ Rules:
 | Light | Meaning |
 |:------|:--------|
 | 🟢 | Collecting (ACTIVE, in work hours). |
-| 🟡 | ACTIVE but out of work hours (time-bound collectors sleeping) — or PAUSED by employer (text says which). |
+| 🟡 | ACTIVE but out of work hours (time-bound collectors sleeping) — or PAUSED by employer — or employer subscription suspended ("Recolección detenida: la cuenta de tu empleador no está activa") (text says which). |
 | ⚪ | Not collecting (awaiting consent / rejected / withdrawn). |
 | 🔴 | Problem: offline > 15 min, halted, session ended. |
 
-1. **What's collected** — list of the six categories with state: *Active* / *Not requested* / *Sleeping (off-hours)* / *Unavailable on this computer* (e.g. Wayland without portal) with the admin's descriptions. Last collection time per category. Button **Withdraw consent** (red, secondary) → W.
+1. **What's collected** — list of the six categories with state: *Active* / *Not accepted by you* (requested, not chosen) / *Not requested* / *Sleeping (off-hours)* / *Unavailable on this computer* (e.g. Wayland without portal) with the admin's descriptions. Buttons **Cambiar mi selección** (→ C1 for the current version) and **Withdraw consent** (red, secondary) → W.
 2. **My schedule** — work hours, timezone, current local time, "location/screenshots are only collected inside this window".
 3. **My rights** — **Request a copy** (`POST /workers/me/data-request`) and **Request deletion** (`POST /workers/me/data-deletion`) with confirmation; show the returned `request_id` and status. Copy: "Your data is encrypted with your employer's key; exported data is delivered encrypted and can only be read with that key." Consent history (`GET /workers/:id/consent-records`).
 4. **Diagnostics** — API reachability (`/health`), last successful send, queue size (items/MB), app version, device id (first 8 chars), key fingerprint (first 16 hex), OS permission status (Accessibility, Screen Recording, Location, portal).
 
 ### W — Withdraw confirmation
-"If you withdraw, all collection stops immediately and unsent data on this computer is deleted." **Withdraw** → `PATCH … { WITHDRAW }` → purge queue & buffer (DP-09) → I. Works offline: stop collectors and purge locally first, send the PATCH when back online.
+"If you withdraw, all collection stops immediately and unsent data on this computer is deleted." **Withdraw** → purge queue & buffer (DP-09) → `PATCH /workers/me/consent { accepted: false }` → I. Works offline: stop collectors and purge locally first, send the PATCH when back online.
 
 ### R — Unlinked notice
 "This computer was unlinked by your employer." Credentials, pinned key and queue wiped. → E1.
@@ -134,10 +141,12 @@ There is **no** worker-side "pause 15 min" (old docs): pausing is an admin actio
 
 ## 5. Background behaviour
 
-- Lifecycle poll `GET /workers/me` every 5 min, on startup, on resume from sleep, and after any 403.
+- Lifecycle poll `GET /workers/me` every 5 min, on startup, on resume from sleep, and after any 403/402.
+- Employer subscription blocked (`ingestion_blocked_reason` or ingest `402`/`403 SUBSCRIPTION_*`) → `EmployerSuspended`: no collectors, no ingestion, queue **kept**; resumes on the next poll after reactivation. Notifications on both edges.
+- Token refresh is single-flight (one refresh at a time; a concurrent refresh would revoke the whole session family).
 - Collectors start/stop within 1 s of a RunMode or effective-flag change.
 - Flush every `WORKER_FLUSH_INTERVAL` (default 30 s; min 15 s): group by category → encrypt → send; failures → queue.
-- Queue: cap 100 MB or 7 days (oldest dropped first); drain with backoff 2 s ×2 → 300 s ±20 %; drop 403 envelopes; purge on withdraw/revoke.
+- Queue: cap 100 MB or 7 days (oldest dropped first); drain with backoff 2 s ×2 → 300 s ±20 %; drop 403 consent/status envelopes, keep subscription-blocked ones; purge on withdraw/revoke.
 - Token refresh on 401 (persist new refresh token first); refresh 401 → R.
 - `--headless` runs the same engine without a window **only** when a tray icon is available; otherwise refuse to start headless (no invisible monitoring).
 
@@ -153,7 +162,7 @@ There is **no** worker-side "pause 15 min" (old docs): pausing is an admin actio
 
 ## 7. Acceptance scenarios
 
-1. Fresh install + valid QR → linked, consent shown, accept → 🟢, first system record visible in admin within 2 flushes.
+1. Fresh install + valid QR (base64 from the admin app) → linked, consent shown with all boxes unchecked, accept 2 of 3 → 🟢, only those 2 categories reach the admin within 2 flushes.
 2. Server returns a different public key at redeem → E3, nothing stored.
 3. Reject → ⚪, no collectors, no network traffic except `/workers/me` polls.
 4. Admin pauses → 🟡 "Paused by your employer" within 5 min, no ingest calls.
@@ -161,3 +170,6 @@ There is **no** worker-side "pause 15 min" (old docs): pausing is an admin actio
 6. Withdraw offline → collectors stop immediately, queue empty, PATCH sent on reconnect.
 7. Admin revokes → next refresh fails → R → E1, local secrets gone.
 8. OFFICE worker: location never appears in "Active", GPS API never called.
+9. Three wrong codes in a row → "Demasiados intentos…" and the button stays disabled for the `Retry-After` time.
+10. Employer trial expires → 🟡 "la cuenta de tu empleador no está activa", no collection, queue intact; after payment the next poll resumes collection and drains the queue.
+11. "Cambiar mi selección" adds a category without re-enrolling; the admin sees a new `ACCEPTED` evidence row with the new subset.

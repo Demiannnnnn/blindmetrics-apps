@@ -8,9 +8,9 @@ A Cargo workspace with the two desktop clients of the Telemetry system plus thei
 
 | Directory | Package | Role |
 |:----------|:--------|:-----|
-| `telemetry-crypto-core/` | `telemetry-crypto-core` | X25519 + HKDF-SHA256 + AES-256-GCM envelopes; enrollment commitment. Pure library. |
+| `telemetry-crypto-core/` | `telemetry-crypto-core` | X25519 + HKDF-SHA256 + AES-256-GCM envelopes; enrollment commitment; key backup v2 (Argon2id, `.tkb`). Pure library. |
 | `agent/` | `agent` | **Worker app** on the employee's machine (egui). Enrolls, shows the consent manifest, collects only accepted categories, encrypts to the pinned admin key, sends/queues. |
-| `admin-client/` | `admin-client-core` (Rust) + React UI | **Admin app** (Tauri 2). Holds `K_admin_priv` in the OS keystore, manages workers, issues enrollment QR codes, decrypts telemetry locally. |
+| `admin-client/` | `admin-client-core` (Rust) + React UI | **Admin app** (Tauri 2). Holds `K_admin_priv` in the OS keystore and its encrypted backups, manages workers, issues verified enrollment QR codes, decrypts telemetry locally, respects the subscription state. |
 
 "Worker" = the employee. "Agent" = the software on their machine. Old docs say `telemetry-worker` / `telemetry-admin`; those names do not exist in code.
 
@@ -26,11 +26,15 @@ Then, as relevant: `architecture.md`, `security-model.md`, `api-contract.md`, `c
 ## 3. Non-negotiables (short version — full list in `constraints.md`)
 
 - **Blind server:** never send plaintext telemetry, private keys, DEKs or shared secrets to the API (SEC-01). All crypto in `telemetry-crypto-core` (SEC-02).
-- **Admin defines, worker accepts:** the worker accepts or rejects the whole consent package; no per-category worker toggles. Defaults are all `false` (DP-08). Withdraw is always ≤ 2 clicks (DP-10).
+- **Admin defines, worker chooses:** the admin sets which categories *may* be collected (with descriptions); the worker accepts any non-empty subset, can change it or withdraw. Checkboxes always start unchecked (DP-08, DP-11). Withdraw is always ≤ 2 clicks (DP-10).
 - **No collection unless `ACTIVE` and accepted on this device** (DP-06, DP-07).
 - **Minimization:** keystroke counts only (DP-01), FQDN only (DP-02), file metadata only in designated folders (DP-03), GPS only FIELD + consent + work hours (DP-04).
 - **Pinned key:** the agent encrypts only to the `K_admin_pub` verified at enrollment and never accepts a replacement from the server (SEC-07, SEC-08).
 - **Tokens and keys never reach the WebView or plaintext files** (SEC-03..06).
+- **Master Password and Argon2id only on the client**; the server stores only the encrypted key backup. A restored key must match the registered one; no error path leaves a mismatched local key (SEC-12, SEC-13). Everything crypto uses `zeroize`.
+- **Refresh is single-flight** in both apps; `DEVICE_REVOKED` never triggers a refresh (SEC-14).
+- **Destructive key generation** needs two confirmations validated in Rust (SEC-15).
+- **Billing:** the apps never handle payments; a suspended subscription locks the admin console and pauses the agent without deleting consented data (BILL-01..03).
 - **Hooks are O(1) atomics; polling for idle/window; no locks across await** (PERF-01..06).
 - **No fake data in production paths** (PLAT-02). Unimplemented ⇒ return "unsupported", don't return `"Finder"`.
 - **No `unwrap`/`expect` outside tests** — release builds abort on panic.
@@ -38,7 +42,7 @@ Then, as relevant: `architecture.md`, `security-model.md`, `api-contract.md`, `c
 ## 4. How to work here
 
 - Pick work from [`tasks/README.md`](tasks/README.md). Each task lists affected files, requirements, DoD and tests. If code and task disagree, check `implementation-status.md`; if still unclear, the `.ai-context` docs win over task pseudocode.
-- Any HTTP change must match [`.ai-context/api-contract.md`](.ai-context/api-contract.md). Endpoints tagged **[T12]** depend on `telemetry-api` TASK-12 — code against them behind a clear error until the server ships them.
+- Any HTTP change must match [`.ai-context/api-contract.md`](.ai-context/api-contract.md) (API contract v2, `telemetry-api` TASK-13..17). Map errors by `error.code` + `error.details.reason`, never by message text.
 - Any change to plaintext payloads must update [`docs/telemetry-payloads.md`](docs/telemetry-payloads.md) and bump `schema_version`.
 - Keep `implementation-status.md` truthful in the same PR that changes a capability.
 
@@ -52,6 +56,7 @@ cargo run -p agent                      # worker app (GUI)
 cargo run -p agent -- --headless        # background only
 cd admin-client && npm install && npm run tauri dev
 cd admin-client && npm run build        # tsc + vite
+cd admin-client && npm test             # node tests of UI helpers
 ```
 
 The server: `cd ../telemetry-api && cargo run` (needs PostgreSQL; see its README).
