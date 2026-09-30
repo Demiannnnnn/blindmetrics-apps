@@ -117,6 +117,32 @@ impl NotificationDispatcher {
         });
     }
 
+    /// BILL-03: the employer's subscription is not active; nothing is collected or sent.
+    pub fn notify_employer_suspended() {
+        std::thread::spawn(|| {
+            let _ = Notification::new()
+                .appname("Telemetry Worker")
+                .summary("Recolección detenida")
+                .body("La recolección se detuvo porque la cuenta de tu empleador no está activa. No se recolecta ni se envía nada.")
+                .icon("dialog-information")
+                .timeout(notify_rust::Timeout::Milliseconds(5000))
+                .show();
+        });
+    }
+
+    /// BILL-03: the employer's subscription is active again.
+    pub fn notify_employer_reactivated() {
+        std::thread::spawn(|| {
+            let _ = Notification::new()
+                .appname("Telemetry Worker")
+                .summary("Recolección reanudada")
+                .body("La cuenta de tu empleador volvió a estar activa: se reanudó la recolección de las categorías que aceptaste.")
+                .icon("dialog-information")
+                .timeout(notify_rust::Timeout::Milliseconds(5000))
+                .show();
+        });
+    }
+
     /// Alert when employer reduces consent categories.
     pub fn notify_admin_reduced() {
         std::thread::spawn(|| {

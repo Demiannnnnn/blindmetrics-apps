@@ -22,13 +22,39 @@ pub enum HaltReason {
     KeyFingerprintMismatch,
 }
 
+/// Why the employer cannot receive telemetry (BILL-03, TASK-AGENT-09).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BillingBlock {
+    SubscriptionSuspended,
+    SubscriptionCancelled,
+}
+
+impl BillingBlock {
+    /// Maps `ingestion_blocked_reason` or an ingest error code; unknown values are treated as
+    /// a suspension (the conservative choice: stop collecting, keep the queue).
+    pub fn from_reason(reason: &str) -> Self {
+        if reason == "SUBSCRIPTION_CANCELLED" {
+            BillingBlock::SubscriptionCancelled
+        } else {
+            BillingBlock::SubscriptionSuspended
+        }
+    }
+}
+
 /// Operational state governing telemetry collection and UI view (DP-06, DP-07).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunMode {
     Unenrolled,
-    AwaitingConsent { reason: AwaitingReason },
+    AwaitingConsent {
+        reason: AwaitingReason,
+    },
     Collecting(ConsentFlags),
     Paused,
+    /// The employer's subscription is suspended/cancelled: nothing is collected or sent,
+    /// the queue is kept, the worker's rights are unaffected (BILL-03).
+    EmployerSuspended {
+        reason: BillingBlock,
+    },
     Halted(HaltReason),
 }
 
@@ -50,6 +76,12 @@ pub struct WorkerSelf {
     pub requested_consent_flags: ConsentFlags,
     pub consent_descriptions: ConsentDescriptions,
     pub admin_public_key_fingerprint: String,
+    #[serde(default)]
+    pub enrollment_completed_at: Option<String>,
+    /// `SUBSCRIPTION_SUSPENDED` / `SUBSCRIPTION_CANCELLED` while the employer cannot receive
+    /// telemetry (API TASK-17).
+    #[serde(default)]
+    pub ingestion_blocked_reason: Option<String>,
 }
 
 pub fn has_any_consent(flags: &ConsentFlags) -> bool {
@@ -74,6 +106,12 @@ pub fn derive_run_mode(me: &WorkerSelf, pinned_fp: &str, accepted_hash: Option<&
         WorkerStatus::Paused => RunMode::Paused,
         WorkerStatus::Active => {
             if has_any_consent(&me.consent_flags) && accepted_hash.is_some() {
+                // BILL-03: an employer without an active subscription receives nothing.
+                if let Some(reason) = me.ingestion_blocked_reason.as_deref() {
+                    return RunMode::EmployerSuspended {
+                        reason: BillingBlock::from_reason(reason),
+                    };
+                }
                 RunMode::Collecting(me.consent_flags)
             } else {
                 RunMode::AwaitingConsent {
@@ -113,6 +151,8 @@ mod tests {
             requested_consent_flags: active_flags,
             consent_descriptions: ConsentDescriptions::default(),
             admin_public_key_fingerprint: pinned_fp.into(),
+            enrollment_completed_at: None,
+            ingestion_blocked_reason: None,
         };
 
         // 1. ACTIVE + consent flags + accepted hash => Collecting
@@ -175,6 +215,62 @@ mod tests {
         assert_eq!(
             derive_run_mode(&me, pinned_fp, Some(accepted_hash)),
             RunMode::Halted(HaltReason::KeyFingerprintMismatch)
+        );
+    }
+
+    #[test]
+    fn test_run_mode_employer_suspended_only_when_collecting() {
+        let pinned_fp = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let flags = ConsentFlags {
+            system_activity: true,
+            ..Default::default()
+        };
+        let mut me = WorkerSelf {
+            id: "worker-1".into(),
+            status: WorkerStatus::Active,
+            role_type: "OFFICE".into(),
+            work_hours_start: None,
+            work_hours_end: None,
+            timezone: None,
+            consent_version: 1,
+            accepted_consent_version: Some(1),
+            consent_flags: flags,
+            requested_consent_flags: flags,
+            consent_descriptions: ConsentDescriptions::default(),
+            admin_public_key_fingerprint: pinned_fp.into(),
+            enrollment_completed_at: None,
+            ingestion_blocked_reason: Some("SUBSCRIPTION_SUSPENDED".into()),
+        };
+        assert_eq!(
+            derive_run_mode(&me, pinned_fp, Some("h")),
+            RunMode::EmployerSuspended {
+                reason: BillingBlock::SubscriptionSuspended
+            }
+        );
+        me.ingestion_blocked_reason = Some("SUBSCRIPTION_CANCELLED".into());
+        assert_eq!(
+            derive_run_mode(&me, pinned_fp, Some("h")),
+            RunMode::EmployerSuspended {
+                reason: BillingBlock::SubscriptionCancelled
+            }
+        );
+        // Status and key integrity take precedence over billing.
+        me.status = WorkerStatus::Paused;
+        assert_eq!(derive_run_mode(&me, pinned_fp, Some("h")), RunMode::Paused);
+        me.status = WorkerStatus::PendingConsent;
+        assert!(matches!(
+            derive_run_mode(&me, pinned_fp, Some("h")),
+            RunMode::AwaitingConsent { .. }
+        ));
+        me.status = WorkerStatus::Active;
+        assert_eq!(
+            derive_run_mode(&me, "other", Some("h")),
+            RunMode::Halted(HaltReason::KeyFingerprintMismatch)
+        );
+        // Unknown reasons are handled conservatively.
+        assert_eq!(
+            BillingBlock::from_reason("WHATEVER"),
+            BillingBlock::SubscriptionSuspended
         );
     }
 }

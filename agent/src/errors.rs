@@ -25,6 +25,10 @@ pub enum AgentError {
         status: u16,
         code: String,
         reason: Option<String>,
+        /// `Retry-After` header or `details.retry_after_seconds` (TASK-INT-02).
+        retry_after_seconds: Option<u64>,
+        /// Raw `error.details` (e.g. `current_consent_version`, `categories`).
+        details: Option<serde_json::Value>,
     },
 
     #[error("Server returned status {0}")]
@@ -35,4 +39,30 @@ pub enum AgentError {
 
     #[error("Crypto error: {0}")]
     Crypto(#[from] telemetry_crypto_core::CryptoError),
+}
+
+impl AgentError {
+    /// `details.reason` of an API error.
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            AgentError::Api { reason, .. } => reason.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// `error.code` of an API error.
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            AgentError::Api { code, .. } => Some(code.as_str()),
+            _ => None,
+        }
+    }
+
+    /// True for `402`/`403` answers caused by the employer's subscription (BILL-03).
+    pub fn is_subscription_block(&self) -> bool {
+        matches!(
+            self.code(),
+            Some("SUBSCRIPTION_SUSPENDED") | Some("SUBSCRIPTION_CANCELLED")
+        )
+    }
 }

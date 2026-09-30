@@ -1,26 +1,27 @@
 use crate::api::client::{ApiClient, DataDeletionResponse, DataRequestResponse, DeviceInfo};
 use crate::background::worker::{EngineCommand, EngineHandle, EngineSnapshot};
 use crate::config::WorkerConfig;
-use crate::consent::{submit_offer_decision, ConsentOffer, Decision};
+use crate::consent::{count_categories, submit_decision, ConsentAction, ConsentOffer};
 use crate::core::buffer::MetricsBuffer;
 use crate::core::collectors::keystroke_counter::KeystrokeCollector;
 use crate::credentials::CredentialStore;
 use crate::enrollment::{
-    commit_enrollment, enroll, normalize_code, EnrollmentError, EnrollmentInput, PendingEnrollment,
-    Verification,
+    commit_enrollment, enroll, normalize_code, validate_server_url, EnrollmentError,
+    EnrollmentInput, PendingEnrollment, Verification,
 };
 use crate::session::{with_access_token, SessionError};
-use crate::state::{AwaitingReason, RunMode, WorkerSelf};
+use crate::state::{AwaitingReason, BillingBlock, RunMode, WorkerSelf};
 use crate::ui::tray::{SystemTrayManager, TrayAction};
 use eframe::egui::{self, Color32, RichText};
 use std::future::Future;
 use std::sync::{mpsc, Arc};
-use telemetry_crypto_core::EnrollmentQr;
+use telemetry_crypto_core::{ConsentFlags, EnrollmentQr};
 
 /// Results of async work spawned on the engine runtime, drained every frame.
 enum UiEvent {
     Enrolled(Box<Result<PendingEnrollment, EnrollmentError>>),
-    ConsentDecided(Decision, Result<(), SessionError>),
+    /// `true` when categories were accepted, `false` for reject/withdraw.
+    ConsentDecided(bool, Result<(), SessionError>),
     DataRequest(Result<DataRequestResponse, SessionError>),
     DataDeletion(Result<DataDeletionResponse, SessionError>),
 }
@@ -64,6 +65,12 @@ pub struct WorkerDesktopApp {
     busy: bool,
     /// Package shown on C1 (from the enroll response or /workers/me).
     consent_offer: Option<ConsentOffer>,
+    /// Categories ticked on C1; always starts empty (DP-08).
+    consent_selection: ConsentFlags,
+    /// Re-open C1 once the engine publishes the refreshed `/workers/me` (409 on a decision).
+    reopen_consent_after_sync: bool,
+    /// `429 ENROLLMENT_LOCKED`: the Link button stays disabled until then.
+    enroll_locked_until: Option<std::time::Instant>,
     pub screen: ActiveScreen,
     pub enrollment_code: String,
     pub enrollment_server_url: String,
@@ -118,6 +125,9 @@ impl WorkerDesktopApp {
             events_rx,
             busy: false,
             consent_offer: None,
+            consent_selection: ConsentFlags::default(),
+            reopen_consent_after_sync: false,
+            enroll_locked_until: None,
             screen: initial_screen,
             enrollment_code: String::new(),
             enroll_with_qr: true,
@@ -182,6 +192,10 @@ impl WorkerDesktopApp {
         if let Some(err) = snap.last_error {
             self.error_message = Some(err);
         }
+        if self.reopen_consent_after_sync && self.worker_self.is_some() && !snap.revoked {
+            self.reopen_consent_after_sync = false;
+            self.open_consent_from_server();
+        }
 
         if snap.revoked {
             self.consent_offer = None;
@@ -219,7 +233,7 @@ impl WorkerDesktopApp {
                     self.screen = ActiveScreen::IInactive;
                 }
             }
-            RunMode::Collecting(_) | RunMode::Paused => {
+            RunMode::Collecting(_) | RunMode::Paused | RunMode::EmployerSuspended { .. } => {
                 if matches!(self.screen, ActiveScreen::IInactive) {
                     self.screen = ActiveScreen::MMain {
                         active_tab: MainTab::WhatsCollected,
@@ -249,12 +263,17 @@ impl WorkerDesktopApp {
             &self.worker_self,
             self.cred_store.get_pinned_admin_public_key(),
         ) {
-            (Some(me), Some(pinned)) => ConsentOffer::from_worker_self(me, &pinned).ok(),
+            (Some(me), Some(pinned)) => {
+                ConsentOffer::from_worker_self(me, &pinned, self.cred_store.get_accepted_flags())
+                    .ok()
+            }
             _ => None,
         };
         match offer {
             Some(offer) => {
                 self.consent_offer = Some(offer);
+                // DP-08: every checkbox starts unchecked.
+                self.consent_selection = ConsentFlags::default();
                 self.screen = ActiveScreen::C1Consent;
             }
             None => {
@@ -272,6 +291,7 @@ impl WorkerDesktopApp {
         match commit_enrollment(pending, &url, self.cred_store.as_ref(), &mut self.config) {
             Ok(()) => {
                 self.consent_offer = Some(ConsentOffer::from_enrollment(pending));
+                self.consent_selection = ConsentFlags::default();
                 self.send_engine(EngineCommand::Enrolled {
                     api_base_url: self.config.api_base_url.clone(),
                 });
@@ -304,30 +324,57 @@ impl WorkerDesktopApp {
                     self.screen = ActiveScreen::E3TamperingAlert;
                 }
                 Err(e) => {
+                    if let EnrollmentError::Api(crate::errors::AgentError::Api {
+                        status: 429,
+                        retry_after_seconds: Some(wait),
+                        ..
+                    }) = &e
+                    {
+                        self.enroll_locked_until =
+                            Some(std::time::Instant::now() + std::time::Duration::from_secs(*wait));
+                    }
                     self.error_message = Some(enrollment_error_message(&e));
                 }
             },
-            UiEvent::ConsentDecided(decision, Ok(())) => {
+            UiEvent::ConsentDecided(accepted, Ok(())) => {
                 self.error_message = None;
                 self.pending_enrollment = None;
                 self.consent_offer = None;
-                self.screen = match decision {
-                    Decision::Accept => ActiveScreen::MMain {
+                self.consent_selection = ConsentFlags::default();
+                self.screen = if accepted {
+                    ActiveScreen::MMain {
                         active_tab: MainTab::WhatsCollected,
-                    },
-                    Decision::Reject | Decision::Withdraw => ActiveScreen::IInactive,
+                    }
+                } else {
+                    ActiveScreen::IInactive
                 };
                 self.send_engine(EngineCommand::SyncNow);
             }
             UiEvent::ConsentDecided(_, Err(SessionError::Revoked)) => {
                 self.send_engine(EngineCommand::SyncNow);
             }
+            UiEvent::ConsentDecided(_, Err(SessionError::Invalid(msg))) => {
+                self.error_message = Some(msg.to_string());
+            }
             UiEvent::ConsentDecided(_, Err(e)) => {
-                // e.g. 409 CONSENT_VERSION_MISMATCH: re-read /workers/me and re-show C1.
-                self.error_message = Some(format!(
-                    "El servidor no registró su decisión ({}). Revise la solicitud nuevamente.",
-                    e
-                ));
+                let changed = matches!(
+                    &e,
+                    SessionError::Api(err) if matches!(
+                        err.reason(),
+                        Some("CONSENT_VERSION_MISMATCH") | Some("CONSENT_FLAG_NOT_REQUESTED")
+                    )
+                );
+                if changed {
+                    // RF-AGENT-09-5: re-read /workers/me and show the new request.
+                    self.error_message =
+                        Some("La solicitud de tu empleador cambió; revísala nuevamente.".into());
+                    self.reopen_consent_after_sync = true;
+                } else {
+                    self.error_message = Some(format!(
+                        "El servidor no registró tu decisión ({}). Inténtalo nuevamente.",
+                        e
+                    ));
+                }
                 self.consent_offer = None;
                 self.screen = ActiveScreen::IInactive;
                 self.send_engine(EngineCommand::SyncNow);
@@ -372,10 +419,13 @@ fn parse_enrollment_input(
     code: &str,
     server_url: &str,
 ) -> Result<EnrollmentInput, String> {
+    let allow_http = cfg!(debug_assertions);
     if with_qr {
-        let qr = EnrollmentQr::parse(qr_text.trim()).map_err(|_| {
-            "El contenido pegado no es un código QR de vinculación válido.".to_string()
+        // RF-AGENT-09-8: base64 `qr_payload` of the API or raw JSON of older admin apps.
+        let qr = EnrollmentQr::parse_payload(qr_text).map_err(|_| {
+            "El contenido pegado no es un código de vinculación válido.".to_string()
         })?;
+        validate_server_url(&qr.api_url, allow_http)?;
         return Ok(EnrollmentInput::Qr(qr));
     }
     let code = normalize_code(code);
@@ -385,28 +435,48 @@ fn parse_enrollment_input(
     if server_url.trim().is_empty() {
         return Err("Ingrese la dirección del servidor.".into());
     }
+    validate_server_url(server_url, allow_http)?;
     Ok(EnrollmentInput::Manual {
         api_url: server_url.to_string(),
         code,
     })
 }
 
+/// RF-AGENT-09-9: messages by `details.reason` of `POST /workers/enroll`.
 fn enrollment_error_message(e: &EnrollmentError) -> String {
     use crate::errors::AgentError;
     match e {
-        EnrollmentError::Api(AgentError::Api { status: 429, .. }) => {
-            "Demasiados intentos; vuelva a intentar en 15 minutos.".into()
+        EnrollmentError::Api(AgentError::Api {
+            status: 429,
+            reason,
+            retry_after_seconds,
+            ..
+        }) => {
+            if reason.as_deref() == Some("ENROLLMENT_LOCKED") {
+                let minutes = retry_after_seconds.map(|s| s.div_ceil(60)).unwrap_or(15).max(1);
+                format!(
+                    "Demasiados intentos fallidos. Podrás intentarlo de nuevo en {} minuto(s).",
+                    minutes
+                )
+            } else {
+                "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.".into()
+            }
+        }
+        EnrollmentError::Api(AgentError::Api { status: 409, reason, .. })
+            if reason.as_deref() == Some("DEVICE_ALREADY_ENROLLED") =>
+        {
+            "Este equipo ya está vinculado a otro trabajador de la organización. Pide a tu administrador que lo desvincule.".into()
+        }
+        EnrollmentError::Api(AgentError::Api { status: 409, .. }) => {
+            "Este código ya fue utilizado. Si no fuiste tú, avisa a tu administrador de inmediato."
+                .into()
         }
         EnrollmentError::Api(AgentError::Api { status: 400, .. })
         | EnrollmentError::InvalidCodeFormat => {
-            "Este código es inválido o expiró. Pida uno nuevo a su administrador.".into()
-        }
-        EnrollmentError::Api(AgentError::Api { status: 409, .. }) => {
-            "Este equipo ya está vinculado. Pida a su administrador un código para un equipo nuevo."
-                .into()
+            "Este código es inválido o expiró. Pide uno nuevo a tu administrador.".into()
         }
         EnrollmentError::Api(AgentError::Network(_)) => {
-            "No se pudo contactar al servidor. Verifique la dirección y su conexión.".into()
+            "No se pudo contactar al servidor. Verifica la dirección y tu conexión.".into()
         }
         other => format!("Error de vinculación: {}", other),
     }
@@ -460,7 +530,7 @@ impl eframe::App for WorkerDesktopApp {
             // Sync tray icon color with RunMode status light (docs §3)
             let (r, g, b) = match &self.run_mode {
                 RunMode::Collecting(_) => (46, 204, 113),
-                RunMode::Paused => (241, 196, 15),
+                RunMode::Paused | RunMode::EmployerSuspended { .. } => (241, 196, 15),
                 RunMode::AwaitingConsent { .. } | RunMode::Unenrolled => (180, 180, 180),
                 RunMode::Halted(_) => (231, 76, 60),
             };
@@ -523,6 +593,15 @@ impl WorkerDesktopApp {
                 "Pausado por el Empleador",
                 Color32::from_rgb(241, 196, 15),
             ),
+            RunMode::EmployerSuspended { reason } => (
+                "🟡",
+                match reason {
+                    BillingBlock::SubscriptionSuspended | BillingBlock::SubscriptionCancelled => {
+                        "Recolección detenida: la cuenta de tu empleador no está activa"
+                    }
+                },
+                Color32::from_rgb(241, 196, 15),
+            ),
             RunMode::AwaitingConsent { .. } => {
                 ("⚪", "Esperando Consentimiento", Color32::LIGHT_GRAY)
             }
@@ -575,7 +654,7 @@ impl WorkerDesktopApp {
             ui.add(
                 egui::TextEdit::multiline(&mut self.enrollment_qr_text)
                     .desired_rows(4)
-                    .hint_text("{\"t\":\"telemetry-enroll\", ...}"),
+                    .hint_text("eyJ0IjoidGVsZW1ldHJ5LWVucm9sbCIs…"),
             );
             ui.label(
                 RichText::new(
@@ -593,8 +672,27 @@ impl WorkerDesktopApp {
         }
 
         ui.add_space(10.0);
+        // RF-AGENT-09-9: `429 ENROLLMENT_LOCKED` blocks the button for `Retry-After`.
+        let locked_for = self
+            .enroll_locked_until
+            .and_then(|until| until.checked_duration_since(std::time::Instant::now()));
+        if locked_for.is_none() {
+            self.enroll_locked_until = None;
+        }
+        if let Some(wait) = locked_for {
+            ui.label(
+                RichText::new(format!(
+                    "Podrás intentarlo de nuevo en {} minuto(s).",
+                    wait.as_secs().div_ceil(60).max(1)
+                ))
+                .color(Color32::from_rgb(241, 196, 15)),
+            );
+        }
         let link = egui::Button::new(RichText::new("🔗 Vincular Equipo").strong());
-        if ui.add_enabled(!self.busy, link).clicked() {
+        if ui
+            .add_enabled(!self.busy && locked_for.is_none(), link)
+            .clicked()
+        {
             let input = match self.enrollment_input() {
                 Ok(input) => input,
                 Err(msg) => {
@@ -704,51 +802,93 @@ impl WorkerDesktopApp {
         let org = offer
             .organization
             .clone()
-            .unwrap_or_else(|| "Su empleador".into());
+            .unwrap_or_else(|| "Tu empleador".into());
 
-        ui.heading(format!("{} — Telemetría del Dispositivo", org));
+        ui.heading(format!("{} — Telemetría del equipo", org));
         ui.add_space(6.0);
-        ui.label("Su empleador solicita recolectar los siguientes datos de este equipo:");
+        ui.label("Tu empleador solicita poder recolectar estos datos. Elige cuáles aceptas:");
+        if offer.previous_selection.is_some() {
+            ui.label(
+                RichText::new(format!(
+                    "Tu empleador actualizó la solicitud (versión {}). Revisa las categorías.",
+                    offer.consent_version
+                ))
+                .color(Color32::from_rgb(241, 196, 15)),
+            );
+        }
         ui.add_space(8.0);
 
-        let flags = &offer.flags;
+        // RF-AGENT-09-1: one checkbox per REQUESTED category, all unchecked by default (DP-08);
+        // the admin's description is shown verbatim (LEG-01).
+        let previous = offer.previous_selection.unwrap_or_default();
         let desc = &offer.descriptions;
-        Self::render_manifest_item(
-            ui,
-            "Aplicaciones en uso",
-            flags.system_activity,
-            desc.system_activity.as_deref(),
-        );
-        Self::render_manifest_item(
-            ui,
-            "Navegación web (solo dominios)",
-            flags.network_activity,
-            desc.network_activity.as_deref(),
-        );
-        Self::render_manifest_item(
-            ui,
-            "Actividad de teclado y mouse (conteo)",
-            flags.productivity_basic,
-            desc.productivity_basic.as_deref(),
-        );
-        Self::render_manifest_item(
-            ui,
-            "Capturas de pantalla",
-            flags.productivity_screenshots,
-            desc.productivity_screenshots.as_deref(),
-        );
-        Self::render_manifest_item(
-            ui,
-            "Metadatos de archivos",
-            flags.file_activity,
-            desc.file_activity.as_deref(),
-        );
-        Self::render_manifest_item(
-            ui,
-            "Ubicación geográfica",
-            flags.location,
-            desc.location.as_deref(),
-        );
+        let rows: [(&str, bool, &mut bool, Option<&str>, bool); 6] = [
+            (
+                "Aplicaciones en uso",
+                offer.flags.system_activity,
+                &mut self.consent_selection.system_activity,
+                desc.system_activity.as_deref(),
+                previous.system_activity,
+            ),
+            (
+                "Navegación web (solo dominios)",
+                offer.flags.network_activity,
+                &mut self.consent_selection.network_activity,
+                desc.network_activity.as_deref(),
+                previous.network_activity,
+            ),
+            (
+                "Actividad de teclado y mouse (conteo)",
+                offer.flags.productivity_basic,
+                &mut self.consent_selection.productivity_basic,
+                desc.productivity_basic.as_deref(),
+                previous.productivity_basic,
+            ),
+            (
+                "Capturas de pantalla",
+                offer.flags.productivity_screenshots,
+                &mut self.consent_selection.productivity_screenshots,
+                desc.productivity_screenshots.as_deref(),
+                previous.productivity_screenshots,
+            ),
+            (
+                "Metadatos de archivos",
+                offer.flags.file_activity,
+                &mut self.consent_selection.file_activity,
+                desc.file_activity.as_deref(),
+                previous.file_activity,
+            ),
+            (
+                "Ubicación geográfica",
+                offer.flags.location,
+                &mut self.consent_selection.location,
+                desc.location.as_deref(),
+                previous.location,
+            ),
+        ];
+        for (title, requested, selected, description, accepted_before) in rows {
+            if requested {
+                let label = if offer.previous_selection.is_some() && !accepted_before {
+                    format!("{title} (no aceptada antes)")
+                } else {
+                    title.to_string()
+                };
+                ui.checkbox(selected, RichText::new(label).strong());
+                if let Some(d) = description {
+                    ui.label(
+                        RichText::new(format!("   \"{}\"", d))
+                            .italics()
+                            .color(Color32::LIGHT_GRAY),
+                    );
+                }
+            } else {
+                *selected = false;
+                ui.label(
+                    RichText::new(format!("— {} — no solicitado por tu empleador", title))
+                        .color(Color32::GRAY),
+                );
+            }
+        }
 
         ui.add_space(8.0);
         if let (Some(s), Some(e), Some(tz)) = (
@@ -765,33 +905,54 @@ impl WorkerDesktopApp {
                 .small()
                 .color(Color32::LIGHT_GRAY),
         );
-        ui.label(RichText::new("Usted puede retirar este consentimiento en cualquier momento desde esta aplicación.").small().color(Color32::LIGHT_GRAY));
+        ui.label(
+            RichText::new("Puedes aceptar solo algunas categorías y cambiar tu elección o retirarla cuando quieras desde esta app. También puedes pedir una copia o la eliminación de tus datos.")
+                .small()
+                .color(Color32::LIGHT_GRAY),
+        );
 
-        ui.add_space(14.0);
-        let mut decision = None;
+        ui.add_space(10.0);
+        if offer.previous_selection.is_some()
+            && ui
+                .add_enabled(
+                    !self.busy,
+                    egui::Button::new("Mantener mi selección anterior"),
+                )
+                .clicked()
+        {
+            // RF-AGENT-09-2: explicit worker action, never a default.
+            self.consent_selection = offer.keep_previous_selection();
+        }
+
+        let selected = count_categories(&crate::consent::intersect(
+            &self.consent_selection,
+            &offer.flags,
+        ));
+        ui.add_space(6.0);
+        let mut action = None;
         ui.horizontal(|ui| {
             let reject = egui::Button::new(
-                RichText::new("RECHAZAR")
+                RichText::new("RECHAZAR TODO")
                     .strong()
                     .color(Color32::from_rgb(231, 76, 60)),
             );
             if ui.add_enabled(!self.busy, reject).clicked() {
-                decision = Some(Decision::Reject);
+                action = Some(ConsentAction::Decline);
             }
             let accept = egui::Button::new(
-                RichText::new("ACEPTAR")
+                RichText::new(format!("ACEPTAR SELECCIÓN ({selected})"))
                     .strong()
                     .color(Color32::from_rgb(46, 204, 113)),
             );
-            if ui.add_enabled(!self.busy, accept).clicked() {
-                decision = Some(Decision::Accept);
+            if ui.add_enabled(!self.busy && selected > 0, accept).clicked() {
+                action = Some(ConsentAction::Accept(self.consent_selection));
             }
             if self.busy {
                 ui.spinner();
             }
         });
 
-        if let Some(decision) = decision {
+        if let Some(action) = action {
             // The decision (with the displayed manifest's hash, LEG-02) must be
             // recorded by the server before anything is collected.
             let api = match self.api() {
@@ -803,24 +964,36 @@ impl WorkerDesktopApp {
             };
             let creds = self.cred_store.clone();
             self.spawn(&ui.ctx().clone(), async move {
-                let res = submit_offer_decision(&api, creds.as_ref(), &offer, decision)
+                let res = submit_decision(&api, creds.as_ref(), &offer, action)
                     .await
                     .map(|_| ());
-                UiEvent::ConsentDecided(decision, res)
+                UiEvent::ConsentDecided(action.is_accept(), res)
             });
         }
     }
 
-    fn render_manifest_item(ui: &mut egui::Ui, title: &str, active: bool, desc: Option<&str>) {
-        ui.horizontal(|ui| {
-            if active {
-                ui.label(RichText::new(format!("✅ {}", title)).strong());
-            } else {
-                ui.label(RichText::new(format!("❌ {} — NO activo", title)).color(Color32::GRAY));
-            }
-        });
-        if active {
-            if let Some(d) = desc {
+    /// One category of "Qué se recolecta" (RF-AGENT-09-6).
+    fn render_category_state(
+        ui: &mut egui::Ui,
+        title: &str,
+        requested: bool,
+        accepted: bool,
+        description: Option<&str>,
+    ) {
+        let (text, color) = match (requested, accepted) {
+            (true, true) => (
+                format!("✅ {} — Activa", title),
+                Color32::from_rgb(46, 204, 113),
+            ),
+            (true, false) => (
+                format!("◻ {} — No aceptada por ti", title),
+                Color32::LIGHT_GRAY,
+            ),
+            (false, _) => (format!("— {} — No solicitada", title), Color32::GRAY),
+        };
+        ui.label(RichText::new(text).color(color).strong());
+        if requested {
+            if let Some(d) = description {
                 ui.label(
                     RichText::new(format!("   \"{}\"", d))
                         .italics()
@@ -909,47 +1082,83 @@ impl WorkerDesktopApp {
         ui.heading("Categorías de Telemetría");
         ui.add_space(6.0);
 
-        let accepted_flags = self.cred_store.get_accepted_flags().unwrap_or_default();
+        if let RunMode::EmployerSuspended { .. } = self.run_mode {
+            ui.label(
+                RichText::new("La cuenta de tu empleador no está activa: no se recolecta ni se envía nada. Tus derechos y tu consentimiento no cambian.")
+                    .color(Color32::from_rgb(241, 196, 15)),
+            );
+            ui.add_space(6.0);
+        }
 
-        Self::render_manifest_item(
+        // DP-07: what runs is effective (server) ∩ accepted on this device.
+        let accepted = self.cred_store.get_accepted_flags().unwrap_or_default();
+        let (requested, descriptions) = match &self.worker_self {
+            Some(ws) => (ws.requested_consent_flags, ws.consent_descriptions.clone()),
+            None => (accepted, Default::default()),
+        };
+        let effective = self
+            .worker_self
+            .as_ref()
+            .map(|ws| crate::consent::intersect(&ws.consent_flags, &accepted))
+            .unwrap_or(accepted);
+
+        Self::render_category_state(
             ui,
             "Aplicaciones en uso",
-            accepted_flags.system_activity,
-            None,
+            requested.system_activity,
+            effective.system_activity,
+            descriptions.system_activity.as_deref(),
         );
-        Self::render_manifest_item(
+        Self::render_category_state(
             ui,
             "Navegación web (solo dominios)",
-            accepted_flags.network_activity,
-            None,
+            requested.network_activity,
+            effective.network_activity,
+            descriptions.network_activity.as_deref(),
         );
-        Self::render_manifest_item(
+        Self::render_category_state(
             ui,
             "Actividad de teclado y mouse (conteo)",
-            accepted_flags.productivity_basic,
-            None,
+            requested.productivity_basic,
+            effective.productivity_basic,
+            descriptions.productivity_basic.as_deref(),
         );
-        Self::render_manifest_item(
+        Self::render_category_state(
             ui,
             "Capturas de pantalla",
-            accepted_flags.productivity_screenshots,
-            None,
+            requested.productivity_screenshots,
+            effective.productivity_screenshots,
+            descriptions.productivity_screenshots.as_deref(),
         );
-        Self::render_manifest_item(
+        Self::render_category_state(
             ui,
             "Metadatos de archivos",
-            accepted_flags.file_activity,
-            None,
+            requested.file_activity,
+            effective.file_activity,
+            descriptions.file_activity.as_deref(),
         );
-        Self::render_manifest_item(ui, "Ubicación geográfica", accepted_flags.location, None);
+        Self::render_category_state(
+            ui,
+            "Ubicación geográfica",
+            requested.location,
+            effective.location,
+            descriptions.location.as_deref(),
+        );
 
         ui.add_space(16.0);
-        if ui
-            .button(RichText::new("Retirar consentimiento").color(Color32::from_rgb(231, 76, 60)))
-            .clicked()
-        {
-            self.screen = ActiveScreen::WWithdrawConfirm;
-        }
+        ui.horizontal(|ui| {
+            if ui.button("Cambiar mi selección").clicked() {
+                self.open_consent_from_server();
+            }
+            if ui
+                .button(
+                    RichText::new("Retirar consentimiento").color(Color32::from_rgb(231, 76, 60)),
+                )
+                .clicked()
+            {
+                self.screen = ActiveScreen::WWithdrawConfirm;
+            }
+        });
     }
 
     fn render_tab_schedule(&mut self, ui: &mut egui::Ui) {
@@ -1108,7 +1317,7 @@ impl WorkerDesktopApp {
                 .clicked()
             {
                 // DP-09 / DP-10: stop and purge immediately; the engine purges the
-                // on-disk queue and records WITHDRAW with the accepted manifest hash.
+                // on-disk queue and sends `accepted: false` with the current version.
                 let _ = self.buffer.drain_for_flush();
                 self.send_engine(EngineCommand::Withdraw);
                 self.run_mode = RunMode::AwaitingConsent {
@@ -1156,6 +1365,48 @@ impl WorkerDesktopApp {
 mod tests {
     use super::*;
 
+    fn api_error(status: u16, reason: Option<&str>, retry: Option<u64>) -> EnrollmentError {
+        EnrollmentError::Api(crate::errors::AgentError::Api {
+            status,
+            code: "X".into(),
+            reason: reason.map(str::to_string),
+            retry_after_seconds: retry,
+            details: None,
+        })
+    }
+
+    #[test]
+    fn test_enrollment_error_messages_by_reason() {
+        assert!(
+            enrollment_error_message(&api_error(400, Some("INVALID_ENROLLMENT_TOKEN"), None))
+                .contains("inválido o expiró")
+        );
+        assert!(enrollment_error_message(&api_error(
+            409,
+            Some("ENROLLMENT_ALREADY_COMPLETED"),
+            None
+        ))
+        .contains("ya fue utilizado"));
+        assert!(
+            enrollment_error_message(&api_error(409, Some("DEVICE_ALREADY_ENROLLED"), None))
+                .contains("ya está vinculado a otro trabajador")
+        );
+        assert!(
+            enrollment_error_message(&api_error(429, Some("ENROLLMENT_LOCKED"), Some(900)))
+                .contains("15 minuto")
+        );
+        assert!(
+            enrollment_error_message(&api_error(429, Some("ENROLLMENT_LOCKED"), Some(61)))
+                .contains("2 minuto")
+        );
+        assert!(enrollment_error_message(&api_error(429, None, None))
+            .contains("Demasiadas solicitudes"));
+        assert!(enrollment_error_message(&EnrollmentError::Api(
+            crate::errors::AgentError::Network("down".into())
+        ))
+        .contains("No se pudo contactar"));
+    }
+
     #[test]
     fn test_enrollment_input_manual_code_normalized() {
         let input =
@@ -1184,5 +1435,19 @@ mod tests {
         assert_eq!(input.api_url("fallback"), "https://api.acme.cl/api/v1");
         assert!(matches!(input, EnrollmentInput::Qr(_)));
         assert!(parse_enrollment_input(true, "not a qr", "", "").is_err());
+        // RF-AGENT-09-8: the API's canonical base64 payload works the same way.
+        let from_base64 = parse_enrollment_input(true, &qr.to_payload().unwrap(), "", "").unwrap();
+        assert_eq!(from_base64, input);
+        // SEC-10: a QR pointing to plain http is rejected outside debug builds.
+        let http_qr = EnrollmentQr::new(
+            "http://api.acme.cl/api/v1".into(),
+            "K7QM-4XRT-9PWD".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        assert_eq!(
+            parse_enrollment_input(true, &http_qr.to_json().unwrap(), "", "").is_ok(),
+            cfg!(debug_assertions)
+        );
     }
 }

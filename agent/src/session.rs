@@ -4,6 +4,11 @@
 //! single use: the rotated refresh token is persisted *before* the new access
 //! token is used (api-contract §2), and a 401 on refresh means the worker was
 //! revoked.
+//!
+//! Refresh is **single-flight** (SEC-14, TASK-INT-02): the engine loop and tasks spawned by
+//! the UI (consent, data requests) may hit a 401 at the same time. Two refreshes with the same
+//! token look like a replay to the API, which revokes the whole token family — and the agent
+//! would then wipe its enrollment. One refresh runs at a time; waiters reuse its token.
 
 use crate::api::client::ApiClient;
 use crate::credentials::CredentialStore;
@@ -18,15 +23,32 @@ pub enum SessionError {
     Revoked,
     #[error("Could not persist rotated credentials: {0}")]
     Store(String),
+    /// Rejected locally before any request (e.g. an empty consent selection).
+    #[error("{0}")]
+    Invalid(&'static str),
     #[error(transparent)]
     Api(#[from] AgentError),
 }
 
+/// Serializes refreshes of this process (SEC-14).
+static REFRESH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Rotates the session with the stored refresh token and returns the new access token.
+///
+/// `failed_token` is the access token that got the 401: if another task already rotated it,
+/// the stored token is returned without calling the API.
 pub async fn refresh_session(
     api: &ApiClient,
     creds: &dyn CredentialStore,
+    failed_token: Option<&str>,
 ) -> Result<String, SessionError> {
+    let _guard = REFRESH_LOCK.lock().await;
+    if let (Some(failed), Some(current)) = (failed_token, creds.get_access_token()) {
+        if current != failed {
+            tracing::info!("refresh skipped: token already rotated by another task");
+            return Ok(current);
+        }
+    }
     let refresh_token = creds.get_refresh_token().ok_or(SessionError::Revoked)?;
     let auth = match api.refresh(&refresh_token).await {
         Ok(auth) => auth,
@@ -54,9 +76,9 @@ where
     Fut: Future<Output = Result<T, AgentError>>,
 {
     let token = creds.get_access_token().ok_or(SessionError::NotEnrolled)?;
-    match op(token).await {
+    match op(token.clone()).await {
         Err(AgentError::Unauthorized) => {
-            let fresh = refresh_session(api, creds).await?;
+            let fresh = refresh_session(api, creds, Some(&token)).await?;
             match op(fresh).await {
                 Err(AgentError::Unauthorized) => Err(SessionError::Revoked),
                 other => other.map_err(SessionError::Api),
@@ -143,6 +165,44 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err, SessionError::Revoked));
+    }
+
+    #[tokio::test]
+    async fn test_session_concurrent_refresh_single_flight() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/refresh"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(auth_body("a-new", "r-new"))
+                    .set_delay(std::time::Duration::from_millis(50)),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let api = ApiClient::new(server.uri()).unwrap();
+        let creds = std::sync::Arc::new(store_with("a-old", "r-old"));
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let api = api.clone();
+            let creds = creds.clone();
+            tasks.push(tokio::spawn(async move {
+                with_access_token(&api, creds.as_ref(), |t| async move {
+                    if t == "a-old" {
+                        Err(AgentError::Unauthorized)
+                    } else {
+                        Ok(t)
+                    }
+                })
+                .await
+            }));
+        }
+        for task in tasks {
+            assert_eq!(task.await.unwrap().unwrap(), "a-new");
+        }
+        // One refresh, no family revocation, enrollment intact.
+        assert_eq!(creds.get_refresh_token().as_deref(), Some("r-new"));
     }
 
     #[tokio::test]

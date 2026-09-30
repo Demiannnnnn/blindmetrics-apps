@@ -12,12 +12,14 @@ use crate::credentials::CredentialStore;
 use crate::errors::AgentError;
 use crate::io::system_hooks::SystemHooksManager;
 
-use crate::consent::{send_decision, Decision};
+use crate::consent::{current_version_from_conflict, send_consent, ConsentAction};
 use crate::io::transport::{BackoffPolicy, IngestOutcome, OfflineQueue, TelemetryTransport};
 use crate::notifications::NotificationDispatcher;
 use crate::pipeline::build_envelopes;
 use crate::session::{with_access_token, SessionError};
-use crate::state::{derive_run_mode, AwaitingReason, RunMode, WorkerSelf, WorkerStatus};
+use crate::state::{
+    derive_run_mode, AwaitingReason, BillingBlock, RunMode, WorkerSelf, WorkerStatus,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use telemetry_crypto_core::{Category, ConsentFlags};
@@ -102,7 +104,11 @@ pub fn should_collect(
 }
 
 /// Executes consent withdrawal with DP-09 guarantee: the in-memory buffer and
-/// the on-disk SQLite queue are purged BEFORE the WITHDRAW decision is sent.
+/// the on-disk SQLite queue are purged BEFORE the decision is sent
+/// (`PATCH /workers/me/consent { accepted: false }`, TASK-AGENT-09).
+///
+/// Withdrawal must always be possible (DP-10): if the admin published a newer version in the
+/// meantime (`409 CONSENT_VERSION_MISMATCH`), it is retried once with the current version.
 pub async fn execute_withdraw(
     api: &ApiClient,
     cred_store: &dyn CredentialStore,
@@ -117,15 +123,35 @@ pub async fn execute_withdraw(
     let _ = cred_store.set_accepted_flags(None);
     tracing::info!("Consent withdrawn locally: buffer and queue purged (DP-09)");
 
-    send_decision(
+    match send_consent(
         api,
         cred_store,
-        Decision::Withdraw,
         consent_version,
         manifest_hash,
+        ConsentAction::Decline,
     )
     .await
-    .map(|_| ())
+    {
+        Ok(_) => Ok(()),
+        Err(err) => match current_version_from_conflict(&err) {
+            Some(current) if current != consent_version => {
+                tracing::info!(
+                    current,
+                    "withdrawal retried with the current consent version"
+                );
+                send_consent(
+                    api,
+                    cred_store,
+                    current,
+                    manifest_hash,
+                    ConsentAction::Decline,
+                )
+                .await
+                .map(|_| ())
+            }
+            _ => Err(err),
+        },
+    }
 }
 
 /// Handles worker revocation (401 from server or refresh):
@@ -277,6 +303,12 @@ impl BackgroundEngine {
                 (RunMode::Paused, RunMode::Collecting(_)) => {
                     NotificationDispatcher::notify_admin_resumed()
                 }
+                (RunMode::EmployerSuspended { .. }, RunMode::Collecting(_)) => {
+                    NotificationDispatcher::notify_employer_reactivated()
+                }
+                (_, RunMode::EmployerSuspended { .. }) => {
+                    NotificationDispatcher::notify_employer_suspended()
+                }
                 (_, RunMode::Collecting(flags)) => {
                     NotificationDispatcher::notify_collection_started(count_enabled(flags))
                 }
@@ -350,12 +382,13 @@ impl BackgroundEngine {
 
     async fn withdraw(&self, queue: &mut OfflineQueue) {
         let accepted_hash = self.cred_store.get_accepted_manifest_hash();
+        // The API requires the CURRENT version for any decision (TASK-AGENT-09).
         let version = self
             .worker_self
             .read()
             .await
             .as_ref()
-            .and_then(|w| w.accepted_consent_version.or(Some(w.consent_version)));
+            .map(|w| w.consent_version);
         // Stop collectors immediately, before any network round-trip.
         let ws = self.worker_self.read().await.clone();
         self.publish(
@@ -401,6 +434,17 @@ impl BackgroundEngine {
             }
             Ok(()) => self.sync_lifecycle(queue).await,
         }
+    }
+
+    /// BILL-03: an ingest answered `402`/`403 SUBSCRIPTION_*`. Collection stops at once (the
+    /// queue is kept) and `/workers/me` confirms the block.
+    async fn employer_blocked(&self, reason: BillingBlock, queue: &mut OfflineQueue) {
+        if matches!(*self.run_mode.read().await, RunMode::Collecting(_)) {
+            let ws = self.worker_self.read().await.clone();
+            self.publish(RunMode::EmployerSuspended { reason }, ws, false, None)
+                .await;
+        }
+        self.sync_lifecycle(queue).await;
     }
 
     /// Spawns the collection, periodic notification, and dispatch loops.
@@ -652,8 +696,12 @@ impl BackgroundEngine {
                     if !matches!(mode, RunMode::Collecting(_)) {
                         continue;
                     }
-                    if self.flush(&mut dispatcher, &mut queue).await == FlushResult::Revoked {
-                        self.revoke(&mut queue).await;
+                    match self.flush(&mut dispatcher, &mut queue).await {
+                        FlushResult::Revoked => self.revoke(&mut queue).await,
+                        FlushResult::EmployerBlocked(reason) => {
+                            self.employer_blocked(reason, &mut queue).await
+                        }
+                        FlushResult::Done => {}
                     }
                 }
             }
@@ -666,6 +714,7 @@ impl BackgroundEngine {
         let next_retry_at = &mut d.next_retry_at;
         let dispatch_cred = &self.cred_store;
 
+        let mut employer_block: Option<BillingBlock> = None;
         let mut is_in_backoff = if let Some(retry_time) = *next_retry_at {
             if std::time::Instant::now() < retry_time {
                 true
@@ -734,6 +783,18 @@ impl BackgroundEngine {
                                     );
                                 }
                                 IngestOutcome::Revoked => return FlushResult::Revoked,
+                                IngestOutcome::EmployerBlocked(reason) => {
+                                    // BILL-03: consented data is kept; nothing else is sent.
+                                    let _ = queue.enqueue(
+                                        record.category.as_str(),
+                                        &record.ephemeral_public_key,
+                                        &record.encrypted_payload,
+                                        record.client_timestamp,
+                                        record.subcategory,
+                                    );
+                                    employer_block = Some(BillingBlock::from_reason(&reason));
+                                    is_in_backoff = true;
+                                }
                                 IngestOutcome::NeedsQueue(err) => {
                                     tracing::info!(
                                         "Enqueuing record into SQLite queue ({}): category={}",
@@ -759,6 +820,10 @@ impl BackgroundEngine {
                     }
                 }
             }
+        }
+
+        if let Some(reason) = employer_block {
+            return FlushResult::EmployerBlocked(reason);
         }
 
         // Attempt to deliver queued offline records if not in backoff
@@ -794,6 +859,13 @@ impl BackgroundEngine {
                             delivered_ids.push(item.id);
                         }
                         IngestOutcome::Revoked => return FlushResult::Revoked,
+                        IngestOutcome::EmployerBlocked(reason) => {
+                            // Kept as is: no retry counted, delivered after reactivation.
+                            let _ = queue.mark_delivered(&delivered_ids);
+                            return FlushResult::EmployerBlocked(BillingBlock::from_reason(
+                                &reason,
+                            ));
+                        }
                         IngestOutcome::NeedsQueue(err) => {
                             let _ = queue.increment_retries(&[item.id]);
                             let delay = backoff.next_backoff();
@@ -819,6 +891,8 @@ impl BackgroundEngine {
 enum FlushResult {
     Done,
     Revoked,
+    /// `402`/`403 SUBSCRIPTION_*` from the ingestion (BILL-03).
+    EmployerBlocked(BillingBlock),
 }
 
 fn count_enabled(flags: &ConsentFlags) -> usize {
@@ -975,9 +1049,9 @@ mod tests {
         cred_store.set_worker_id(Some("worker-123")).unwrap();
         let server = MockServer::start().await;
         Mock::given(method("PATCH"))
-            .and(path("/workers/worker-123/consent"))
+            .and(path("/workers/me/consent"))
             .and(wiremock::matchers::body_json(serde_json::json!({
-                "decision": "WITHDRAW",
+                "accepted": false,
                 "consent_version": 1,
                 "manifest_hash": "manifest_hash_123"
             })))
@@ -1013,82 +1087,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_consent_version_mismatch_refetches_and_reshows() {
+    async fn test_withdraw_retries_once_with_current_version() {
         let server = MockServer::start().await;
-
-        // Mock 409 Conflict on PATCH consent
+        // The admin published v2 after the agent last synced: the first attempt is stale.
         Mock::given(method("PATCH"))
-            .and(path("/workers/worker-123/consent"))
+            .and(path("/workers/me/consent"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "accepted": false, "consent_version": 1, "manifest_hash": "h"
+            })))
             .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
                 "error": {
-                    "code": "CONSENT_VERSION_MISMATCH",
-                    "message": "Consent version mismatch",
-                    "details": {
-                        "reason": "CONSENT_VERSION_MISMATCH"
-                    }
+                    "code": "CONFLICT", "message": "Consent version 1 is not the current version",
+                    "details": { "reason": "CONSENT_VERSION_MISMATCH", "current_consent_version": 2 }
                 }
             })))
+            .expect(1)
             .mount(&server)
             .await;
-
-        // Mock GET /workers/me returning updated consent version 2
-        Mock::given(method("GET"))
-            .and(path("/workers/me"))
+        Mock::given(method("PATCH"))
+            .and(path("/workers/me/consent"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "accepted": false, "consent_version": 2, "manifest_hash": "h"
+            })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": "worker-123",
-                    "status": "PENDING_CONSENT",
-                    "role_type": "OFFICE",
-                    "consent_version": 2,
-                    "accepted_consent_version": 1,
-                    "consent_flags": {
-                        "system_activity": true,
-                        "network_activity": false,
-                        "productivity_basic": false,
-                        "productivity_screenshots": false,
-                        "file_activity": false,
-                        "location": false
-                    },
-                    "requested_consent_flags": {
-                        "system_activity": true,
-                        "network_activity": true,
-                        "productivity_basic": false,
-                        "productivity_screenshots": false,
-                        "file_activity": false,
-                        "location": false
-                    },
-                    "consent_descriptions": {
-                        "system_activity": "Procesos",
-                        "network_activity": "Dominios",
-                        "productivity_basic": null,
-                        "productivity_screenshots": null,
-                        "file_activity": null,
-                        "location": null
-                    },
-                    "admin_public_key_fingerprint": "dummy_fp"
-                }
+                "data": { "status": "PENDING_CONSENT", "consent_version": 2,
+                          "accepted_consent_version": null, "consent_flags": ConsentFlags::default() }
             })))
+            .expect(1)
             .mount(&server)
             .await;
 
+        let creds = InMemoryCredentialStore::new();
+        creds.set_access_token(Some("t")).unwrap();
+        creds.set_worker_id(Some("w")).unwrap();
         let client = ApiClient::new(server.uri()).unwrap();
-        let patch_res = client
-            .patch_consent("worker-123", "token", "ACCEPT", 1, "manifest_v1_hash")
-            .await;
-
-        assert!(patch_res.is_err());
-        match patch_res.unwrap_err() {
-            AgentError::Api { status, code, .. } => {
-                assert_eq!(status, 409);
-                assert_eq!(code, "CONSENT_VERSION_MISMATCH");
-
-                // Refetch /workers/me
-                let me = client.get_me("token").await.unwrap();
-                assert_eq!(me.consent_version, 2);
-                assert!(me.requested_consent_flags.network_activity);
-            }
-            other => panic!("Expected 409 Api error, got {:?}", other),
-        }
+        let buffer = MetricsBuffer::new(10);
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        execute_withdraw(&client, &creds, &buffer, &mut queue, 1, "h")
+            .await
+            .unwrap();
     }
 
     #[test]
@@ -1259,6 +1296,8 @@ mod tests {
             requested_consent_flags: flags,
             consent_descriptions: Default::default(),
             admin_public_key_fingerprint: "fp".into(),
+            enrollment_completed_at: None,
+            ingestion_blocked_reason: None,
         };
         assert_eq!(
             lifecycle_run_mode(&me, "fp", Some("hash")),
@@ -1363,12 +1402,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_engine_withdraw_purges_real_queue_and_sends_accepted_version() {
+    async fn test_engine_withdraw_purges_real_queue_and_sends_current_version() {
         let server = MockServer::start().await;
         Mock::given(method("PATCH"))
-            .and(path("/workers/worker-1/consent"))
+            .and(path("/workers/me/consent"))
             .and(wiremock::matchers::body_json(serde_json::json!({
-                "decision": "WITHDRAW", "consent_version": 3, "manifest_hash": "accepted_hash"
+                "accepted": false, "consent_version": 3, "manifest_hash": "accepted_hash"
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": { "status": "PENDING_CONSENT", "consent_version": 3,
@@ -1411,5 +1450,124 @@ mod tests {
             *engine.run_mode.read().await,
             RunMode::AwaitingConsent { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn test_engine_billing_block_stops_collectors_and_keeps_queue() {
+        let server = MockServer::start().await;
+        let mut blocked = me_json("ACTIVE", 1, Some(1), "pinned_fp");
+        blocked["data"]["ingestion_blocked_reason"] = serde_json::json!("SUBSCRIPTION_SUSPENDED");
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(blocked))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "ACTIVE",
+                1,
+                Some(1),
+                "pinned_fp",
+            )))
+            .mount(&server)
+            .await;
+
+        let creds = enrolled_creds();
+        creds.set_accepted_manifest_hash(Some("accepted")).unwrap();
+        creds
+            .set_accepted_flags(Some(&ConsentFlags {
+                system_activity: true,
+                ..Default::default()
+            }))
+            .unwrap();
+        let (engine, _dir) = test_engine(&server.uri(), creds.clone());
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        queue
+            .enqueue("system", "key", b"payload", Utc::now(), None)
+            .unwrap();
+
+        engine.sync_lifecycle(&mut queue).await;
+        let mode = engine.run_mode.read().await.clone();
+        assert_eq!(
+            mode,
+            RunMode::EmployerSuspended {
+                reason: BillingBlock::SubscriptionSuspended
+            }
+        );
+        // DP-06: no collector runs outside Collecting.
+        for category in [Category::System, Category::Network, Category::Files] {
+            assert!(!should_collect(
+                category,
+                &mode,
+                "OFFICE",
+                true,
+                &creds.get_accepted_flags().unwrap()
+            ));
+        }
+        // Consented ciphertext is kept, credentials untouched (BILL-03).
+        assert_eq!(queue.count().unwrap(), 1);
+        assert!(creds.get_access_token().is_some());
+
+        // Reactivation: the next poll resumes collection.
+        engine.sync_lifecycle(&mut queue).await;
+        assert!(matches!(
+            *engine.run_mode.read().await,
+            RunMode::Collecting(_)
+        ));
+        assert_eq!(queue.count().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_flush_402_keeps_record_and_requests_sync() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/telemetry/system"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(serde_json::json!({
+                "error": { "code": "SUBSCRIPTION_SUSPENDED", "message": "suspended",
+                           "details": { "reason": "SUBSCRIPTION_EXPIRED" } }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let creds = enrolled_creds();
+        let (engine, _dir) = test_engine(&server.uri(), creds.clone());
+        let (_priv, admin_pub) = telemetry_crypto_core::generate_admin_keypair();
+        creds.set_pinned_admin_public_key(Some(&admin_pub)).unwrap();
+        creds
+            .set_worker_id(Some("01912345-6789-7abc-def0-123456789abc"))
+            .unwrap();
+        engine
+            .buffer
+            .push(MetricPayload::System(crate::core::metrics::SystemItem {
+                ts: Utc::now(),
+                foreground_app: None,
+                window_title: None,
+                idle_seconds: Some(0),
+                cpu_pct: 1.0,
+                mem_used_mb: 1,
+                mem_total_mb: 2,
+                net_rx_bytes: 0,
+                net_tx_bytes: 0,
+                usb_events: Vec::new(),
+            }));
+        let mut dispatcher = Dispatcher {
+            transport: TelemetryTransport::new(&server.uri(), creds.clone()).unwrap(),
+            backoff: BackoffPolicy::default(),
+            next_retry_at: None,
+        };
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        let result = engine.flush(&mut dispatcher, &mut queue).await;
+        assert_eq!(
+            result,
+            FlushResult::EmployerBlocked(BillingBlock::SubscriptionSuspended)
+        );
+        assert_eq!(
+            queue.count().unwrap(),
+            1,
+            "record kept for after the reactivation"
+        );
     }
 }

@@ -7,6 +7,13 @@ use telemetry_crypto_core::{ConsentDescriptions, ConsentFlags};
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_VERSION_HEADER: &str = "X-App-Version";
+/// Largest `Retry-After` honoured (24 h).
+const MAX_RETRY_AFTER_SECONDS: u64 = 86_400;
+
+/// `User-Agent` stored by the API as consent evidence (TASK-INT-02).
+pub fn user_agent() -> String {
+    format!("telemetry-agent/{APP_VERSION}")
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct SingleResponse<T> {
@@ -127,11 +134,16 @@ pub struct EnrollResponse {
     pub consent_descriptions: ConsentDescriptions,
 }
 
+/// `PATCH /workers/me/consent` (granular consent, TASK-AGENT-09).
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct ConsentDecisionRequest<'a> {
-    pub decision: &'a str,
+pub struct ConsentRequest<'a> {
+    pub accepted: bool,
     pub consent_version: i32,
+    /// Commitment of the full manifest displayed (LEG-02).
     pub manifest_hash: &'a str,
+    /// Chosen subset; only with `accepted = true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consent_flags: Option<ConsentFlags>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -139,9 +151,14 @@ pub struct ConsentDecisionResponse {
     pub status: crate::state::WorkerStatus,
     pub consent_version: i32,
     pub accepted_consent_version: Option<i32>,
+    /// Effective flags = the accepted subset.
     pub consent_flags: ConsentFlags,
     #[serde(default)]
     pub consent_accepted_at: Option<String>,
+    #[serde(default)]
+    pub consent_rejected_at: Option<String>,
+    #[serde(default)]
+    pub enrollment_completed_at: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -170,6 +187,7 @@ impl ApiClient {
     pub fn new(base_url: String) -> Result<Self, AgentError> {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
+            .user_agent(user_agent())
             .build()
             .map_err(AgentError::Reqwest)?;
         Ok(Self { client, base_url })
@@ -324,32 +342,20 @@ impl ApiClient {
         }
     }
 
-    /// Calls `PATCH /workers/:id/consent` to record consent decision.
-    pub async fn patch_consent(
+    /// `PATCH /workers/me/consent`: accept a subset, reject or withdraw (TASK-AGENT-09).
+    /// Replaces the deprecated `PATCH /workers/:id/consent`.
+    pub async fn patch_my_consent(
         &self,
-        worker_id: &str,
         access_token: &str,
-        decision: &str,
-        consent_version: i32,
-        manifest_hash: &str,
+        body: &ConsentRequest<'_>,
     ) -> Result<ConsentDecisionResponse, AgentError> {
-        let url = format!(
-            "{}/workers/{}/consent",
-            self.base_url.trim_end_matches('/'),
-            worker_id
-        );
-        let body = ConsentDecisionRequest {
-            decision,
-            consent_version,
-            manifest_hash,
-        };
-
+        let url = format!("{}/workers/me/consent", self.base_url.trim_end_matches('/'));
         let resp = self
             .client
             .patch(&url)
             .bearer_auth(access_token)
             .header(APP_VERSION_HEADER, APP_VERSION)
-            .json(&body)
+            .json(body)
             .send()
             .await
             .map_err(|e| AgentError::Network(e.to_string()))?;
@@ -475,21 +481,34 @@ impl ApiClient {
         if status == StatusCode::UNAUTHORIZED {
             return Err(AgentError::Unauthorized);
         }
+        let retry_header = resp
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .filter(|s| *s <= MAX_RETRY_AFTER_SECONDS);
 
         let status_code = status.as_u16();
-        if let Ok(err_resp) = resp.json::<ApiErrorResponse>().await {
-            let reason = err_resp
-                .error
-                .details
-                .as_ref()
-                .and_then(|d| d.get("reason").and_then(|r| r.as_str().map(String::from)));
-            Err(AgentError::Api {
-                status: status_code,
-                code: err_resp.error.code,
-                reason,
-            })
-        } else {
-            Err(AgentError::ServerError(status_code))
+        match resp.json::<ApiErrorResponse>().await {
+            Ok(err_resp) => {
+                let details = err_resp.error.details.filter(|d| d.is_object());
+                let reason = details
+                    .as_ref()
+                    .and_then(|d| d.get("reason").and_then(|r| r.as_str().map(String::from)));
+                let retry_detail = details
+                    .as_ref()
+                    .and_then(|d| d.get("retry_after_seconds"))
+                    .and_then(|r| r.as_u64())
+                    .filter(|s| *s <= MAX_RETRY_AFTER_SECONDS);
+                Err(AgentError::Api {
+                    status: status_code,
+                    code: err_resp.error.code,
+                    reason,
+                    retry_after_seconds: retry_header.or(retry_detail),
+                    details,
+                })
+            }
+            Err(_) => Err(AgentError::ServerError(status_code)),
         }
     }
 }
@@ -586,6 +605,7 @@ mod tests {
                 status,
                 code,
                 reason,
+                ..
             } => {
                 assert_eq!(status, 403);
                 assert_eq!(code, "FORBIDDEN");

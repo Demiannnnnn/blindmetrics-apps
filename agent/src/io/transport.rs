@@ -27,6 +27,9 @@ pub enum IngestOutcome {
     DroppedForbidden(Option<String>),
     DroppedValidation(String),
     NeedsQueue(String),
+    /// `402`/`403 SUBSCRIPTION_*`: the employer cannot receive telemetry. The envelope is kept
+    /// (consented data) and collection stops until `/workers/me` clears the block (BILL-03).
+    EmployerBlocked(String),
     /// Refresh rejected with 401: the worker was revoked; wipe local state (DP-09).
     Revoked,
 }
@@ -367,27 +370,31 @@ impl TelemetryTransport {
 
         if status == StatusCode::UNAUTHORIZED {
             tracing::info!("Access token expired, attempting refresh...");
-            let new_token = match refresh_session(&self.api, self.creds.as_ref()).await {
-                Ok(t) => t,
-                Err(SessionError::Revoked) => return IngestOutcome::Revoked,
-                Err(e) => return IngestOutcome::NeedsQueue(format!("refresh failed: {}", e)),
-            };
+            let new_token =
+                match refresh_session(&self.api, self.creds.as_ref(), Some(&token)).await {
+                    Ok(t) => t,
+                    Err(SessionError::Revoked) => return IngestOutcome::Revoked,
+                    Err(e) => return IngestOutcome::NeedsQueue(format!("refresh failed: {}", e)),
+                };
             return match self.post(&url, &req_body, &new_token).send().await {
                 Ok(retry) if retry.status().is_success() => {
                     tracing::info!("ingest ok after token refresh category={}", endpoint);
                     IngestOutcome::Delivered
                 }
                 Ok(retry) if retry.status() == StatusCode::UNAUTHORIZED => IngestOutcome::Revoked,
-                Ok(retry) if retry.status() == StatusCode::FORBIDDEN => {
-                    Self::parse_forbidden(endpoint, retry).await
+                Ok(retry)
+                    if retry.status() == StatusCode::FORBIDDEN
+                        || retry.status() == StatusCode::PAYMENT_REQUIRED =>
+                {
+                    Self::classify_rejection(endpoint, retry).await
                 }
                 Ok(retry) => IngestOutcome::NeedsQueue(format!("Status {}", retry.status())),
                 Err(e) => IngestOutcome::NeedsQueue(e.to_string()),
             };
         }
 
-        if status == StatusCode::FORBIDDEN {
-            return Self::parse_forbidden(endpoint, response).await;
+        if status == StatusCode::FORBIDDEN || status == StatusCode::PAYMENT_REQUIRED {
+            return Self::classify_rejection(endpoint, response).await;
         }
 
         if status == StatusCode::BAD_REQUEST || status == StatusCode::PAYLOAD_TOO_LARGE {
@@ -400,15 +407,35 @@ impl TelemetryTransport {
         IngestOutcome::NeedsQueue(format!("Status {}", status))
     }
 
-    async fn parse_forbidden(endpoint: &str, resp: reqwest::Response) -> IngestOutcome {
-        let reason = if let Ok(err_obj) = resp.json::<ApiErrorResponse>().await {
-            err_obj
-                .error
-                .details
-                .and_then(|d| d.get("reason").and_then(|r| r.as_str().map(String::from)))
-        } else {
-            None
+    /// `402`/`403`: subscription blocks keep the envelope; any other 403 drops it
+    /// (never retry data without consent, RF-INT-01-4).
+    async fn classify_rejection(endpoint: &str, resp: reqwest::Response) -> IngestOutcome {
+        let status = resp.status();
+        let (code, reason) = match resp.json::<ApiErrorResponse>().await {
+            Ok(err_obj) => (
+                Some(err_obj.error.code),
+                err_obj
+                    .error
+                    .details
+                    .and_then(|d| d.get("reason").and_then(|r| r.as_str().map(String::from))),
+            ),
+            Err(_) => (None, None),
         };
+        let subscription = matches!(
+            code.as_deref(),
+            Some("SUBSCRIPTION_SUSPENDED") | Some("SUBSCRIPTION_CANCELLED")
+        );
+        if subscription || status == StatusCode::PAYMENT_REQUIRED {
+            let block = code
+                .filter(|c| c == "SUBSCRIPTION_CANCELLED")
+                .unwrap_or_else(|| "SUBSCRIPTION_SUSPENDED".to_string());
+            tracing::warn!(
+                "ingest kept in queue: employer subscription blocked reason={} category={}",
+                reason.as_deref().unwrap_or(&block),
+                endpoint
+            );
+            return IngestOutcome::EmployerBlocked(block);
+        }
         tracing::warn!(
             "ingest dropped: 403 reason={} category={}",
             reason.as_deref().unwrap_or("UNKNOWN"),
@@ -479,6 +506,49 @@ mod tests {
         assert_eq!(
             outcome,
             IngestOutcome::DroppedForbidden(Some("CONSENT_NOT_GRANTED".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_transport_402_keeps_envelope_in_queue() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/telemetry/system"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(json!({
+                "error": {
+                    "code": "SUBSCRIPTION_SUSPENDED",
+                    "message": "El empleador no tiene una suscripción activa",
+                    "details": { "reason": "TRIAL_EXPIRED" }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/telemetry/network"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+                "error": {
+                    "code": "SUBSCRIPTION_CANCELLED",
+                    "message": "cancelled",
+                    "details": { "reason": "SUBSCRIPTION_CANCELLED" }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let creds = Arc::new(InMemoryCredentialStore::new());
+        creds.set_access_token(Some("test_token")).unwrap();
+        let mut transport = TelemetryTransport::new(&server.uri(), creds).unwrap();
+        assert_eq!(
+            transport
+                .send_record("system", "k", b"payload", Utc::now(), None)
+                .await,
+            IngestOutcome::EmployerBlocked("SUBSCRIPTION_SUSPENDED".into())
+        );
+        assert_eq!(
+            transport
+                .send_record("network", "k", b"payload", Utc::now(), None)
+                .await,
+            IngestOutcome::EmployerBlocked("SUBSCRIPTION_CANCELLED".into())
         );
     }
 

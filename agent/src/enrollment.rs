@@ -36,6 +36,24 @@ impl EnrollmentInput {
     }
 }
 
+/// SEC-10: release builds only talk to `https://` servers; `http://` is accepted in debug
+/// builds (local development). The URL must have a host and no credentials.
+pub fn validate_server_url(url: &str, allow_http: bool) -> Result<(), String> {
+    let url = url.trim();
+    let rest = if let Some(rest) = url.strip_prefix("https://") {
+        rest
+    } else if let Some(rest) = url.strip_prefix("http://").filter(|_| allow_http) {
+        rest
+    } else {
+        return Err("La dirección del servidor debe comenzar con https://".into());
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.is_empty() || authority.contains('@') || url.chars().any(char::is_whitespace) {
+        return Err("La dirección del servidor no es válida.".into());
+    }
+    Ok(())
+}
+
 /// Normalizes a manual code: uppercase, strip whitespace & dashes, Crockford replacements I/L->1, O->0.
 pub fn normalize_code(raw: &str) -> String {
     raw.chars()
@@ -203,6 +221,16 @@ mod tests {
                 "consent_descriptions": desc
             }
         })
+    }
+
+    #[test]
+    fn test_validate_server_url_rules() {
+        assert!(validate_server_url("https://api.acme.cl/api/v1", false).is_ok());
+        assert!(validate_server_url("http://localhost:8080/api/v1", true).is_ok());
+        assert!(validate_server_url("http://api.acme.cl/api/v1", false).is_err());
+        assert!(validate_server_url("https://user:pw@api.acme.cl", false).is_err());
+        assert!(validate_server_url("ftp://api.acme.cl", true).is_err());
+        assert!(validate_server_url("https://", false).is_err());
     }
 
     #[test]

@@ -1,41 +1,68 @@
-//! Consent package shown on C1 and the decisions sent to the server.
+//! Consent package shown on C1 and the decisions sent to the server (TASK-AGENT-09).
 //!
-//! The worker accepts or rejects the whole package (DP-08). Every decision
-//! carries the commitment of the manifest that was displayed (LEG-02), which
-//! is the same commitment the admin put in the enrollment QR.
+//! Granular consent (DP-11): the admin requests categories, the worker accepts any non-empty
+//! subset, can change it later, reject everything or withdraw. Every checkbox starts unchecked
+//! (DP-08). Every decision carries the commitment of the **full** manifest that was displayed
+//! (LEG-02), the same commitment the admin put in the enrollment QR.
 
-use crate::api::client::{ApiClient, ConsentDecisionResponse};
+use crate::api::client::{ApiClient, ConsentDecisionResponse, ConsentRequest};
 use crate::credentials::CredentialStore;
 use crate::enrollment::PendingEnrollment;
+use crate::errors::AgentError;
 use crate::session::{with_access_token, SessionError};
-use crate::state::WorkerSelf;
+use crate::state::{has_any_consent, WorkerSelf};
 use telemetry_crypto_core::{
     manifest_commitment, ConsentDescriptions, ConsentFlags, CryptoError, EnrollmentManifest,
 };
 
+/// What the worker decided on C1 or with "Retirar consentimiento".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Decision {
-    Accept,
-    Reject,
-    Withdraw,
+pub enum ConsentAction {
+    /// Accept exactly these categories (non-empty subset of the requested ones).
+    Accept(ConsentFlags),
+    /// Reject everything (in `PENDING_CONSENT`) or withdraw (in `ACTIVE`/`PAUSED`).
+    Decline,
 }
 
-impl Decision {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Decision::Accept => "ACCEPT",
-            Decision::Reject => "REJECT",
-            Decision::Withdraw => "WITHDRAW",
-        }
+impl ConsentAction {
+    pub fn is_accept(&self) -> bool {
+        matches!(self, ConsentAction::Accept(_))
     }
 }
 
-/// What the worker is asked to accept on C1.
+/// Categories set in both `a` and `b`.
+pub fn intersect(a: &ConsentFlags, b: &ConsentFlags) -> ConsentFlags {
+    ConsentFlags {
+        system_activity: a.system_activity && b.system_activity,
+        network_activity: a.network_activity && b.network_activity,
+        productivity_basic: a.productivity_basic && b.productivity_basic,
+        productivity_screenshots: a.productivity_screenshots && b.productivity_screenshots,
+        file_activity: a.file_activity && b.file_activity,
+        location: a.location && b.location,
+    }
+}
+
+/// Number of categories set.
+pub fn count_categories(flags: &ConsentFlags) -> usize {
+    [
+        flags.system_activity,
+        flags.network_activity,
+        flags.productivity_basic,
+        flags.productivity_screenshots,
+        flags.file_activity,
+        flags.location,
+    ]
+    .iter()
+    .filter(|f| **f)
+    .count()
+}
+
+/// What the worker is asked to decide on C1.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConsentOffer {
     pub organization: Option<String>,
     pub consent_version: i32,
-    /// Requested categories (what collection would start with on ACCEPT).
+    /// Requested categories: the only ones the worker can choose.
     pub flags: ConsentFlags,
     pub descriptions: ConsentDescriptions,
     pub work_hours_start: Option<String>,
@@ -43,6 +70,8 @@ pub struct ConsentOffer {
     pub timezone: Option<String>,
     /// Commitment of the displayed manifest, sent as `manifest_hash`.
     pub manifest_hash: String,
+    /// Selection accepted before on this device, if any ("Mantener mi selección anterior").
+    pub previous_selection: Option<ConsentFlags>,
 }
 
 impl ConsentOffer {
@@ -58,12 +87,17 @@ impl ConsentOffer {
             work_hours_end: r.work_hours_end.clone(),
             timezone: r.timezone.clone(),
             manifest_hash: pending.commitment.clone(),
+            previous_selection: None,
         }
     }
 
-    /// Offer for a later version (or after restart), rebuilt from `/workers/me`
-    /// and the key pinned at enrollment — never a key sent by the server (SEC-08).
-    pub fn from_worker_self(me: &WorkerSelf, pinned_admin_pub: &str) -> Result<Self, CryptoError> {
+    /// Offer for a later version (or after restart), rebuilt from `/workers/me` and the key
+    /// pinned at enrollment — never a key sent by the server (SEC-08).
+    pub fn from_worker_self(
+        me: &WorkerSelf,
+        pinned_admin_pub: &str,
+        previous_selection: Option<ConsentFlags>,
+    ) -> Result<Self, CryptoError> {
         let manifest = EnrollmentManifest::new(
             pinned_admin_pub.to_string(),
             me.consent_version,
@@ -79,36 +113,90 @@ impl ConsentOffer {
             work_hours_end: me.work_hours_end.clone(),
             timezone: me.timezone.clone(),
             manifest_hash: manifest_commitment(&manifest)?,
+            previous_selection: previous_selection.filter(has_any_consent),
         })
+    }
+
+    /// The previous selection restricted to what is still requested (explicit worker action,
+    /// DP-08: never applied by default).
+    pub fn keep_previous_selection(&self) -> ConsentFlags {
+        self.previous_selection
+            .map(|prev| intersect(&prev, &self.flags))
+            .unwrap_or_default()
     }
 }
 
-/// Sends ACCEPT or REJECT for `offer` and updates the locally accepted
-/// package only after the server recorded the decision.
-pub async fn submit_offer_decision(
+/// `PATCH /workers/me/consent` with automatic token refresh. `Accept` sends the flags as
+/// given: callers restrict them to the requested categories first.
+pub async fn send_consent(
+    api: &ApiClient,
+    creds: &dyn CredentialStore,
+    consent_version: i32,
+    manifest_hash: &str,
+    action: ConsentAction,
+) -> Result<ConsentDecisionResponse, SessionError> {
+    if creds.get_worker_id().is_none() {
+        return Err(SessionError::NotEnrolled);
+    }
+    let consent_flags = match action {
+        ConsentAction::Accept(flags) => Some(flags),
+        ConsentAction::Decline => None,
+    };
+    with_access_token(api, creds, |token| {
+        let api = api.clone();
+        let manifest_hash = manifest_hash.to_string();
+        async move {
+            let body = ConsentRequest {
+                accepted: consent_flags.is_some(),
+                consent_version,
+                manifest_hash: &manifest_hash,
+                consent_flags,
+            };
+            api.patch_my_consent(&token, &body).await
+        }
+    })
+    .await
+}
+
+/// Sends the decision for `offer` and updates the locally accepted selection only after the
+/// server recorded it (RF-AGENT-09-3).
+pub async fn submit_decision(
     api: &ApiClient,
     creds: &dyn CredentialStore,
     offer: &ConsentOffer,
-    decision: Decision,
+    action: ConsentAction,
 ) -> Result<ConsentDecisionResponse, SessionError> {
-    let resp = send_decision(
+    let action = match action {
+        ConsentAction::Accept(selection) => {
+            // DP-11: never send a category the admin did not request.
+            let selection = intersect(&selection, &offer.flags);
+            if !has_any_consent(&selection) {
+                return Err(SessionError::Invalid(
+                    "Selecciona al menos una categoría o usa Rechazar todo.",
+                ));
+            }
+            ConsentAction::Accept(selection)
+        }
+        ConsentAction::Decline => ConsentAction::Decline,
+    };
+    let resp = send_consent(
         api,
         creds,
-        decision,
         offer.consent_version,
         &offer.manifest_hash,
+        action,
     )
     .await?;
-    match decision {
-        Decision::Accept => {
+    match action {
+        ConsentAction::Accept(selection) => {
             creds
                 .set_accepted_manifest_hash(Some(&offer.manifest_hash))
                 .map_err(SessionError::Store)?;
             creds
-                .set_accepted_flags(Some(&offer.flags))
+                .set_accepted_flags(Some(&intersect(&selection, &resp.consent_flags)))
                 .map_err(SessionError::Store)?;
         }
-        Decision::Reject | Decision::Withdraw => {
+        ConsentAction::Decline => {
             creds
                 .set_accepted_manifest_hash(None)
                 .map_err(SessionError::Store)?;
@@ -118,38 +206,29 @@ pub async fn submit_offer_decision(
         }
     }
     tracing::info!(
-        decision = decision.as_str(),
+        accepted = action.is_accept(),
+        categories = count_categories(&resp.consent_flags),
         consent_version = offer.consent_version,
-        "Consent decision recorded"
+        "consent decision recorded"
     );
     Ok(resp)
 }
 
-/// `PATCH /workers/:id/consent` with automatic token refresh.
-pub async fn send_decision(
-    api: &ApiClient,
-    creds: &dyn CredentialStore,
-    decision: Decision,
-    consent_version: i32,
-    manifest_hash: &str,
-) -> Result<ConsentDecisionResponse, SessionError> {
-    let worker_id = creds.get_worker_id().ok_or(SessionError::NotEnrolled)?;
-    with_access_token(api, creds, |token| {
-        let api = api.clone();
-        let worker_id = worker_id.clone();
-        let manifest_hash = manifest_hash.to_string();
-        async move {
-            api.patch_consent(
-                &worker_id,
-                &token,
-                decision.as_str(),
-                consent_version,
-                &manifest_hash,
-            )
-            .await
-        }
-    })
-    .await
+/// `details.current_consent_version` of a `409 CONSENT_VERSION_MISMATCH`.
+pub fn current_version_from_conflict(err: &SessionError) -> Option<i32> {
+    match err {
+        SessionError::Api(AgentError::Api {
+            status: 409,
+            reason,
+            details,
+            ..
+        }) if reason.as_deref() == Some("CONSENT_VERSION_MISMATCH") => details
+            .as_ref()
+            .and_then(|d| d.get("current_consent_version"))
+            .and_then(|v| v.as_i64())
+            .and_then(|v| i32::try_from(v).ok()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -174,13 +253,19 @@ mod tests {
             consent_flags: ConsentFlags::default(),
             requested_consent_flags: ConsentFlags {
                 system_activity: true,
+                network_activity: true,
+                file_activity: true,
                 ..Default::default()
             },
             consent_descriptions: ConsentDescriptions {
                 system_activity: Some("Aplicaciones en uso".into()),
+                network_activity: Some("Dominios visitados".into()),
+                file_activity: Some("Archivos de la carpeta de trabajo".into()),
                 ..Default::default()
             },
             admin_public_key_fingerprint: "fp".into(),
+            enrollment_completed_at: None,
+            ingestion_blocked_reason: None,
         }
     }
 
@@ -192,11 +277,28 @@ mod tests {
         creds
     }
 
+    fn decision_response(flags: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "status": "ACTIVE", "consent_version": 3, "accepted_consent_version": 3,
+                "consent_flags": flags,
+                "consent_accepted_at": "2026-09-30T10:00:00Z",
+                "consent_rejected_at": null,
+                "enrollment_completed_at": "2026-09-30T10:00:00Z"
+            }
+        })
+    }
+
+    fn offer(version: i32) -> ConsentOffer {
+        ConsentOffer::from_worker_self(&worker_self(version), &generate_admin_keypair().1, None)
+            .unwrap()
+    }
+
     #[test]
     fn test_consent_offer_from_worker_self_matches_admin_manifest() {
         let (_priv, admin_pub) = generate_admin_keypair();
         let me = worker_self(2);
-        let offer = ConsentOffer::from_worker_self(&me, &admin_pub).unwrap();
+        let offer = ConsentOffer::from_worker_self(&me, &admin_pub, None).unwrap();
         // Same manifest the admin commits to: requested flags + descriptions + version.
         let manifest = EnrollmentManifest::new(
             admin_pub,
@@ -208,78 +310,186 @@ mod tests {
         assert!(verify_commitment(&manifest, &offer.manifest_hash));
         assert_eq!(offer.consent_version, 2);
         assert!(offer.flags.system_activity);
+        assert!(offer.previous_selection.is_none());
     }
 
     #[tokio::test]
-    async fn test_consent_accept_sends_real_version_and_hash_then_persists() {
+    async fn test_consent_accept_subset_sends_granular_body_and_persists_intersection() {
         let server = MockServer::start().await;
+        let offer = offer(3);
         Mock::given(method("PATCH"))
-            .and(path("/workers/w-1/consent"))
+            .and(path("/workers/me/consent"))
             .and(body_json(serde_json::json!({
-                "decision": "ACCEPT", "consent_version": 3, "manifest_hash": "h".repeat(64)
-            })))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "status": "ACTIVE", "consent_version": 3, "accepted_consent_version": 3,
-                    "consent_flags": { "system_activity": true, "network_activity": false,
-                        "productivity_basic": false, "productivity_screenshots": false,
-                        "file_activity": false, "location": false },
-                    "consent_accepted_at": "2026-09-29T10:00:00Z"
+                "accepted": true,
+                "consent_version": 3,
+                "manifest_hash": offer.manifest_hash,
+                "consent_flags": {
+                    "system_activity": true, "network_activity": false,
+                    "productivity_basic": false, "productivity_screenshots": false,
+                    "file_activity": true, "location": false
                 }
             })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(decision_response(
+                serde_json::json!({
+                    "system_activity": true, "network_activity": false, "productivity_basic": false,
+                    "productivity_screenshots": false, "file_activity": true, "location": false
+                }),
+            )))
             .expect(1)
             .mount(&server)
             .await;
 
         let api = ApiClient::new(server.uri()).unwrap();
         let creds = enrolled_store();
-        let offer = ConsentOffer {
-            organization: None,
-            consent_version: 3,
-            flags: ConsentFlags {
-                system_activity: true,
-                ..Default::default()
-            },
-            descriptions: ConsentDescriptions::default(),
-            work_hours_start: None,
-            work_hours_end: None,
-            timezone: None,
-            manifest_hash: "h".repeat(64),
+        let selection = ConsentFlags {
+            system_activity: true,
+            file_activity: true,
+            ..Default::default()
         };
-        submit_offer_decision(&api, &creds, &offer, Decision::Accept)
+        submit_decision(&api, &creds, &offer, ConsentAction::Accept(selection))
             .await
             .unwrap();
         assert_eq!(
             creds.get_accepted_manifest_hash().as_deref(),
-            Some("h".repeat(64).as_str())
+            Some(offer.manifest_hash.as_str())
         );
-        assert!(creds.get_accepted_flags().unwrap().system_activity);
+        assert_eq!(creds.get_accepted_flags().unwrap(), selection);
+    }
+
+    #[tokio::test]
+    async fn test_consent_selection_never_includes_unrequested_categories() {
+        let server = MockServer::start().await;
+        let offer = offer(3);
+        // Location and screenshots were not requested: they are stripped before sending.
+        Mock::given(method("PATCH"))
+            .and(path("/workers/me/consent"))
+            .and(body_json(serde_json::json!({
+                "accepted": true,
+                "consent_version": 3,
+                "manifest_hash": offer.manifest_hash,
+                "consent_flags": {
+                    "system_activity": true, "network_activity": false,
+                    "productivity_basic": false, "productivity_screenshots": false,
+                    "file_activity": false, "location": false
+                }
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(decision_response(
+                serde_json::json!({
+                    "system_activity": true, "network_activity": false, "productivity_basic": false,
+                    "productivity_screenshots": false, "file_activity": false, "location": false
+                }),
+            )))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let api = ApiClient::new(server.uri()).unwrap();
+        let creds = enrolled_store();
+        let selection = ConsentFlags {
+            system_activity: true,
+            location: true,
+            productivity_screenshots: true,
+            ..Default::default()
+        };
+        submit_decision(&api, &creds, &offer, ConsentAction::Accept(selection))
+            .await
+            .unwrap();
+        let stored = creds.get_accepted_flags().unwrap();
+        assert!(stored.system_activity && !stored.location && !stored.productivity_screenshots);
+    }
+
+    #[tokio::test]
+    async fn test_consent_accept_empty_selection_rejected_locally() {
+        let api = ApiClient::new("http://127.0.0.1:9".into()).unwrap();
+        let creds = enrolled_store();
+        let unrequested_only = ConsentFlags {
+            location: true,
+            ..Default::default()
+        };
+        for selection in [ConsentFlags::default(), unrequested_only] {
+            let err = submit_decision(&api, &creds, &offer(3), ConsentAction::Accept(selection))
+                .await
+                .unwrap_err();
+            assert!(matches!(err, SessionError::Invalid(_)), "{err:?}");
+        }
+        assert!(creds.get_accepted_flags().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_consent_decline_sends_accepted_false_without_flags() {
+        let server = MockServer::start().await;
+        let offer = offer(3);
+        Mock::given(method("PATCH"))
+            .and(path("/workers/me/consent"))
+            .and(body_json(serde_json::json!({
+                "accepted": false, "consent_version": 3, "manifest_hash": offer.manifest_hash
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "status": "PENDING_CONSENT", "consent_version": 3, "accepted_consent_version": null,
+                    "consent_flags": ConsentFlags::default(), "consent_accepted_at": null,
+                    "consent_rejected_at": "2026-09-30T10:00:00Z"
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let api = ApiClient::new(server.uri()).unwrap();
+        let creds = enrolled_store();
+        creds.set_accepted_manifest_hash(Some("old")).unwrap();
+        submit_decision(&api, &creds, &offer, ConsentAction::Decline)
+            .await
+            .unwrap();
+        assert!(creds.get_accepted_manifest_hash().is_none());
+        assert!(creds.get_accepted_flags().is_none());
     }
 
     #[tokio::test]
     async fn test_consent_rejected_by_server_keeps_nothing_accepted() {
         let server = MockServer::start().await;
         Mock::given(method("PATCH"))
-            .and(path("/workers/w-1/consent"))
+            .and(path("/workers/me/consent"))
             .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
                 "error": { "code": "CONFLICT", "message": "stale",
-                           "details": { "reason": "CONSENT_VERSION_MISMATCH" } }
+                           "details": { "reason": "CONSENT_VERSION_MISMATCH", "current_consent_version": 4 } }
             })))
             .mount(&server)
             .await;
 
         let api = ApiClient::new(server.uri()).unwrap();
         let creds = enrolled_store();
-        let offer =
-            ConsentOffer::from_worker_self(&worker_self(2), &generate_admin_keypair().1).unwrap();
-        let err = submit_offer_decision(&api, &creds, &offer, Decision::Accept)
+        let selection = ConsentFlags {
+            system_activity: true,
+            ..Default::default()
+        };
+        let err = submit_decision(&api, &creds, &offer(2), ConsentAction::Accept(selection))
             .await
             .unwrap_err();
-        assert!(matches!(
-            err,
-            SessionError::Api(crate::errors::AgentError::Api { status: 409, .. })
-        ));
+        assert_eq!(current_version_from_conflict(&err), Some(4));
         assert!(creds.get_accepted_manifest_hash().is_none());
         assert!(creds.get_accepted_flags().is_none());
+    }
+
+    #[test]
+    fn test_consent_keep_previous_selection_is_explicit_and_restricted() {
+        let (_p, admin_pub) = generate_admin_keypair();
+        let previous = ConsentFlags {
+            system_activity: true,
+            location: true, // no longer requested
+            ..Default::default()
+        };
+        let offer =
+            ConsentOffer::from_worker_self(&worker_self(4), &admin_pub, Some(previous)).unwrap();
+        let kept = offer.keep_previous_selection();
+        assert!(kept.system_activity && !kept.location);
+        // Without a previous selection nothing is pre-selected (DP-08).
+        let fresh = ConsentOffer::from_worker_self(&worker_self(4), &admin_pub, None).unwrap();
+        assert_eq!(fresh.keep_previous_selection(), ConsentFlags::default());
+        let empty = ConsentOffer::from_worker_self(
+            &worker_self(4),
+            &admin_pub,
+            Some(ConsentFlags::default()),
+        )
+        .unwrap();
+        assert!(empty.previous_selection.is_none());
     }
 }
