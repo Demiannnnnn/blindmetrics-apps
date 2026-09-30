@@ -142,6 +142,9 @@ pub fn public_key_fingerprint(admin_public_key_b64: &str) -> Result<String, Cryp
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// Longest QR content accepted by [`EnrollmentQr::parse_payload`].
+pub const MAX_QR_PAYLOAD_LEN: usize = 4096;
+
 /// QR payload container scanned by the worker during physical enrollment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnrollmentQr {
@@ -179,6 +182,38 @@ impl EnrollmentQr {
 
         Self::validate_fields(&qr.t, qr.v, &qr.code, &qr.commitment)?;
         Ok(qr)
+    }
+
+    /// Standard base64 of [`Self::to_json`]: the canonical `qr_payload` issued by the API
+    /// (`telemetry-api` TASK-14) and rendered by the admin app.
+    pub fn to_payload(&self) -> Result<String, CryptoError> {
+        use base64::Engine;
+        Ok(base64::engine::general_purpose::STANDARD.encode(self.to_json()?))
+    }
+
+    /// Parses QR content in either form: the API's `qr_payload` (standard base64 of the JSON)
+    /// or the raw JSON rendered by admin app versions before TASK-ADMIN-09. Surrounding
+    /// whitespace is ignored and, for base64, also line breaks introduced by copy/paste.
+    ///
+    /// # Errors
+    /// [`CryptoError::InvalidQr`] (too long, not base64/JSON, wrong type/version/code) or
+    /// [`CryptoError::InvalidCommitment`].
+    pub fn parse_payload(text: &str) -> Result<Self, CryptoError> {
+        use base64::Engine;
+        let trimmed = text.trim();
+        if trimmed.len() > MAX_QR_PAYLOAD_LEN {
+            return Err(CryptoError::InvalidQr("QR content is too long".into()));
+        }
+        if trimmed.starts_with('{') {
+            return Self::parse(trimmed);
+        }
+        let compact: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(compact.as_bytes())
+            .map_err(|_| CryptoError::InvalidQr("QR content is neither JSON nor base64".into()))?;
+        let json = std::str::from_utf8(&decoded)
+            .map_err(|_| CryptoError::InvalidQr("QR content is not UTF-8 JSON".into()))?;
+        Self::parse(json)
     }
 
     fn validate_fields(t: &str, v: u8, code: &str, commitment: &str) -> Result<(), CryptoError> {
@@ -429,6 +464,20 @@ mod tests {
         let json = valid_qr.to_json().expect("Serialization failed");
         let parsed = EnrollmentQr::parse(&json).expect("Parsing failed");
         assert_eq!(valid_qr, parsed);
+
+        // Canonical API form (base64 of the JSON) and raw JSON both parse (AGENT-09).
+        let payload = valid_qr.to_payload().expect("payload");
+        assert_eq!(EnrollmentQr::parse_payload(&payload).unwrap(), valid_qr);
+        assert_eq!(
+            EnrollmentQr::parse_payload(&format!("  {json}\n")).unwrap(),
+            valid_qr
+        );
+        let wrapped = format!("{}\n{}", &payload[..20], &payload[20..]);
+        assert_eq!(EnrollmentQr::parse_payload(&wrapped).unwrap(), valid_qr);
+        assert!(EnrollmentQr::parse_payload("not a qr").is_err());
+        assert!(EnrollmentQr::parse_payload(&"A".repeat(MAX_QR_PAYLOAD_LEN + 1)).is_err());
+        // Same bytes as the API's qr_payload: JSON keys in the order t, v, api_url, code, commitment.
+        assert!(json.starts_with(r#"{"t":"telemetry-enroll","v":1,"api_url":"#));
 
         // Reject bad type
         let bad_type = serde_json::json!({

@@ -1,8 +1,15 @@
+//! Worker management (TASK-ADMIN-03, TASK-ADMIN-08, TASK-ADMIN-09).
+//!
+//! Enrollment packages from the API (`POST /workers`, `POST /workers/:id/enrollment-token`)
+//! are shown only after the admin app recomputes the commitment with its **local** key and
+//! checks the server's commitment, safety code and `qr_payload` (SEC-07, RF-ADMIN-09-1).
+
 use super::keys::{ensure_server_key_with_client, get_admin_public_key};
 use super::CommandError;
-use crate::client::{get_api_client, AdminApiClient, CollectionResponse, SingleResponse};
+use crate::client::{get_api_client, AdminApiClient, CollectionResponse};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use telemetry_crypto_core::enrollment::{
     manifest_commitment, safety_code, EnrollmentManifest, EnrollmentQr,
 };
@@ -28,6 +35,7 @@ pub struct WorkerResponse {
     pub status: String, // "PENDING_ENROLLMENT" | "PENDING_CONSENT" | "ACTIVE" | "PAUSED" | "REVOKED"
     #[serde(default)]
     pub status_changed_at: Option<String>,
+    /// Effective flags: the subset the worker accepted.
     pub consent_flags: ConsentFlags,
     pub requested_consent_flags: ConsentFlags,
     pub consent_descriptions: ConsentDescriptions,
@@ -35,7 +43,11 @@ pub struct WorkerResponse {
     pub accepted_consent_version: Option<i32>,
     pub consent_accepted_at: Option<String>,
     pub enrollment_completed_at: Option<String>,
+    #[serde(default)]
+    pub enrollment_redeemed_at: Option<String>,
     pub enrollment_expires_at: Option<String>,
+    #[serde(default)]
+    pub enrollment_expired: bool,
     pub work_hours_start: Option<String>,
     pub work_hours_end: Option<String>,
     pub timezone: Option<String>,
@@ -43,24 +55,38 @@ pub struct WorkerResponse {
     pub updated_at: String,
 }
 
+/// Enrollment package issued by the API (api-contract §5).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct EnrollmentTokenResponse {
+pub struct EnrollmentPackage {
     pub code: String,
     pub expires_at: String,
+    pub commitment: String,
+    pub safety_code: String,
+    pub qr_payload: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct CreateWorkerApiResponse {
     pub worker: WorkerResponse,
-    pub enrollment: EnrollmentTokenResponse,
+    pub enrollment: EnrollmentPackage,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RegenerateTokenResponse {
+    pub enrollment: EnrollmentPackage,
+}
+
+/// What the enrollment modal (W3) renders, after local verification (RF-ADMIN-09-2).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct EnrollmentView {
+    /// The verified canonical `qr_payload` (base64 of the QR JSON).
     pub qr_payload: String,
     pub code: String,
     pub safety_code: String,
+    pub commitment: String,
     pub expires_at: String,
+    /// Server the agent will contact (shown to the admin).
+    pub api_url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -76,15 +102,29 @@ pub struct ConsentConfigResponse {
     pub worker: WorkerResponse,
 }
 
+/// Consent evidence row (api-contract §5, granular consent).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ConsentRecord {
     pub id: String,
     pub worker_id: String,
+    #[serde(default)]
+    pub admin_id: Option<String>,
     pub consent_version: i32,
+    /// `ACCEPTED` | `REJECTED` | `WITHDRAWN` | `NARROWED`.
     pub decision: String,
-    pub manifest_hash: String,
+    #[serde(default)]
+    pub consent_flags: Option<ConsentFlags>,
+    /// Chosen subset; `null` in rows written before granular consent (= all requested).
+    #[serde(default)]
+    pub accepted_consent_flags: Option<ConsentFlags>,
+    #[serde(default)]
+    pub consent_descriptions: Option<ConsentDescriptions>,
+    #[serde(default)]
+    pub manifest_hash: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    #[serde(default)]
+    pub app_version: Option<String>,
     pub created_at: String,
 }
 
@@ -104,26 +144,26 @@ pub struct CreateWorkerForm {
 impl CreateWorkerForm {
     pub fn validate(&self) -> Result<(), CommandError> {
         if self.email.trim().is_empty() || !self.email.contains('@') {
-            return Err(CommandError {
-                code: "VALIDATION_ERROR".into(),
-                message: "Valid email address is required".into(),
-            });
+            return Err(CommandError::new(
+                "VALIDATION_ERROR",
+                "Valid email address is required",
+            ));
         }
         if self.name.trim().is_empty() {
-            return Err(CommandError {
-                code: "VALIDATION_ERROR".into(),
-                message: "Worker name is required".into(),
-            });
+            return Err(CommandError::new(
+                "VALIDATION_ERROR",
+                "Worker name is required",
+            ));
         }
 
         let role_upper = validate_role(&self.role_type)?;
 
         // DP-04 / RF-ADMIN-08-2: OFFICE workers cannot have location enabled
         if role_upper == "OFFICE" && self.consent_flags.location {
-            return Err(CommandError {
-                code: "VALIDATION_ERROR".into(),
-                message: "Location tracking is prohibited for OFFICE workers".into(),
-            });
+            return Err(CommandError::new(
+                "VALIDATION_ERROR",
+                "Location tracking is prohibited for OFFICE workers",
+            ));
         }
 
         validate_work_hours(&self.work_hours_start, &self.work_hours_end)?;
@@ -183,11 +223,13 @@ const MIN_SEARCH_LEN: usize = 2;
 const MAX_PER_PAGE: usize = 100;
 
 fn validation_error(message: impl Into<String>) -> CommandError {
-    CommandError {
-        code: "VALIDATION_ERROR".into(),
-        message: message.into(),
-    }
+    CommandError::validation(message)
 }
+
+/// Enrollment code lifetime accepted by the API (hours).
+const MIN_TTL_HOURS: u32 = 1;
+const MAX_TTL_HOURS: u32 = 72;
+const DEFAULT_TTL_HOURS: u32 = 24;
 
 fn parse_work_hour(t: &str) -> Option<chrono::NaiveTime> {
     let t = t.trim();
@@ -249,13 +291,10 @@ pub fn validate_consent_descriptions(
             // Count characters, not bytes: accented text must match the UI limit.
             let len = desc.unwrap_or("").trim().chars().count();
             if !(10..=500).contains(&len) {
-                return Err(CommandError {
-                    code: "VALIDATION_ERROR".into(),
-                    message: format!(
-                        "Description for '{}' must be between 10 and 500 characters",
-                        cat_name
-                    ),
-                });
+                return Err(CommandError::validation(format!(
+                    "Description for '{}' must be between 10 and 500 characters",
+                    cat_name
+                )));
             }
         }
         Ok(())
@@ -297,24 +336,6 @@ fn validate_role(role: &str) -> Result<String, CommandError> {
     } else {
         Err(validation_error("Role must be OFFICE or FIELD"))
     }
-}
-
-/// Maps a non-success API response to a `CommandError`, surfacing the server's
-/// `error.details.reason` (T12 domain reasons) or `error.code`/`message`.
-async fn api_error(resp: reqwest::Response, fallback: &str) -> CommandError {
-    let status = resp.status().as_u16();
-    let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
-    let err = &body["error"];
-    let code = err["details"]["reason"]
-        .as_str()
-        .or_else(|| err["code"].as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("API_ERROR_{}", status));
-    let message = err["message"]
-        .as_str()
-        .map(str::to_string)
-        .unwrap_or_else(|| fallback.to_string());
-    CommandError { code, message }
 }
 
 /// Editable worker fields (`PUT /workers/:id`). Consent is edited separately via
@@ -375,18 +396,18 @@ pub fn ensure_matches_request(
     created: &WorkerResponse,
 ) -> Result<(), CommandError> {
     if created.requested_consent_flags != form.consent_flags {
-        return Err(CommandError {
-            code: "ENROLLMENT_TAMPER_CHECK_FAILED".into(),
-            message: "Server returned different requested consent flags".into(),
-        });
+        return Err(CommandError::new(
+            "ENROLLMENT_TAMPER_CHECK_FAILED",
+            "Server returned different requested consent flags",
+        ));
     }
 
     let normalized_expected = form.normalized_descriptions();
     if created.consent_descriptions != normalized_expected {
-        return Err(CommandError {
-            code: "ENROLLMENT_TAMPER_CHECK_FAILED".into(),
-            message: "Server returned different consent descriptions".into(),
-        });
+        return Err(CommandError::new(
+            "ENROLLMENT_TAMPER_CHECK_FAILED",
+            "Server returned different consent descriptions",
+        ));
     }
 
     Ok(())
@@ -443,56 +464,125 @@ impl WorkerListQuery {
     }
 }
 
+fn integrity_error(field: &str) -> CommandError {
+    tracing::error!(field, "enrollment integrity check failed");
+    CommandError::new(
+        "ENROLLMENT_INTEGRITY_ERROR",
+        "El paquete de vinculación del servidor no coincide con tu llave local. No se muestra el QR: revisa la conexión con el servidor.",
+    )
+}
+
+/// SEC-10: `https://` (plus `http://` when `allow_http`, debug builds), a host, no
+/// credentials and no fragment.
+pub fn validate_qr_api_url(url: &str, allow_http: bool) -> Result<(), CommandError> {
+    let rest = if let Some(rest) = url.strip_prefix("https://") {
+        rest
+    } else if let Some(rest) = url.strip_prefix("http://").filter(|_| allow_http) {
+        rest
+    } else {
+        return Err(integrity_error("api_url"));
+    };
+    let authority = rest.split(['/', '?']).next().unwrap_or_default();
+    if authority.is_empty()
+        || authority.contains('@')
+        || url.contains('#')
+        || url.chars().any(char::is_whitespace)
+    {
+        return Err(integrity_error("api_url"));
+    }
+    Ok(())
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    a.len() == b.len() && bool::from(a.as_bytes().ct_eq(b.as_bytes()))
+}
+
+/// RF-ADMIN-09-1: recomputes the commitment with the **local** key and checks the server's
+/// commitment, safety code and `qr_payload`. Any difference ⇒ no QR.
+pub fn verify_enrollment_package(
+    local_admin_pub_b64: &str,
+    worker: &WorkerResponse,
+    enrollment: &EnrollmentPackage,
+    allow_http: bool,
+) -> Result<EnrollmentView, CommandError> {
+    let manifest = EnrollmentManifest::new(
+        local_admin_pub_b64.to_owned(),
+        worker.consent_version,
+        worker.requested_consent_flags,
+        worker.consent_descriptions.clone(),
+    )
+    .map_err(|_| integrity_error("manifest"))?;
+    let local_commitment =
+        manifest_commitment(&manifest).map_err(|_| integrity_error("manifest"))?;
+    if !constant_time_eq(
+        &local_commitment,
+        &enrollment.commitment.to_ascii_lowercase(),
+    ) {
+        return Err(integrity_error("commitment"));
+    }
+    let local_safety_code =
+        safety_code(&local_commitment).map_err(|_| integrity_error("safety_code"))?;
+    if local_safety_code != enrollment.safety_code {
+        return Err(integrity_error("safety_code"));
+    }
+    let qr = EnrollmentQr::parse_payload(&enrollment.qr_payload)
+        .map_err(|_| integrity_error("qr_payload"))?;
+    if qr.code != format_qr_code(&enrollment.code)
+        || !constant_time_eq(&qr.commitment.to_ascii_lowercase(), &local_commitment)
+    {
+        return Err(integrity_error("qr_payload"));
+    }
+    validate_qr_api_url(&qr.api_url, allow_http)?;
+    Ok(EnrollmentView {
+        qr_payload: enrollment.qr_payload.clone(),
+        code: enrollment.code.clone(),
+        safety_code: local_safety_code,
+        commitment: local_commitment,
+        expires_at: enrollment.expires_at.clone(),
+        api_url: qr.api_url,
+    })
+}
+
+fn validate_ttl(ttl_hours: Option<u32>) -> Result<u32, CommandError> {
+    let ttl = ttl_hours.unwrap_or(DEFAULT_TTL_HOURS);
+    if !(MIN_TTL_HOURS..=MAX_TTL_HOURS).contains(&ttl) {
+        return Err(validation_error(
+            "La vigencia del código debe estar entre 1 y 72 horas",
+        ));
+    }
+    Ok(ttl)
+}
+
+fn validate_worker_id(id: &str) -> Result<(), CommandError> {
+    let valid = !id.is_empty()
+        && id.len() <= 64
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if valid {
+        Ok(())
+    } else {
+        Err(validation_error("Identificador de trabajador inválido"))
+    }
+}
+
 #[tauri::command]
 pub async fn workers_list(
     query: Option<WorkerListQuery>,
 ) -> Result<CollectionResponse<WorkerResponse>, CommandError> {
-    let client = get_api_client();
     let endpoint = query.unwrap_or_default().to_endpoint()?;
+    Ok(get_api_client().get_collection(&endpoint).await?)
+}
 
-    let resp = client
-        .get_with_auth(&endpoint)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, "Failed to list workers").await);
-    }
-
-    let collection: CollectionResponse<WorkerResponse> =
-        resp.json().await.map_err(|e| CommandError {
-            code: "DESERIALIZATION_ERROR".into(),
-            message: e.to_string(),
-        })?;
-
-    Ok(collection)
+pub async fn workers_get_with_client(
+    client: &AdminApiClient,
+    id: &str,
+) -> Result<WorkerResponse, CommandError> {
+    validate_worker_id(id)?;
+    Ok(client.get_json(&format!("/workers/{id}")).await?)
 }
 
 #[tauri::command]
 pub async fn workers_get(id: String) -> Result<WorkerResponse, CommandError> {
-    let client = get_api_client();
-    let endpoint = format!("/workers/{}", id);
-    let resp = client
-        .get_with_auth(&endpoint)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, &format!("Failed to get worker {}", id)).await);
-    }
-
-    let wrapped: SingleResponse<WorkerResponse> = resp.json().await.map_err(|e| CommandError {
-        code: "DESERIALIZATION_ERROR".into(),
-        message: e.to_string(),
-    })?;
-
-    Ok(wrapped.data)
+    workers_get_with_client(get_api_client(), &id).await
 }
 
 #[tauri::command]
@@ -501,7 +591,7 @@ pub async fn workers_create(form: CreateWorkerForm) -> Result<CreatedWorker, Com
 }
 
 pub async fn workers_create_with_client(
-    client: &crate::client::AdminApiClient,
+    client: &AdminApiClient,
     form: CreateWorkerForm,
 ) -> Result<CreatedWorker, CommandError> {
     form.validate()?;
@@ -511,75 +601,43 @@ pub async fn workers_create_with_client(
     let admin_pub = ensure_server_key_with_client(client).await?;
 
     let body = serde_json::json!({
-        "email": form.email,
-        "name": form.name,
-        "role_type": form.role_type,
+        "email": form.email.trim(),
+        "name": form.name.trim(),
+        "role_type": validate_role(&form.role_type)?,
         "work_hours_start": normalize_work_hour(&form.work_hours_start)?,
         "work_hours_end": normalize_work_hour(&form.work_hours_end)?,
         "timezone": form.timezone.trim(),
         "consent_flags": form.consent_flags,
         "consent_descriptions": form.normalized_descriptions(),
-        "enrollment_ttl_hours": form.enrollment_ttl_hours.unwrap_or(24)
+        "enrollment_ttl_hours": validate_ttl(form.enrollment_ttl_hours)?,
     });
 
-    let resp = client
-        .post_with_auth("/workers", &body)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, "Failed to create worker").await);
-    }
-
-    let wrapped: SingleResponse<CreateWorkerApiResponse> =
-        resp.json().await.map_err(|e| CommandError {
-            code: "DESERIALIZATION_ERROR".into(),
-            message: e.to_string(),
-        })?;
-
-    let created = wrapped.data;
+    let created: CreateWorkerApiResponse = client.post_json("/workers", &body).await?;
 
     // Tamper check (RF-3.1): compare server response with request
     ensure_matches_request(&form, &created.worker)?;
-
-    // Build EnrollmentManifest strictly with locally derived master public key (SEC-07)
-    let manifest = EnrollmentManifest::new(
-        admin_pub,
-        created.worker.consent_version,
-        created.worker.requested_consent_flags,
-        created.worker.consent_descriptions.clone(),
-    )?;
-
-    let commitment = manifest_commitment(&manifest)?;
-    let safety_code_val = safety_code(&commitment)?;
-    let qr = EnrollmentQr::new(
-        client.get_base_url(),
-        format_qr_code(&created.enrollment.code),
-        commitment.clone(),
+    let view = verify_enrollment_package(
+        &admin_pub,
+        &created.worker,
+        &created.enrollment,
+        cfg!(debug_assertions),
     )?;
 
     tracing::info!(
         worker_id = %created.worker.id,
-        commitment = %commitment[..8],
+        commitment = %&view.commitment[..8],
         "Worker created and enrollment QR issued successfully"
     );
 
     Ok(CreatedWorker {
         worker: created.worker,
-        enrollment: EnrollmentView {
-            qr_payload: qr.to_json()?,
-            code: created.enrollment.code,
-            safety_code: safety_code_val,
-            expires_at: created.enrollment.expires_at,
-        },
+        enrollment: view,
     })
 }
 
 /// Admin-driven transitions only; the server is the authority on which are valid.
 const ADMIN_STATUS_TARGETS: [&str; 3] = ["ACTIVE", "PAUSED", "REVOKED"];
+const MAX_REASON_CHARS: usize = 500;
 
 #[tauri::command]
 pub async fn workers_set_status(
@@ -596,6 +654,7 @@ pub async fn workers_set_status_with_client(
     status: &str,
     reason: Option<String>,
 ) -> Result<WorkerResponse, CommandError> {
+    validate_worker_id(id)?;
     let status = status.trim().to_uppercase();
     if !ADMIN_STATUS_TARGETS.contains(&status.as_str()) {
         return Err(validation_error(format!(
@@ -606,30 +665,47 @@ pub async fn workers_set_status_with_client(
     let reason = reason
         .map(|r| r.trim().to_string())
         .filter(|r| !r.is_empty());
-    let body = serde_json::json!({ "status": status, "reason": reason });
-
-    let resp = client
-        .patch_with_auth(&format!("/workers/{}/status", id), &body)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(
-            resp,
-            &format!("Failed to update worker status to {}", status),
-        )
-        .await);
+    if reason
+        .as_ref()
+        .is_some_and(|r| r.chars().count() > MAX_REASON_CHARS)
+    {
+        return Err(validation_error(
+            "El motivo admite como máximo 500 caracteres",
+        ));
     }
-
-    let wrapped: SingleResponse<WorkerResponse> = resp.json().await.map_err(|e| CommandError {
-        code: "DESERIALIZATION_ERROR".into(),
-        message: e.to_string(),
-    })?;
+    let body = serde_json::json!({ "status": status, "reason": reason });
+    let worker: WorkerResponse = client
+        .patch_json(&format!("/workers/{id}/status"), &body)
+        .await?;
     tracing::info!(worker_id = %id, to = %status, "Worker status changed");
-    Ok(wrapped.data)
+    Ok(worker)
+}
+
+/// RF-ADMIN-09-3: new code, then verification against the worker's current manifest.
+/// `409 ENROLLMENT_ALREADY_COMPLETED` (`details.hint = REVOKE_FIRST`) reaches the UI as is.
+pub async fn workers_regenerate_token_with_client(
+    client: &AdminApiClient,
+    id: &str,
+    ttl_hours: Option<u32>,
+) -> Result<EnrollmentView, CommandError> {
+    validate_worker_id(id)?;
+    let ttl = validate_ttl(ttl_hours)?;
+    let admin_pub = get_admin_public_key()?;
+    let resp: RegenerateTokenResponse = client
+        .post_json(
+            &format!("/workers/{id}/enrollment-token"),
+            &serde_json::json!({ "enrollment_ttl_hours": ttl }),
+        )
+        .await?;
+    let worker = workers_get_with_client(client, id).await?;
+    let view = verify_enrollment_package(
+        &admin_pub,
+        &worker,
+        &resp.enrollment,
+        cfg!(debug_assertions),
+    )?;
+    tracing::info!(worker_id = %id, "enrollment code regenerated");
+    Ok(view)
 }
 
 #[tauri::command]
@@ -637,56 +713,7 @@ pub async fn workers_regenerate_token(
     id: String,
     ttl_hours: Option<u32>,
 ) -> Result<EnrollmentView, CommandError> {
-    let client = get_api_client();
-    let token_endpoint = format!("/workers/{}/enrollment-token", id);
-    let body = serde_json::json!({
-        "enrollment_ttl_hours": ttl_hours.unwrap_or(24)
-    });
-
-    let resp = client
-        .post_with_auth(&token_endpoint, &body)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, "Failed to regenerate enrollment token").await);
-    }
-
-    let token_wrapped: SingleResponse<EnrollmentTokenResponse> =
-        resp.json().await.map_err(|e| CommandError {
-            code: "DESERIALIZATION_ERROR".into(),
-            message: e.to_string(),
-        })?;
-    let token_data = token_wrapped.data;
-
-    // Fetch worker to get current manifest configuration
-    let worker = workers_get(id).await?;
-
-    let admin_pub = get_admin_public_key()?;
-    let manifest = EnrollmentManifest::new(
-        admin_pub,
-        worker.consent_version,
-        worker.requested_consent_flags,
-        worker.consent_descriptions,
-    )?;
-
-    let commitment = manifest_commitment(&manifest)?;
-    let safety_code_val = safety_code(&commitment)?;
-    let qr = EnrollmentQr::new(
-        client.get_base_url(),
-        format_qr_code(&token_data.code),
-        commitment.clone(),
-    )?;
-
-    Ok(EnrollmentView {
-        qr_payload: qr.to_json()?,
-        code: token_data.code,
-        safety_code: safety_code_val,
-        expires_at: token_data.expires_at,
-    })
+    workers_regenerate_token_with_client(get_api_client(), &id, ttl_hours).await
 }
 
 #[tauri::command]
@@ -712,6 +739,7 @@ pub async fn workers_update_consent_config_with_client(
     consent_flags: ConsentFlags,
     consent_descriptions: ConsentDescriptions,
 ) -> Result<ConsentConfigResponse, CommandError> {
+    validate_worker_id(id)?;
     validate_consent_descriptions(&consent_flags, &consent_descriptions)?;
     let mut normalized_desc = consent_descriptions;
     normalized_desc.retain_enabled(&consent_flags);
@@ -721,53 +749,32 @@ pub async fn workers_update_consent_config_with_client(
         "consent_descriptions": normalized_desc
     });
 
-    let resp = client
-        .put_with_auth(&format!("/workers/{}/consent-config", id), &body)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, "Failed to update consent configuration").await);
-    }
-
-    let wrapped: SingleResponse<ConsentConfigResponse> =
-        resp.json().await.map_err(|e| CommandError {
-            code: "DESERIALIZATION_ERROR".into(),
-            message: e.to_string(),
-        })?;
+    let resp: ConsentConfigResponse = client
+        .put_json(&format!("/workers/{id}/consent-config"), &body)
+        .await?;
     tracing::info!(
         worker_id = %id,
-        consent_version = wrapped.data.consent_version,
-        requires_acceptance = wrapped.data.requires_worker_acceptance,
+        consent_version = resp.consent_version,
+        requires_acceptance = resp.requires_worker_acceptance,
         "Consent configuration updated"
     );
-    Ok(wrapped.data)
+    Ok(resp)
+}
+
+pub async fn workers_get_consent_records_with_client(
+    client: &AdminApiClient,
+    id: &str,
+) -> Result<Vec<ConsentRecord>, CommandError> {
+    validate_worker_id(id)?;
+    let records: CollectionResponse<ConsentRecord> = client
+        .get_collection(&format!("/workers/{id}/consent-records?per_page=100"))
+        .await?;
+    Ok(records.data)
 }
 
 #[tauri::command]
 pub async fn workers_get_consent_records(id: String) -> Result<Vec<ConsentRecord>, CommandError> {
-    let resp = get_api_client()
-        .get_with_auth(&format!("/workers/{}/consent-records", id))
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, "Failed to fetch consent records").await);
-    }
-
-    let wrapped: CollectionResponse<ConsentRecord> =
-        resp.json().await.map_err(|e| CommandError {
-            code: "DESERIALIZATION_ERROR".into(),
-            message: e.to_string(),
-        })?;
-
-    Ok(wrapped.data)
+    workers_get_consent_records_with_client(get_api_client(), &id).await
 }
 
 #[tauri::command]
@@ -783,25 +790,11 @@ pub async fn workers_update_with_client(
     id: &str,
     form: UpdateWorkerForm,
 ) -> Result<WorkerResponse, CommandError> {
+    validate_worker_id(id)?;
     let body = form.to_body()?;
-    let resp = client
-        .put_with_auth(&format!("/workers/{}", id), &body)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, "Failed to update worker").await);
-    }
-
-    let wrapped: SingleResponse<WorkerResponse> = resp.json().await.map_err(|e| CommandError {
-        code: "DESERIALIZATION_ERROR".into(),
-        message: e.to_string(),
-    })?;
+    let worker: WorkerResponse = client.put_json(&format!("/workers/{id}"), &body).await?;
     tracing::info!(worker_id = %id, "Worker profile updated");
-    Ok(wrapped.data)
+    Ok(worker)
 }
 
 #[tauri::command]
@@ -814,22 +807,13 @@ pub async fn workers_delete_with_client(
     client: &AdminApiClient,
     id: &str,
 ) -> Result<(), CommandError> {
-    let resp = client
-        .delete_with_auth(&format!("/workers/{}", id))
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        return Err(api_error(resp, "Failed to delete worker").await);
-    }
-
+    validate_worker_id(id)?;
+    client.delete(&format!("/workers/{id}")).await?;
     tracing::info!(worker_id = %id, "Worker soft-deleted");
     Ok(())
 }
 
+/// `XXXX-XXXX-XXXX` form of a 12-symbol code (the API may return it with or without hyphens).
 fn format_qr_code(raw: &str) -> String {
     let clean: String = raw.chars().filter(|c| *c != '-' && *c != ' ').collect();
     if clean.len() == 12 {
@@ -842,11 +826,14 @@ fn format_qr_code(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::test_support::admin_me_json;
     use crate::client::AdminApiClient;
     use crate::commands::keys::generate_and_save_master_keys;
-    use telemetry_crypto_core::verify_commitment;
+    use telemetry_crypto_core::{generate_admin_keypair, verify_commitment};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const API_URL: &str = "https://api.example.cl/api/v1";
 
     fn make_valid_form() -> CreateWorkerForm {
         let flags = ConsentFlags {
@@ -873,6 +860,104 @@ mod tests {
         }
     }
 
+    fn created_worker_json(form: &CreateWorkerForm, id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "admin_id": "admin-1",
+            "email": form.email,
+            "name": form.name,
+            "device_identifier": null,
+            "device_info": null,
+            "role_type": form.role_type,
+            "is_active": true,
+            "status": "PENDING_ENROLLMENT",
+            "status_changed_at": null,
+            "consent_flags": ConsentFlags::default(),
+            "requested_consent_flags": form.consent_flags,
+            "consent_descriptions": form.normalized_descriptions(),
+            "consent_version": 1,
+            "accepted_consent_version": null,
+            "consent_accepted_at": null,
+            "enrollment_completed_at": null,
+            "enrollment_redeemed_at": null,
+            "enrollment_expires_at": "2026-10-01T10:00:00Z",
+            "enrollment_expired": false,
+            "work_hours_start": "08:30:00",
+            "work_hours_end": "17:30:00",
+            "timezone": "America/Santiago",
+            "created_at": "2026-09-30T10:00:00Z",
+            "updated_at": "2026-09-30T10:00:00Z"
+        })
+    }
+
+    /// The package exactly as `telemetry-api` builds it for `admin_pub` (server-side key).
+    fn server_package(
+        admin_pub: &str,
+        worker: &serde_json::Value,
+        code: &str,
+    ) -> serde_json::Value {
+        let worker: WorkerResponse = serde_json::from_value(worker.clone()).unwrap();
+        let manifest = EnrollmentManifest::new(
+            admin_pub.to_string(),
+            worker.consent_version,
+            worker.requested_consent_flags,
+            worker.consent_descriptions,
+        )
+        .unwrap();
+        let commitment = manifest_commitment(&manifest).unwrap();
+        let qr = EnrollmentQr::new(API_URL.into(), code.into(), commitment.clone()).unwrap();
+        serde_json::json!({
+            "code": code,
+            "expires_at": "2026-10-01T10:00:00Z",
+            "commitment": commitment,
+            "safety_code": safety_code(&commitment).unwrap(),
+            "qr_payload": qr.to_payload().unwrap(),
+        })
+    }
+
+    /// Server without a registered key (the local one gets registered first).
+    async fn mount_admin_without_key(server: &MockServer) {
+        Mock::given(method("GET"))
+            .and(path("/admins/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(admin_me_json("Acme", None)))
+            .mount(server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/admins/me/public-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
+            })))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/admins/me/devices"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": [] })),
+            )
+            .mount(server)
+            .await;
+    }
+
+    async fn mount_create(
+        server: &MockServer,
+        worker: serde_json::Value,
+        package: serde_json::Value,
+    ) {
+        Mock::given(method("POST"))
+            .and(path("/workers"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "data": { "worker": worker, "enrollment": package }
+            })))
+            .mount(server)
+            .await;
+    }
+
+    fn client_for(server: &MockServer) -> AdminApiClient {
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        client
+    }
+
     #[test]
     fn test_workers_create_office_with_location_rejected_client_side() {
         let mut form = make_valid_form();
@@ -880,9 +965,7 @@ mod tests {
         form.consent_flags.location = true;
         form.consent_descriptions.location = Some("Ubicacion GPS del trabajador".into());
 
-        let res = form.validate();
-        assert!(res.is_err());
-        let err = res.unwrap_err();
+        let err = form.validate().unwrap_err();
         assert_eq!(err.code, "VALIDATION_ERROR");
         assert!(err
             .message
@@ -890,104 +973,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_workers_create_builds_qr_with_local_key_not_server_key() {
+    async fn test_workers_create_verifies_server_enrollment_package() {
         let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
         crate::keystore::init_test_vault();
-
         let server = MockServer::start().await;
         let local_pub = generate_and_save_master_keys().unwrap();
-
         let form = make_valid_form();
-        let expected_worker_id = "01912345-6789-7abc-def0-123456789aaa";
+        let worker = created_worker_json(&form, "01912345-6789-7abc-def0-123456789aaa");
+        mount_admin_without_key(&server).await;
+        mount_create(
+            &server,
+            worker.clone(),
+            server_package(&local_pub, &worker, "A68K-2PZS-PC4H"),
+        )
+        .await;
 
-        // Mock GET /admins/me returning no key yet (matches local)
-        Mock::given(method("GET"))
-            .and(path("/admins/me"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": "admin-1",
-                    "email": "admin@acme.cl",
-                    "name": "Admin",
-                    "organization": "Acme",
-                    "is_active": true,
-                    "worker_count": 0,
-                    "public_key": null,
-                    "public_key_fingerprint": null,
-                    "created_at": "2026-09-28T00:00:00Z",
-                    "updated_at": "2026-09-28T00:00:00Z"
-                }
-            })))
-            .mount(&server)
-            .await;
-
-        // Server has no key yet: workers_create registers the local one first
-        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
-        Mock::given(method("PUT"))
-            .and(path("/admins/me/public-key"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        // Mock POST /workers returning worker and enrollment token
-        Mock::given(method("POST"))
-            .and(path("/workers"))
-            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-                "data": {
-                    "worker": {
-                        "id": expected_worker_id,
-                        "admin_id": "admin-1",
-                        "email": form.email,
-                        "name": form.name,
-                        "device_identifier": null,
-                        "device_info": null,
-                        "role_type": form.role_type,
-                        "is_active": true,
-                        "status": "PENDING_ENROLLMENT",
-                        "status_changed_at": null,
-                        "consent_flags": {
-                            "system_activity": false,
-                            "network_activity": false,
-                            "productivity_basic": false,
-                            "productivity_screenshots": false,
-                            "file_activity": false,
-                            "location": false
-                        },
-                        "requested_consent_flags": form.consent_flags,
-                        "consent_descriptions": form.normalized_descriptions(),
-                        "consent_version": 1,
-                        "accepted_consent_version": null,
-                        "consent_accepted_at": null,
-                        "enrollment_completed_at": null,
-                        "enrollment_expires_at": "2026-09-30T10:00:00Z",
-                        "work_hours_start": "08:30:00",
-                        "work_hours_end": "17:30:00",
-                        "timezone": "America/Santiago",
-                        "created_at": "2026-09-28T10:00:00Z",
-                        "updated_at": "2026-09-28T10:00:00Z"
-                    },
-                    "enrollment": {
-                        "code": "K7QM4XRT9PWD",
-                        "expires_at": "2026-09-30T10:00:00Z"
-                    }
-                }
-            })))
-            .mount(&server)
-            .await;
-
-        let client = AdminApiClient::new(server.uri());
-
-        let created = workers_create_with_client(&client, form.clone())
+        let created = workers_create_with_client(&client_for(&server), form)
             .await
             .expect("workers_create failed");
 
-        assert_eq!(created.worker.id, expected_worker_id);
-        assert_eq!(created.enrollment.code, "K7QM4XRT9PWD");
+        assert_eq!(created.enrollment.code, "A68K-2PZS-PC4H");
         assert_eq!(created.enrollment.safety_code.len(), 14); // "dddd dddd dddd"
-
-        // Verify the QR was built with local_pub by verifying commitment against local manifest
+        assert_eq!(created.enrollment.api_url, API_URL);
         let manifest = EnrollmentManifest::new(
             local_pub,
             created.worker.consent_version,
@@ -995,105 +1002,75 @@ mod tests {
             created.worker.consent_descriptions,
         )
         .unwrap();
+        let qr = EnrollmentQr::parse_payload(&created.enrollment.qr_payload).unwrap();
+        assert!(verify_commitment(&manifest, &qr.commitment));
+        assert_eq!(qr.commitment, created.enrollment.commitment);
+    }
 
-        let parsed_qr: EnrollmentQr = serde_json::from_str(&created.enrollment.qr_payload).unwrap();
-        assert!(verify_commitment(&manifest, &parsed_qr.commitment));
+    #[tokio::test]
+    async fn test_workers_create_rejects_foreign_commitment() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        let _local_pub = generate_and_save_master_keys().unwrap();
+        // A compromised server computes a consistent package over ITS OWN key.
+        let (_attacker_priv, attacker_pub) = generate_admin_keypair();
+        let form = make_valid_form();
+        let worker = created_worker_json(&form, "01912345-6789-7abc-def0-123456789bbb");
+        mount_admin_without_key(&server).await;
+        mount_create(
+            &server,
+            worker.clone(),
+            server_package(&attacker_pub, &worker, "A68K-2PZS-PC4H"),
+        )
+        .await;
+
+        let err = workers_create_with_client(&client_for(&server), form)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "ENROLLMENT_INTEGRITY_ERROR");
+    }
+
+    #[tokio::test]
+    async fn test_workers_create_rejects_qr_payload_with_other_code() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        let local_pub = generate_and_save_master_keys().unwrap();
+        let form = make_valid_form();
+        let worker = created_worker_json(&form, "01912345-6789-7abc-def0-123456789ccc");
+        let mut package = server_package(&local_pub, &worker, "A68K-2PZS-PC4H");
+        package["code"] = serde_json::json!("B91M-4KPR-XZ2W");
+        mount_admin_without_key(&server).await;
+        mount_create(&server, worker, package).await;
+
+        let err = workers_create_with_client(&client_for(&server), form)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "ENROLLMENT_INTEGRITY_ERROR");
     }
 
     #[tokio::test]
     async fn test_workers_create_tamper_check_rejects_modified_descriptions() {
         let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
         crate::keystore::init_test_vault();
-
         let server = MockServer::start().await;
-        let _ = generate_and_save_master_keys().unwrap();
-
+        let local_pub = generate_and_save_master_keys().unwrap();
         let form = make_valid_form();
+        let mut worker = created_worker_json(&form, "worker-tampered-1");
+        worker["consent_descriptions"]["system_activity"] =
+            serde_json::json!("Tampered description by attacker");
+        mount_admin_without_key(&server).await;
+        mount_create(
+            &server,
+            worker.clone(),
+            server_package(&local_pub, &worker, "A68K-2PZS-PC4H"),
+        )
+        .await;
 
-        Mock::given(method("GET"))
-            .and(path("/admins/me"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": "admin-1",
-                    "email": "admin@acme.cl",
-                    "name": "Admin",
-                    "organization": "Acme",
-                    "is_active": true,
-                    "worker_count": 0,
-                    "public_key": null,
-                    "public_key_fingerprint": null,
-                    "created_at": "2026-09-28T00:00:00Z",
-                    "updated_at": "2026-09-28T00:00:00Z"
-                }
-            })))
-            .mount(&server)
-            .await;
-
-        // Server has no key yet: workers_create registers the local one first
-        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
-        Mock::given(method("PUT"))
-            .and(path("/admins/me/public-key"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        // Server maliciously returns different consent descriptions!
-        let mut tampered_desc = form.normalized_descriptions();
-        tampered_desc.system_activity = Some("Tampered description by attacker".into());
-
-        Mock::given(method("POST"))
-            .and(path("/workers"))
-            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-                "data": {
-                    "worker": {
-                        "id": "worker-tampered-1",
-                        "admin_id": "admin-1",
-                        "email": form.email,
-                        "name": form.name,
-                        "device_identifier": null,
-                        "device_info": null,
-                        "role_type": form.role_type,
-                        "is_active": true,
-                        "status": "PENDING_ENROLLMENT",
-                        "status_changed_at": null,
-                        "consent_flags": {
-                            "system_activity": false,
-                            "network_activity": false,
-                            "productivity_basic": false,
-                            "productivity_screenshots": false,
-                            "file_activity": false,
-                            "location": false
-                        },
-                        "requested_consent_flags": form.consent_flags,
-                        "consent_descriptions": tampered_desc, // Mismatch!
-                        "consent_version": 1,
-                        "accepted_consent_version": null,
-                        "consent_accepted_at": null,
-                        "enrollment_completed_at": null,
-                        "enrollment_expires_at": "2026-09-30T10:00:00Z",
-                        "work_hours_start": "08:30:00",
-                        "work_hours_end": "17:30:00",
-                        "timezone": "America/Santiago",
-                        "created_at": "2026-09-28T10:00:00Z",
-                        "updated_at": "2026-09-28T10:00:00Z"
-                    },
-                    "enrollment": {
-                        "code": "K7QM4XRT9PWD",
-                        "expires_at": "2026-09-30T10:00:00Z"
-                    }
-                }
-            })))
-            .mount(&server)
-            .await;
-
-        let client = AdminApiClient::new(server.uri());
-
-        let res = workers_create_with_client(&client, form).await;
-        assert!(res.is_err());
-        let err = res.unwrap_err();
+        let err = workers_create_with_client(&client_for(&server), form)
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "ENROLLMENT_TAMPER_CHECK_FAILED");
     }
 
@@ -1101,37 +1078,43 @@ mod tests {
     async fn test_server_key_mismatch_blocks_worker_creation() {
         let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
         crate::keystore::init_test_vault();
-
         let server = MockServer::start().await;
         let _ = generate_and_save_master_keys().unwrap();
-
-        // Server reports a different public key fingerprint (K2 mismatch)
         Mock::given(method("GET"))
             .and(path("/admins/me"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": "admin-1",
-                    "email": "admin@acme.cl",
-                    "name": "Admin",
-                    "organization": "Acme",
-                    "is_active": true,
-                    "worker_count": 0,
-                    "public_key": "different_pubkey_b64",
-                    "public_key_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                    "created_at": "2026-09-28T00:00:00Z",
-                    "updated_at": "2026-09-28T00:00:00Z"
-                }
-            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(admin_me_json("Acme", Some(&"f".repeat(64)))),
+            )
             .mount(&server)
             .await;
 
-        let client = AdminApiClient::new(server.uri());
-
-        let form = make_valid_form();
-        let res = workers_create_with_client(&client, form).await;
-        assert!(res.is_err());
-        let err = res.unwrap_err();
+        let err = workers_create_with_client(&client_for(&server), make_valid_form())
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "PUBLIC_KEY_MISMATCH");
+    }
+
+    #[tokio::test]
+    async fn test_workers_create_organization_missing_maps_reason() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        let _ = generate_and_save_master_keys().unwrap();
+        mount_admin_without_key(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/workers"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": { "code": "CONFLICT", "message": "Organization name required",
+                           "details": { "reason": "ORGANIZATION_NAME_MISSING" } }
+            })))
+            .mount(&server)
+            .await;
+        let err = workers_create_with_client(&client_for(&server), make_valid_form())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "CONFLICT");
+        assert!(err.is("ORGANIZATION_NAME_MISSING"));
     }
 
     #[tokio::test]
@@ -1160,87 +1143,21 @@ mod tests {
         let _guard = tracing::subscriber::set_default(subscriber);
 
         let server = MockServer::start().await;
-        let _ = generate_and_save_master_keys().unwrap();
+        let local_pub = generate_and_save_master_keys().unwrap();
         let form = make_valid_form();
-        let secret_code = "SECR99ET9942";
+        let secret_code = "SECR-99ET-9942";
+        let worker = created_worker_json(&form, "01912345-6789-7abc-def0-123456789ddd");
+        mount_admin_without_key(&server).await;
+        mount_create(
+            &server,
+            worker.clone(),
+            server_package(&local_pub, &worker, secret_code),
+        )
+        .await;
 
-        Mock::given(method("GET"))
-            .and(path("/admins/me"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": "admin-1",
-                    "email": form.email,
-                    "name": form.name,
-                    "organization": "Acme",
-                    "is_active": true,
-                    "worker_count": 0,
-                    "public_key": null,
-                    "public_key_fingerprint": null,
-                    "created_at": "2026-09-28T00:00:00Z",
-                    "updated_at": "2026-09-28T00:00:00Z"
-                }
-            })))
-            .mount(&server)
-            .await;
-
-        // Server has no key yet: workers_create registers the local one first
-        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
-        Mock::given(method("PUT"))
-            .and(path("/admins/me/public-key"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        Mock::given(method("POST"))
-            .and(path("/workers"))
-            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-                "data": {
-                    "worker": {
-                        "id": "01912345-6789-7abc-def0-123456789aaa",
-                        "admin_id": "admin-1",
-                        "email": form.email,
-                        "name": form.name,
-                        "device_identifier": null,
-                        "device_info": null,
-                        "role_type": form.role_type,
-                        "is_active": true,
-                        "status": "PENDING_ENROLLMENT",
-                        "status_changed_at": null,
-                        "consent_flags": {
-                            "system_activity": false,
-                            "network_activity": false,
-                            "productivity_basic": false,
-                            "productivity_screenshots": false,
-                            "file_activity": false,
-                            "location": false
-                        },
-                        "requested_consent_flags": form.consent_flags,
-                        "consent_descriptions": form.normalized_descriptions(),
-                        "consent_version": 1,
-                        "accepted_consent_version": null,
-                        "consent_accepted_at": null,
-                        "enrollment_completed_at": null,
-                        "enrollment_expires_at": "2026-09-30T10:00:00Z",
-                        "work_hours_start": "08:30:00",
-                        "work_hours_end": "17:30:00",
-                        "timezone": "America/Santiago",
-                        "created_at": "2026-09-28T10:00:00Z",
-                        "updated_at": "2026-09-28T10:00:00Z"
-                    },
-                    "enrollment": {
-                        "code": secret_code,
-                        "expires_at": "2026-09-30T10:00:00Z"
-                    }
-                }
-            })))
-            .mount(&server)
-            .await;
-
-        let client = AdminApiClient::new(server.uri());
-        let res = workers_create_with_client(&client, form).await.unwrap();
+        let res = workers_create_with_client(&client_for(&server), form)
+            .await
+            .unwrap();
         assert_eq!(res.enrollment.code, secret_code);
 
         let logs = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
@@ -1249,99 +1166,36 @@ mod tests {
             !logs.contains(secret_code),
             "Enrollment code leaked into logs!"
         );
+        assert!(
+            !logs.contains("SECR99ET9942"),
+            "Enrollment code leaked into logs!"
+        );
     }
 
     #[tokio::test]
     async fn test_enrollment_qr_cross_app_compatibility() {
         let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
         crate::keystore::init_test_vault();
-
         let server = MockServer::start().await;
         let admin_pub = generate_and_save_master_keys().unwrap();
         let form = make_valid_form();
+        let worker = created_worker_json(&form, "01912345-6789-7abc-def0-123456789eee");
+        mount_admin_without_key(&server).await;
+        mount_create(
+            &server,
+            worker.clone(),
+            server_package(&admin_pub, &worker, "C74J-5MN8-9PQR"),
+        )
+        .await;
 
-        Mock::given(method("GET"))
-            .and(path("/admins/me"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": "admin-1",
-                    "email": form.email,
-                    "name": form.name,
-                    "organization": "Acme",
-                    "is_active": true,
-                    "worker_count": 0,
-                    "public_key": null,
-                    "public_key_fingerprint": null,
-                    "created_at": "2026-09-28T00:00:00Z",
-                    "updated_at": "2026-09-28T00:00:00Z"
-                }
-            })))
-            .mount(&server)
-            .await;
+        let created = workers_create_with_client(&client_for(&server), form)
+            .await
+            .unwrap();
 
-        // Server has no key yet: workers_create registers the local one first
-        // (RF-ADMIN-08-1; previously the API answered 409 ADMIN_PUBLIC_KEY_MISSING).
-        Mock::given(method("PUT"))
-            .and(path("/admins/me/public-key"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "public_key": "registered", "public_key_fingerprint": "registered_fp" }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        Mock::given(method("POST"))
-            .and(path("/workers"))
-            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-                "data": {
-                    "worker": {
-                        "id": "worker-cross-1",
-                        "admin_id": "admin-1",
-                        "email": form.email,
-                        "name": form.name,
-                        "device_identifier": null,
-                        "device_info": null,
-                        "role_type": form.role_type,
-                        "is_active": true,
-                        "status": "PENDING_ENROLLMENT",
-                        "status_changed_at": null,
-                        "consent_flags": {
-                            "system_activity": false,
-                            "network_activity": false,
-                            "productivity_basic": false,
-                            "productivity_screenshots": false,
-                            "file_activity": false,
-                            "location": false
-                        },
-                        "requested_consent_flags": form.consent_flags,
-                        "consent_descriptions": form.normalized_descriptions(),
-                        "consent_version": 1,
-                        "accepted_consent_version": null,
-                        "consent_accepted_at": null,
-                        "enrollment_completed_at": null,
-                        "enrollment_expires_at": "2026-09-30T10:00:00Z",
-                        "work_hours_start": "08:30:00",
-                        "work_hours_end": "17:30:00",
-                        "timezone": "America/Santiago",
-                        "created_at": "2026-09-28T10:00:00Z",
-                        "updated_at": "2026-09-28T10:00:00Z"
-                    },
-                    "enrollment": {
-                        "code": "C74J5MN89PQR",
-                        "expires_at": "2026-09-30T10:00:00Z"
-                    }
-                }
-            })))
-            .mount(&server)
-            .await;
-
-        let client = AdminApiClient::new(server.uri());
-        let created = workers_create_with_client(&client, form).await.unwrap();
-
-        // 1. Agent parses QR JSON payload
-        let agent_parsed_qr: EnrollmentQr =
-            serde_json::from_str(&created.enrollment.qr_payload).unwrap();
+        // 1. Agent parses the canonical base64 QR payload
+        let agent_parsed_qr = EnrollmentQr::parse_payload(&created.enrollment.qr_payload).unwrap();
         assert_eq!(agent_parsed_qr.code, "C74J-5MN8-9PQR");
+        assert_eq!(agent_parsed_qr.api_url, API_URL);
 
         // 2. Agent receives EnrollResponse from server and constructs local EnrollmentManifest
         let agent_manifest = EnrollmentManifest::new(
@@ -1373,6 +1227,116 @@ mod tests {
             &tampered_manifest,
             &agent_parsed_qr.commitment
         ));
+    }
+
+    #[tokio::test]
+    async fn test_workers_regenerate_parses_enrollment_shape_and_verifies() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        let local_pub = generate_and_save_master_keys().unwrap();
+        let worker_id = "01912345-6789-7abc-def0-123456789fff";
+        let worker = created_worker_json(&make_valid_form(), worker_id);
+        Mock::given(method("POST"))
+            .and(path(format!("/workers/{worker_id}/enrollment-token")))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "enrollment_ttl_hours": 48 }),
+            ))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "data": { "enrollment": server_package(&local_pub, &worker, "B91M-4KPR-XZ2W") }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/workers/{worker_id}")))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": worker })),
+            )
+            .mount(&server)
+            .await;
+        let client = client_for(&server);
+
+        let view = workers_regenerate_token_with_client(&client, worker_id, Some(48))
+            .await
+            .unwrap();
+        assert_eq!(view.code, "B91M-4KPR-XZ2W");
+
+        assert_eq!(
+            workers_regenerate_token_with_client(&client, worker_id, Some(73))
+                .await
+                .unwrap_err()
+                .code,
+            "VALIDATION_ERROR"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_workers_regenerate_revoke_first_maps_hint() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        generate_and_save_master_keys().unwrap();
+        Mock::given(method("POST"))
+            .and(path("/workers/w-1/enrollment-token"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "CONFLICT", "message": "Worker already completed enrollment",
+                    "details": { "reason": "ENROLLMENT_ALREADY_COMPLETED", "hint": "REVOKE_FIRST", "status": "ACTIVE" }
+                }
+            })))
+            .mount(&server)
+            .await;
+        let err = workers_regenerate_token_with_client(&client_for(&server), "w-1", None)
+            .await
+            .unwrap_err();
+        assert!(err.is("ENROLLMENT_ALREADY_COMPLETED"));
+        let details = err.details.unwrap();
+        assert_eq!(details["hint"], "REVOKE_FIRST");
+        assert_eq!(details["status"], "ACTIVE");
+    }
+
+    #[test]
+    fn test_validate_qr_api_url_rules() {
+        assert!(validate_qr_api_url("https://api.example.cl/api/v1", false).is_ok());
+        assert!(validate_qr_api_url("http://localhost:8080/api/v1", true).is_ok());
+        assert!(validate_qr_api_url("http://localhost:8080/api/v1", false).is_err());
+        assert!(validate_qr_api_url("https://user:pw@api.example.cl/api/v1", false).is_err());
+        assert!(validate_qr_api_url("https://api.example.cl/api/v1#x", false).is_err());
+        assert!(validate_qr_api_url("ftp://api.example.cl", true).is_err());
+        assert!(validate_qr_api_url("https://", false).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_workers_consent_records_parse_granular_evidence() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/w-1/consent-records"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    { "id": "r2", "worker_id": "w-1", "admin_id": "admin-1", "consent_version": 2,
+                      "decision": "ACCEPTED",
+                      "consent_flags": ConsentFlags { system_activity: true, network_activity: true, ..Default::default() },
+                      "accepted_consent_flags": ConsentFlags { system_activity: true, ..Default::default() },
+                      "consent_descriptions": ConsentDescriptions::default(), "manifest_hash": "ab".repeat(32),
+                      "ip_address": "203.0.113.7", "user_agent": "telemetry-agent/0.3.0",
+                      "app_version": "0.3.0", "created_at": "2026-09-30T10:00:00Z" },
+                    { "id": "r1", "worker_id": "w-1", "consent_version": 1, "decision": "NARROWED",
+                      "accepted_consent_flags": null, "manifest_hash": null,
+                      "ip_address": null, "user_agent": null, "created_at": "2026-09-29T10:00:00Z" }
+                ],
+                "pagination": { "total": 2, "page": 1, "per_page": 100, "total_pages": 1 }
+            })))
+            .mount(&server)
+            .await;
+        let records = workers_get_consent_records_with_client(&client_for(&server), "w-1")
+            .await
+            .unwrap();
+        assert_eq!(records.len(), 2);
+        let accepted = records[0].accepted_consent_flags.unwrap();
+        assert!(accepted.system_activity && !accepted.network_activity);
+        assert_eq!(records[0].app_version.as_deref(), Some("0.3.0"));
+        assert!(records[1].manifest_hash.is_none());
     }
 
     #[test]
@@ -1578,7 +1542,8 @@ mod tests {
         let err = workers_update_with_client(&client, "w-1", form)
             .await
             .unwrap_err();
-        assert_eq!(err.code, "LOCATION_REQUIRES_FIELD");
+        assert_eq!(err.code, "VALIDATION_ERROR");
+        assert!(err.is("LOCATION_REQUIRES_FIELD"));
         assert_eq!(err.message, "location requires FIELD");
     }
 
@@ -1649,7 +1614,7 @@ mod tests {
         let err = workers_set_status_with_client(&client, "w-1", "ACTIVE", None)
             .await
             .unwrap_err();
-        assert_eq!(err.code, "INVALID_STATUS_TRANSITION");
+        assert!(err.is("INVALID_STATUS_TRANSITION"));
     }
 
     #[tokio::test]

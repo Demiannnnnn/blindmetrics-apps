@@ -1,11 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import {
+  AdminProfile,
   CreatedWorker,
   ConsentDescriptions,
   ConsentFlags,
+  CreateWorkerForm,
   createWorker,
 } from '../api/tauri-bridge';
+import { describeError, errorIs } from '../lib/errors';
+import { OrganizationPrompt } from './OrganizationPrompt';
 import { ConsentEditor, ConsentPreview } from './ConsentEditor';
 import {
   NO_CONSENT,
@@ -21,18 +25,12 @@ interface CreateWorkerModalProps {
   organization: string;
   onClose: () => void;
   onCreated: (created: CreatedWorker) => void;
+  /** Called after the organization prompt saved a new name (RF-ADMIN-09-5). */
+  onProfileChanged?: (profile: AdminProfile) => void;
 }
 
-// Key-setup failures the admin can act on (RF-ADMIN-08-1).
-const KEY_ERRORS: Record<string, string> = {
-  KEY_SETUP_REQUIRED: 'No hay llave maestra en este equipo. Genérela o restaure su respaldo antes de crear trabajadores.',
-  PUBLIC_KEY_MISMATCH:
-    'La llave maestra registrada en el servidor es distinta a la de este equipo. Restaure el respaldo de la llave original (Cumplimiento → Importar).',
-  ADMIN_PUBLIC_KEY_MISSING: 'El servidor aún no tiene su llave pública registrada. Reintente; se registrará automáticamente.',
-};
-
-/** W2 — New worker with admin-defined consent package (RF-ADMIN-08-2). */
-export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organization, onClose, onCreated }) => {
+/** W2 — New worker with admin-defined consent package (RF-ADMIN-08-2, RF-ADMIN-09-5/6). */
+export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organization, onClose, onCreated, onProfileChanged }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'OFFICE' | 'FIELD'>('OFFICE');
@@ -46,6 +44,8 @@ export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organizati
   const [descriptions, setDescriptions] = useState<ConsentDescriptions>(NO_DESCRIPTIONS);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingForm, setPendingForm] = useState<CreateWorkerForm | null>(null);
+  const [currentOrganization, setCurrentOrganization] = useState(organization);
 
   const timezones = useMemo(ianaTimezones, []);
   // DP-04: switching to OFFICE drops location.
@@ -74,23 +74,32 @@ export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organizati
       setError(invalid);
       return;
     }
+    const form: CreateWorkerForm = {
+      name: name.trim(),
+      email: email.trim(),
+      role_type: role,
+      work_hours_start: start,
+      work_hours_end: end,
+      timezone: timezone.trim(),
+      consent_flags: effectiveFlags,
+      consent_descriptions: normalizeDescriptions(effectiveFlags, descriptions),
+      enrollment_ttl_hours: ttlHours,
+    };
+    await submitForm(form);
+  };
+
+  const submitForm = async (form: CreateWorkerForm) => {
     setSubmitting(true);
     setError(null);
     try {
-      const created = await createWorker({
-        name: name.trim(),
-        email: email.trim(),
-        role_type: role,
-        work_hours_start: start,
-        work_hours_end: end,
-        timezone: timezone.trim(),
-        consent_flags: effectiveFlags,
-        consent_descriptions: normalizeDescriptions(effectiveFlags, descriptions),
-        enrollment_ttl_hours: ttlHours,
-      });
-      onCreated(created);
+      onCreated(await createWorker(form));
     } catch (err: any) {
-      setError(KEY_ERRORS[err?.code] ?? (err?.message || String(err)));
+      if (errorIs(err, 'ORGANIZATION_NAME_MISSING')) {
+        // RF-ADMIN-09-5: ask for the organization, then retry with the same form.
+        setPendingForm(form);
+        return;
+      }
+      setError(describeError(err));
     } finally {
       setSubmitting(false);
     }
@@ -98,6 +107,25 @@ export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organizati
 
   const input =
     'w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500';
+
+  if (pendingForm) {
+    return (
+      <OrganizationPrompt
+        initial={currentOrganization}
+        onSaved={profile => {
+          setCurrentOrganization(profile.organization);
+          onProfileChanged?.(profile);
+          const form = pendingForm;
+          setPendingForm(null);
+          submitForm(form);
+        }}
+        onCancel={() => {
+          setPendingForm(null);
+          setError('Indica el nombre de tu organización para crear trabajadores.');
+        }}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
@@ -180,7 +208,7 @@ export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organizati
 
           <div className="space-y-3">
             <p className="text-xs text-slate-400 font-medium">Vista previa de lo que verá el trabajador</p>
-            <ConsentPreview organization={organization} flags={effectiveFlags} descriptions={descriptions} />
+            <ConsentPreview organization={currentOrganization} flags={effectiveFlags} descriptions={descriptions} />
 
             {error && (
               <div className="p-2.5 bg-rose-950/50 border border-rose-800/60 rounded-lg text-xs text-rose-300">{error}</div>

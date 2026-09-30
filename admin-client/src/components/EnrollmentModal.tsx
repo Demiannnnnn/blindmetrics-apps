@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Copy, Check, X, Shield, Laptop, AlertTriangle, QrCode, Key, Clock, Download } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { EnrollmentView } from '../api/tauri-bridge';
+import { displayUrl } from '../lib/subscription';
 
 interface EnrollmentModalProps {
   worker: { name: string; role?: string };
@@ -119,7 +120,15 @@ export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enroll
             </div>
             <p className="text-xs text-slate-400 mt-2.5 flex items-center gap-1.5">
               <Laptop className="w-3.5 h-3.5 text-indigo-400" />
-              Escanee este código QR desde la app Telemetry en el equipo del trabajador
+              En la app Telemetry Worker: "Código QR" (escanear o pegar su contenido) o "Ingresar código"
+            </p>
+            {enrollment.api_url && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Servidor: <span className="font-mono text-slate-300">{displayUrl(enrollment.api_url)}</span>
+              </p>
+            )}
+            <p className="text-[11px] text-emerald-400/90 mt-1">
+              Verificado con la llave de este equipo: el servidor no puede haber sustituido la llave.
             </p>
           </div>
 
@@ -156,7 +165,7 @@ export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enroll
                   {enrollment.safety_code}
                 </span>
                 <p className="text-[10px] text-slate-500 mt-0.5">
-                  Verifique que coincida en la pantalla del trabajador
+                  Si el trabajador escribe el código, léale estos dígitos y confirme que coinciden con su pantalla
                 </p>
               </div>
             </div>
@@ -184,7 +193,7 @@ export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enroll
             className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition"
           >
             <Copy className="w-3.5 h-3.5" />
-            <span>{copiedPayload ? '¡Payload Copiado!' : 'Copiar Payload QR'}</span>
+            <span>{copiedPayload ? '¡Contenido copiado!' : 'Copiar contenido del QR'}</span>
           </button>
           <button
             onClick={handleSavePng}

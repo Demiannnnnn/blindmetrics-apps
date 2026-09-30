@@ -1,30 +1,63 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ShieldCheck, KeyRound, Server, User, Building, ArrowRight, AlertTriangle, Sparkles } from 'lucide-react';
-import { adminLogin, adminRegister, AdminProfile, getApiBaseUrl, isDemoMode } from '../api/tauri-bridge';
-
-/** Tauri commands reject with a serialized CommandError { code, message }. */
-function errorText(err: any): string {
-  return (typeof err === 'string' ? err : err?.message) || 'Error al autenticar';
-}
+import {
+  adminLogin,
+  adminLoginGoogle,
+  adminRegister,
+  AdminProfile,
+  getApiBaseUrl,
+  googleSignInAvailable,
+  isDemoMode,
+} from '../api/tauri-bridge';
+import { describeError, describeLoginError, ERROR_MESSAGES } from '../lib/errors';
 
 interface AuthViewProps {
   onLoginSuccess: (profile: AdminProfile) => void;
+  /** Why the previous session ended (`session-expired` event), shown once. */
+  expiredReason?: string | null;
 }
 
-export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,128}$/;
+
+export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReason }) => {
   const [tab, setTab] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('admin@acme.cl');
-  const [password, setPassword] = useState('AdminSecret2026!');
-  const [name, setName] = useState('Demian Administrador');
-  const [organization, setOrganization] = useState('Acme SpA');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [organization, setOrganization] = useState('');
   const [apiUrl, setApiUrl] = useState(getApiBaseUrl());
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(
+    expiredReason ? ERROR_MESSAGES[expiredReason] ?? ERROR_MESSAGES.SESSION_EXPIRED : null,
+  );
+  const [googleAvailable, setGoogleAvailable] = useState(false);
+
+  useEffect(() => {
+    googleSignInAvailable().then(setGoogleAvailable);
+  }, []);
+
+  const handleGoogle = async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      onLoginSuccess(await adminLoginGoogle(apiUrl));
+    } catch (err) {
+      setErrorMessage(describeError(err, 'No se pudo iniciar sesión con Google.'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMessage(null);
+
+    if (tab === 'register' && !PASSWORD_RULE.test(password)) {
+      setErrorMessage('La contraseña debe tener 8 a 128 caracteres, con mayúscula, minúscula, número y símbolo.');
+      setLoading(false);
+      return;
+    }
 
     try {
       if (tab === 'login') {
@@ -35,8 +68,9 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
         onLoginSuccess(profile);
       }
     } catch (err: any) {
-      setErrorMessage(errorText(err));
+      setErrorMessage(tab === 'login' ? describeLoginError(err) : describeError(err, 'No se pudo crear la cuenta.'));
     } finally {
+      setPassword('');
       setLoading(false);
     }
   };
@@ -49,7 +83,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
       const profile = await adminLogin('demo@telemetry.local', 'demo-pass', apiUrl);
       onLoginSuccess(profile);
     } catch (err: any) {
-      setErrorMessage(errorText(err));
+      setErrorMessage(describeError(err));
     } finally {
       setLoading(false);
     }
@@ -117,7 +151,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Ej. Carlos Valenzuela"
+                  placeholder="Tu nombre completo"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -132,7 +166,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
                   required
                   value={organization}
                   onChange={(e) => setOrganization(e.target.value)}
-                  placeholder="Ej. Acme SpA"
+                  placeholder="Nombre de tu empresa"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -154,7 +188,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
               <KeyRound className="w-3.5 h-3.5 text-slate-400" />
-              Contraseña Maestra
+              Contraseña de la cuenta
             </label>
             <input
               type="password"
@@ -193,12 +227,36 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
               <span>Autenticando...</span>
             ) : (
               <>
-                <span>{tab === 'login' ? 'Acceder a la Consola' : 'Registrar y Generar Claves'}</span>
+                <span>{tab === 'login' ? 'Acceder a la Consola' : 'Crear cuenta (14 días de prueba)'}</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
         </form>
+
+        {/* TASK-ADMIN-10: Google sign-in through the system browser (loopback + PKCE). */}
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleGoogle}
+            disabled={loading || !googleAvailable}
+            title={googleAvailable ? undefined : 'El inicio con Google no está configurado en esta versión'}
+            className="w-full py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-medium rounded-lg text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
+          >
+            <span className="font-bold text-indigo-600">G</span>
+            <span>Continuar con Google</span>
+          </button>
+          {!googleAvailable && (
+            <p className="text-[11px] text-slate-500 text-center mt-1.5">
+              El inicio con Google no está configurado en esta versión.
+            </p>
+          )}
+          {googleAvailable && (
+            <p className="text-[11px] text-slate-500 text-center mt-1.5">
+              Se abrirá tu navegador; esta app nunca ve tu contraseña de Google.
+            </p>
+          )}
+        </div>
 
         {isDemoMode && (
           <div className="mt-6 pt-5 border-t border-slate-800">

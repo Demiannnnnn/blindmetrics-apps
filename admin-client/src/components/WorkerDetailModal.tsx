@@ -16,10 +16,15 @@ import { STATUS_BADGES } from './EmployeeCard';
 import { ConsentEditor, ConsentPreview } from './ConsentEditor';
 import {
   CONSENT_CATEGORIES,
+  acceptedCategoriesOf,
+  categoryLabel,
   consentRecordsToCsv,
+  consentSummary,
+  decisionLabel,
   descriptionErrors,
   normalizeDescriptions,
 } from './consentCategories';
+import { describeError } from '../lib/errors';
 
 interface WorkerDetailModalProps {
   worker: WorkerItem;
@@ -31,12 +36,6 @@ interface WorkerDetailModalProps {
   onDelete: (worker: WorkerItem) => void;
   onViewTelemetry: (worker: WorkerItem) => void;
 }
-
-const DECISION_LABELS: Record<string, string> = {
-  ACCEPT: 'Aceptó',
-  REJECT: 'Rechazó',
-  WITHDRAW: 'Retiró',
-};
 
 function fmtDate(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : '—';
@@ -68,14 +67,15 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const item = toWorkerItem(worker);
   const badge = STATUS_BADGES[worker.status];
   const hasConsent = worker.accepted_consent_version !== null;
+  const summary = consentSummary(worker.consent_flags, worker.requested_consent_flags);
 
   useEffect(() => {
     workersGet(initial.id)
       .then(setWorker)
-      .catch(e => setError(e?.message || String(e)));
+      .catch(e => setError(describeError(e)));
     workersGetConsentRecords(initial.id)
       .then(setRecords)
-      .catch(e => setRecordsError(e?.message || String(e)));
+      .catch(e => setRecordsError(describeError(e)));
   }, [initial.id]);
 
   const apply = (updated: WorkerResponse, message?: string) => {
@@ -91,8 +91,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     try {
       await action();
     } catch (e: any) {
-      // The API is the authority on transitions: show its reason verbatim.
-      setError(e?.message || String(e));
+      // The API is the authority on transitions.
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
@@ -239,6 +239,12 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
               Consentimiento · vigente v{worker.consent_version} · aceptada v{worker.accepted_consent_version ?? '–'}
+              {hasConsent && summary.requested > 0 && (
+                <span className="normal-case font-normal text-slate-400">
+                  {' '}
+                  · aceptó {summary.accepted} de {summary.requested} categorías solicitadas
+                </span>
+              )}
             </h4>
             {!editingConsent && worker.status !== 'REVOKED' && (
               <button onClick={() => setEditingConsent(true)} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}>
@@ -261,7 +267,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               <div className="space-y-3">
                 <ConsentPreview organization={organization} flags={draftFlags} descriptions={draftDescriptions} />
                 <p className="text-[11px] text-amber-300">
-                  Ampliar lo que se recolecta publica una nueva versión: la recolección se detiene hasta que el trabajador la acepte.
+                  Ampliar lo que se recolecta publica una nueva versión: las categorías nuevas solo se recolectan si el
+                  trabajador las acepta; mientras tanto siguen vigentes las que ya había aceptado.
                 </p>
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setEditingConsent(false)} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-300`}>
@@ -279,7 +286,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 <tr className="text-left">
                   <th className="py-1 font-medium">Categoría</th>
                   <th className="py-1 font-medium">Solicitado</th>
-                  <th className="py-1 font-medium">Vigente</th>
+                  <th className="py-1 font-medium">Aceptado por el trabajador</th>
                   <th className="py-1 font-medium">Descripción mostrada al trabajador</th>
                 </tr>
               </thead>
@@ -322,7 +329,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   <th className="py-1 font-medium">Fecha</th>
                   <th className="py-1 font-medium">Versión</th>
                   <th className="py-1 font-medium">Decisión</th>
-                  <th className="py-1 font-medium">IP</th>
+                  <th className="py-1 font-medium">Categorías aceptadas</th>
+                  <th className="py-1 font-medium">IP · app</th>
                   <th className="py-1 font-medium">Manifiesto</th>
                 </tr>
               </thead>
@@ -331,10 +339,16 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   <tr key={r.id} className="border-t border-slate-700/60">
                     <td className="py-1.5">{fmtDate(r.created_at)}</td>
                     <td className="py-1.5">v{r.consent_version}</td>
-                    <td className="py-1.5">{DECISION_LABELS[r.decision] ?? r.decision}</td>
-                    <td className="py-1.5 font-mono">{r.ip_address ?? '—'}</td>
-                    <td className="py-1.5 font-mono" title={r.manifest_hash}>
-                      {r.manifest_hash.slice(0, 12)}…
+                    <td className="py-1.5">{decisionLabel(r.decision)}</td>
+                    <td className="py-1.5 text-slate-400">
+                      {acceptedCategoriesOf(r).map(categoryLabel).join(', ') || '—'}
+                    </td>
+                    <td className="py-1.5 font-mono">
+                      {r.ip_address ?? '—'}
+                      {r.app_version ? <span className="text-slate-500"> · {r.app_version}</span> : null}
+                    </td>
+                    <td className="py-1.5 font-mono" title={r.manifest_hash ?? undefined}>
+                      {r.manifest_hash ? `${r.manifest_hash.slice(0, 12)}…` : '—'}
                     </td>
                   </tr>
                 ))}

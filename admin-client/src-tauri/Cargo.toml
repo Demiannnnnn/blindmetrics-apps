@@ -24,6 +24,14 @@ keyring = { version = "3.0", features = ["apple-native", "windows-native", "sync
 dotenvy.workspace = true
 percent-encoding = "2.3"
 uuid.workspace = true
+# TASK-INT-02 / ADMIN-10 / ADMIN-11 / ADMIN-12
+rand.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+hex.workspace = true
+dirs.workspace = true
+gethostname = "1"
+open = "5"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

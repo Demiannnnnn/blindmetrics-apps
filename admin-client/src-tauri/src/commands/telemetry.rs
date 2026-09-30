@@ -37,9 +37,11 @@ pub struct ApiTelemetryRecord {
 /// Helper to decode either base64-encoded string or byte array payload.
 pub fn parse_encrypted_payload(val: &serde_json::Value) -> Result<Vec<u8>, CommandError> {
     match val {
-        serde_json::Value::String(s) => STANDARD.decode(s).map_err(|e| CommandError {
-            code: "BASE64_DECODE_ERROR".into(),
-            message: format!("Invalid base64 payload: {}", e),
+        serde_json::Value::String(s) => STANDARD.decode(s).map_err(|e| {
+            CommandError::new(
+                "BASE64_DECODE_ERROR",
+                format!("Invalid base64 payload: {}", e),
+            )
         }),
         serde_json::Value::Array(arr) => {
             let bytes: Result<Vec<u8>, _> = arr
@@ -47,18 +49,17 @@ pub fn parse_encrypted_payload(val: &serde_json::Value) -> Result<Vec<u8>, Comma
                 .map(|v| {
                     v.as_u64()
                         .and_then(|n| if n <= 255 { Some(n as u8) } else { None })
-                        .ok_or_else(|| CommandError {
-                            code: "INVALID_BYTE_ARRAY".into(),
-                            message: "Invalid byte value in payload".into(),
+                        .ok_or_else(|| {
+                            CommandError::new("INVALID_BYTE_ARRAY", "Invalid byte value in payload")
                         })
                 })
                 .collect();
             bytes
         }
-        _ => Err(CommandError {
-            code: "INVALID_PAYLOAD_FORMAT".into(),
-            message: "Payload is neither base64 string nor byte array".into(),
-        }),
+        _ => Err(CommandError::new(
+            "INVALID_PAYLOAD_FORMAT",
+            "Payload is neither base64 string nor byte array",
+        )),
     }
 }
 
@@ -78,9 +79,11 @@ pub fn decrypt_records_parallel(
                 &rec.ephemeral_public_key,
                 &rec.encrypted_payload,
             )
-            .map_err(|e| CommandError {
-                code: "DECRYPTION_FAILED".into(),
-                message: format!("Crypto decryption failure on record ID {}: {}", rec.id, e),
+            .map_err(|e| {
+                CommandError::new(
+                    "DECRYPTION_FAILED",
+                    format!("Crypto decryption failure on record ID {}: {}", rec.id, e),
+                )
             })?;
 
             Ok(DecryptedRecordDto {
@@ -142,10 +145,8 @@ pub fn decrypt_records_parallel_tolerant(
 pub fn admin_decrypt_records(
     records: Vec<EncryptedRecordDto>,
 ) -> Result<Vec<DecryptedRecordDto>, CommandError> {
-    let priv_key = load_admin_private_key().map_err(|e| CommandError {
-        code: "KEYSTORE_ERROR".into(),
-        message: format!("Keystore error: {}", e),
-    })?;
+    let priv_key = load_admin_private_key()
+        .map_err(|e| CommandError::new("KEYSTORE_ERROR", format!("Keystore error: {}", e)))?;
     decrypt_records_parallel(&priv_key, records)
 }
 
@@ -160,49 +161,44 @@ pub async fn fetch_and_decrypt_telemetry(
     page: Option<u32>,
     per_page: Option<u32>,
 ) -> Result<Vec<DecryptedRecordDto>, CommandError> {
-    let mut query_params = Vec::new();
-    query_params.push(format!("worker_id={}", worker_id));
-
+    const CATEGORIES: [&str; 5] = ["system", "network", "productivity", "files", "location"];
+    if !CATEGORIES.contains(&category.as_str()) {
+        return Err(CommandError::validation(format!(
+            "Unknown telemetry category '{category}'"
+        )));
+    }
+    if uuid::Uuid::parse_str(&worker_id).is_err() {
+        return Err(CommandError::validation("Invalid worker id"));
+    }
+    let encode = |value: &str| {
+        percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC).to_string()
+    };
+    let mut query_params = vec![format!("worker_id={}", worker_id)];
     if let Some(f) = from {
-        query_params.push(format!("from={}", f));
+        query_params.push(format!("from={}", encode(&f)));
     }
     if let Some(t) = to {
-        query_params.push(format!("to={}", t));
+        query_params.push(format!("to={}", encode(&t)));
     }
     if let Some(sub) = subcategory {
+        let sub = sub.trim().to_uppercase();
+        if sub != "BASIC" && sub != "SCREENSHOT" {
+            return Err(CommandError::validation(
+                "Subcategory must be BASIC or SCREENSHOT",
+            ));
+        }
         query_params.push(format!("subcategory={}", sub));
     }
     if let Some(p) = page {
-        query_params.push(format!("page={}", p));
+        query_params.push(format!("page={}", p.max(1)));
     }
     if let Some(pp) = per_page {
-        query_params.push(format!("per_page={}", pp));
+        query_params.push(format!("per_page={}", pp.clamp(1, 100)));
     }
 
     let endpoint = format!("/telemetry/{}?{}", category, query_params.join("&"));
-    let api_client = get_api_client();
-    let resp = api_client
-        .get_with_auth(&endpoint)
-        .await
-        .map_err(|e| CommandError {
-            code: "NETWORK_ERROR".into(),
-            message: e,
-        })?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let err_text = resp.text().await.unwrap_or_default();
-        return Err(CommandError {
-            code: format!("API_ERROR_{}", status.as_u16()),
-            message: format!("Telemetry retrieval failed ({}): {}", status, err_text),
-        });
-    }
-
     let collection: CollectionResponse<ApiTelemetryRecord> =
-        resp.json().await.map_err(|e| CommandError {
-            code: "PARSE_ERROR".into(),
-            message: format!("Failed to parse telemetry API response: {}", e),
-        })?;
+        get_api_client().get_collection(&endpoint).await?;
 
     let mut encrypted_dtos = Vec::with_capacity(collection.data.len());
     for item in collection.data {
@@ -215,20 +211,15 @@ pub async fn fetch_and_decrypt_telemetry(
         });
     }
 
-    let priv_key = load_admin_private_key().map_err(|e| CommandError {
-        code: "KEYSTORE_ERROR".into(),
-        message: format!("Keystore error: {}", e),
-    })?;
+    let priv_key = load_admin_private_key()
+        .map_err(|e| CommandError::new("KEYSTORE_ERROR", format!("Keystore error: {}", e)))?;
 
     // Offload compute-intensive parallel decryption to worker thread pool
     let (decrypted, failed) = tokio::task::spawn_blocking(move || {
         decrypt_records_parallel_tolerant(&priv_key, encrypted_dtos)
     })
     .await
-    .map_err(|e| CommandError {
-        code: "THREAD_JOIN_ERROR".into(),
-        message: e.to_string(),
-    })?;
+    .map_err(|e| CommandError::new("THREAD_JOIN_ERROR", e.to_string()))?;
 
     tracing::info!(
         "Successfully decrypted {} records for worker {} in memory ({} failed)",
@@ -240,52 +231,35 @@ pub async fn fetch_and_decrypt_telemetry(
     Ok(decrypted)
 }
 
+/// Local self-test of the decryption pipeline: encrypts a neutral sample to this device's own
+/// public key and decrypts it. Never creates a key (SEC-13) and never touches the API.
 #[tauri::command]
 pub fn admin_simulate_and_decrypt() -> Result<DecryptedRecordDto, CommandError> {
-    let pub_b64 = match get_admin_public_key() {
-        Ok(k) => k,
-        Err(_) => super::keys::generate_and_save_master_keys()?,
-    };
+    let pub_b64 = get_admin_public_key()?;
 
     let sample = serde_json::json!({
-        "device_identifier": "macbook-air-m2-corporate-node",
-        "worker_name": "Carlos Valenzuela",
-        "cpu_usage_pct": 28.5,
-        "ram_usage_pct": 64.2,
-        "keystrokes_per_minute": 142,
-        "clicks_per_minute": 38,
-        "active_window": "VS Code — telemetry-apps/agent",
-        "top_fqdns": ["github.com", "crates.io", "docs.rs"],
+        "self_test": true,
+        "description": "Autoprueba local de cifrado y descifrado (no son datos de un trabajador)",
+        "cpu_usage_pct": 0.0,
         "encrypted_at": chrono::Utc::now().to_rfc3339()
     });
 
-    let envelope =
-        telemetry_crypto_core::encrypt_telemetry_batch(&sample, &pub_b64).map_err(|e| {
-            CommandError {
-                code: "ENCRYPTION_ERROR".into(),
-                message: format!("Encryption error: {}", e),
-            }
-        })?;
+    let envelope = telemetry_crypto_core::encrypt_telemetry_batch(&sample, &pub_b64)
+        .map_err(|e| CommandError::new("ENCRYPTION_ERROR", format!("Encryption error: {}", e)))?;
 
-    let priv_key = load_admin_private_key().map_err(|e| CommandError {
-        code: "KEYSTORE_ERROR".into(),
-        message: format!("Keystore error: {}", e),
-    })?;
+    let priv_key = load_admin_private_key()
+        .map_err(|e| CommandError::new("KEYSTORE_ERROR", format!("Keystore error: {}", e)))?;
     let records = vec![EncryptedRecordDto {
-        id: format!(
-            "sim-{}",
-            uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
-        ),
+        id: format!("selftest-{}", uuid::Uuid::new_v4().simple()),
         client_timestamp: chrono::Utc::now(),
         ephemeral_public_key: envelope.ephemeral_public_key,
         encrypted_payload: envelope.encrypted_payload,
     }];
 
     let mut decrypted = decrypt_records_parallel(&priv_key, records)?;
-    decrypted.pop().ok_or_else(|| CommandError {
-        code: "NO_DATA".into(),
-        message: "Decryption produced no output".into(),
-    })
+    decrypted
+        .pop()
+        .ok_or_else(|| CommandError::new("NO_DATA", "Decryption produced no output"))
 }
 
 #[cfg(test)]

@@ -1,12 +1,14 @@
+//! Admin key status and registration (TASK-ADMIN-01, TASK-ADMIN-08, TASK-ADMIN-11).
+//!
+//! Key creation, backups, recovery and rotation live in [`super::vault`]. Nothing here
+//! generates a key implicitly (SEC-13): a key appears only through an explicit vault flow.
+
 use super::CommandError;
-use crate::client::get_api_client;
+use crate::client::{get_api_client, AdminApiClient};
 use crate::keystore::{load_admin_private_key, save_admin_private_key};
 use serde::{Deserialize, Serialize};
 use telemetry_crypto_core::enrollment::public_key_fingerprint;
-use telemetry_crypto_core::{
-    derive_public_key, export_encrypted_admin_key, generate_admin_keypair,
-    import_encrypted_admin_key,
-};
+use telemetry_crypto_core::{derive_public_key, fingerprints_equal, generate_admin_keypair};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct KeyStatus {
@@ -18,41 +20,30 @@ pub struct KeyStatus {
     pub matches_server: bool,
 }
 
-/// Generates a new X25519 keypair and securely saves the private key in the OS Keystore (SEC-04).
-/// Returns the Base64 public key.
-pub fn generate_and_save_master_keys() -> Result<String, CommandError> {
+/// Generates a new X25519 keypair and saves the private key in the OS Keystore (SEC-04).
+/// Returns the Base64 public key. Callers own the rollback if a later step fails.
+pub(crate) fn generate_and_save_master_keys() -> Result<String, CommandError> {
     let (priv_b64, pub_b64) = generate_admin_keypair();
-    save_admin_private_key(&priv_b64).map_err(|e| CommandError {
-        code: "KEYSTORE_ERROR".into(),
-        message: format!("Failed to save admin key in OS keystore: {}", e),
+    let priv_b64 = zeroize::Zeroizing::new(priv_b64);
+    save_admin_private_key(&priv_b64).map_err(|e| {
+        CommandError::new(
+            "KEYSTORE_ERROR",
+            format!("No se pudo guardar la llave en el llavero del sistema: {e}"),
+        )
     })?;
     Ok(pub_b64)
 }
 
-/// Loads the admin public key derived from the private key in the OS Keystore.
+/// Public key derived from the private key in the OS Keystore.
 pub fn get_admin_public_key() -> Result<String, CommandError> {
-    let priv_b64 = load_admin_private_key().map_err(|e| CommandError {
-        code: "KEYSTORE_ERROR".into(),
-        message: format!("Failed to load admin key from OS keystore: {}", e),
+    let priv_b64 = load_admin_private_key().map_err(|e| {
+        CommandError::new(
+            "KEY_SETUP_REQUIRED",
+            format!("No hay llave maestra en este equipo: {e}"),
+        )
     })?;
-    derive_public_key(&priv_b64).map_err(|e| CommandError {
-        code: "CRYPTO_ERROR".into(),
-        message: format!("Crypto error: {}", e),
-    })
-}
-
-/// Generates the master keypair only when none exists on this machine.
-/// Replacing an existing key would make every stored record unreadable and,
-/// once registered, the server key is write-once (K2).
-#[tauri::command]
-pub fn admin_generate_keypair() -> Result<String, CommandError> {
-    if get_admin_public_key().is_ok() {
-        return Err(CommandError {
-            code: "KEY_ALREADY_EXISTS".into(),
-            message: "A master key already exists on this machine; restore a backup instead of regenerating it".into(),
-        });
-    }
-    generate_and_save_master_keys()
+    derive_public_key(&priv_b64)
+        .map_err(|e| CommandError::new("CRYPTO_ERROR", format!("Llave local inválida: {e}")))
 }
 
 #[tauri::command]
@@ -60,54 +51,15 @@ pub fn admin_get_public_key() -> Result<String, CommandError> {
     get_admin_public_key()
 }
 
-#[tauri::command]
-pub fn admin_export_backup(passphrase: String) -> Result<Vec<u8>, CommandError> {
-    let priv_b64 = load_admin_private_key().map_err(|e| CommandError {
-        code: "KEYSTORE_ERROR".into(),
-        message: format!("Failed to load admin key from OS keystore: {}", e),
-    })?;
-
-    let backup = export_encrypted_admin_key(&priv_b64, &passphrase).map_err(|e| CommandError {
-        code: "CRYPTO_ERROR".into(),
-        message: format!("Failed to export encrypted backup: {}", e),
-    })?;
-
-    tracing::info!("Admin master key backup successfully exported with passphrase (RF-ADMIN-01-3)");
-    Ok(backup)
-}
-
-#[tauri::command]
-pub fn admin_import_backup(backup_data: Vec<u8>, passphrase: String) -> Result<(), CommandError> {
-    let priv_b64 =
-        import_encrypted_admin_key(&backup_data, &passphrase).map_err(|e| CommandError {
-            code: "CRYPTO_ERROR".into(),
-            message: format!("Failed to decrypt and import backup: {}", e),
-        })?;
-
-    save_admin_private_key(&priv_b64).map_err(|e| CommandError {
-        code: "KEYSTORE_ERROR".into(),
-        message: format!("Failed to save imported admin key to OS keystore: {}", e),
-    })?;
-
-    tracing::info!(
-        "Admin master key backup successfully imported into OS keystore (RF-ADMIN-01-3)"
-    );
-    Ok(())
-}
-
+/// Registers the local public key (`PUT /admins/me/public-key`) and records it on this device.
 pub async fn keys_register_on_server_with_client(
-    client: &crate::client::AdminApiClient,
+    client: &AdminApiClient,
 ) -> Result<String, CommandError> {
     let pub_key = get_admin_public_key()?;
-    let resp = client
-        .register_public_key(&pub_key)
-        .await
-        .map_err(|e| CommandError {
-            code: "REGISTRATION_FAILED".into(),
-            message: e,
-        })?;
-
-    client.set_current_user_public_key(resp.public_key.clone(), resp.public_key_fingerprint);
+    let resp = client.register_public_key(&pub_key).await?;
+    client
+        .set_current_user_public_key(resp.public_key.clone(), resp.public_key_fingerprint.clone());
+    super::devices::record_key_on_current_device(client, &resp.public_key_fingerprint).await;
     tracing::info!("Registered admin master public key on server (RF-ADMIN-08-1)");
     Ok(resp.public_key)
 }
@@ -117,98 +69,95 @@ pub async fn keys_register_on_server() -> Result<String, CommandError> {
     keys_register_on_server_with_client(get_api_client()).await
 }
 
-#[tauri::command]
-pub async fn keys_status() -> Result<KeyStatus, CommandError> {
+pub async fn keys_status_with_client(client: &AdminApiClient) -> Result<KeyStatus, CommandError> {
     let local_pub = get_admin_public_key().ok();
     let local_fp = local_pub
         .as_deref()
         .and_then(|k| public_key_fingerprint(k).ok());
-
-    let client = get_api_client();
-    let me = client.get_admin_me().await.ok();
-
-    let server_fp = me.as_ref().and_then(|m| m.public_key_fingerprint.clone());
-    let is_registered = server_fp.is_some();
-
+    let me = client.get_admin_me().await?;
+    let server_fp = me.public_key_fingerprint.clone();
     let matches_server = match (&local_fp, &server_fp) {
-        (Some(loc), Some(srv)) => loc == srv,
-        _ => true, // Not registered yet or no local key
+        (Some(loc), Some(srv)) => fingerprints_equal(loc, srv),
+        _ => false,
     };
-
     Ok(KeyStatus {
         has_local_key: local_pub.is_some(),
         local_public_key: local_pub,
         local_fingerprint: local_fp,
+        is_registered_on_server: server_fp.is_some(),
         server_fingerprint: server_fp,
-        is_registered_on_server: is_registered,
         matches_server,
     })
 }
 
-/// Checks key registration and registers local key if missing on the server (RF-ADMIN-08-1).
-pub async fn check_and_register_key_if_missing_with_client(
-    client: &crate::client::AdminApiClient,
-) -> Result<(), CommandError> {
-    if let Ok(me) = client.get_admin_me().await {
-        if me.public_key.is_none() {
-            if get_admin_public_key().is_ok() {
-                let _ = keys_register_on_server_with_client(client).await?;
-                tracing::info!("Automatically registered local admin public key upon login");
-            }
-        } else if let Ok(local_pub) = get_admin_public_key() {
-            let local_fp = public_key_fingerprint(&local_pub)?;
-            if let Some(srv_fp) = me.public_key_fingerprint {
-                if local_fp != srv_fp {
-                    tracing::warn!("Server public key differs from local key (K2 mismatch)");
-                    return Err(CommandError {
-                        code: "PUBLIC_KEY_MISMATCH".into(),
-                        message: "Server master public key does not match local key. Worker creation blocked."
-                            .into(),
-                    });
-                }
-            }
-        }
-    }
-    Ok(())
+#[tauri::command]
+pub async fn keys_status() -> Result<KeyStatus, CommandError> {
+    keys_status_with_client(get_api_client()).await
 }
 
-/// RF-ADMIN-08-1 gate before issuing enrollments: the local key must exist
-/// and be the one registered on the server; registers it if the server has none.
-/// Returns the local public key (the only one ever put in a manifest, SEC-07).
-pub async fn ensure_server_key_with_client(
-    client: &crate::client::AdminApiClient,
-) -> Result<String, CommandError> {
-    let local_pub = get_admin_public_key().map_err(|_| CommandError {
-        code: "KEY_SETUP_REQUIRED".into(),
-        message: "No master key on this machine: generate or restore it first".into(),
-    })?;
-    let me = client.get_admin_me().await.map_err(|e| CommandError {
-        code: "NETWORK_ERROR".into(),
-        message: e,
-    })?;
+/// After login: registers the local key when the server has none (RF-ADMIN-08-1). A different
+/// registered key is reported (K2) and never overwritten.
+pub async fn check_and_register_key_if_missing_with_client(
+    client: &AdminApiClient,
+) -> Result<(), CommandError> {
+    let me = client.get_admin_me().await?;
+    let Ok(local_pub) = get_admin_public_key() else {
+        return Ok(());
+    };
     match me.public_key_fingerprint {
         None => {
             keys_register_on_server_with_client(client).await?;
+            tracing::info!("Automatically registered local admin public key upon login");
         }
-        Some(srv_fp) if srv_fp != public_key_fingerprint(&local_pub)? => {
+        Some(srv_fp) if !fingerprints_equal(&srv_fp, &public_key_fingerprint(&local_pub)?) => {
             tracing::warn!("Server public key differs from local key (K2 mismatch)");
-            return Err(CommandError {
-                code: "PUBLIC_KEY_MISMATCH".into(),
-                message: "Server master public key differs from local key (K2 mismatch)".into(),
-            });
+            return Err(CommandError::new(
+                "PUBLIC_KEY_MISMATCH",
+                "La llave registrada en el servidor es distinta a la de este equipo.",
+            ));
         }
         Some(_) => {}
     }
-    Ok(local_pub)
+    Ok(())
 }
 
 pub async fn check_and_register_key_if_missing() -> Result<(), CommandError> {
     check_and_register_key_if_missing_with_client(get_api_client()).await
 }
 
+/// RF-ADMIN-08-1 gate before issuing enrollments: the local key must exist and be the one
+/// registered on the server; registers it if the server has none. Returns the local public
+/// key (the only one ever put in a manifest, SEC-07).
+pub async fn ensure_server_key_with_client(
+    client: &AdminApiClient,
+) -> Result<String, CommandError> {
+    let local_pub = get_admin_public_key().map_err(|_| {
+        CommandError::new(
+            "KEY_SETUP_REQUIRED",
+            "No hay llave maestra en este equipo: créala o restáurala en Bóveda antes de continuar.",
+        )
+    })?;
+    let me = client.get_admin_me().await?;
+    match me.public_key_fingerprint {
+        None => {
+            keys_register_on_server_with_client(client).await?;
+        }
+        Some(srv_fp) if !fingerprints_equal(&srv_fp, &public_key_fingerprint(&local_pub)?) => {
+            tracing::warn!("Server public key differs from local key (K2 mismatch)");
+            return Err(CommandError::new(
+                "PUBLIC_KEY_MISMATCH",
+                "La llave registrada en el servidor es distinta a la de este equipo.",
+            ));
+        }
+        Some(_) => {}
+    }
+    Ok(local_pub)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::test_support::admin_me_json;
     use crate::client::AdminApiClient;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -222,99 +171,32 @@ mod tests {
         let local_pub = generate_and_save_master_keys().unwrap();
         let local_fp = public_key_fingerprint(&local_pub).unwrap();
 
-        // 1. Mock GET /admins/me returning no public key yet
         Mock::given(method("GET"))
             .and(path("/admins/me"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": "admin-123",
-                    "email": "admin@acme.cl",
-                    "name": "Admin",
-                    "organization": "Acme",
-                    "is_active": true,
-                    "worker_count": 0,
-                    "public_key": null,
-                    "public_key_fingerprint": null,
-                    "created_at": "2026-09-28T00:00:00Z",
-                    "updated_at": "2026-09-28T00:00:00Z"
-                }
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(admin_me_json("Acme", None)))
             .mount(&server)
             .await;
-
-        // 2. Mock PUT /admins/me/public-key registering our key
         Mock::given(method("PUT"))
             .and(path("/admins/me/public-key"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "public_key": local_pub,
-                    "public_key_fingerprint": local_fp
-                }
+                "data": { "public_key": local_pub, "public_key_fingerprint": local_fp }
             })))
             .expect(1)
             .mount(&server)
             .await;
+        Mock::given(method("GET"))
+            .and(path("/admins/me/devices"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": [] })),
+            )
+            .mount(&server)
+            .await;
 
         let client = AdminApiClient::new(server.uri());
-        let res = check_and_register_key_if_missing_with_client(&client).await;
-        assert!(res.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_admin_export_and_import_backup_roundtrip() {
-        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
-        crate::keystore::init_test_vault();
-
-        // 1. Generate master keys
-        let original_pub = generate_and_save_master_keys().expect("Generate keys failed");
-        let passphrase = "safe-passphrase-with-enough-entropy-2026";
-
-        // 2. Export backup
-        let backup_bytes =
-            admin_export_backup(passphrase.to_string()).expect("Export backup failed");
-        assert!(!backup_bytes.is_empty());
-
-        // 3. Clear keystore
-        crate::keystore::delete_admin_private_key().expect("Delete key failed");
-        assert!(get_admin_public_key().is_err());
-
-        // 4. Import backup
-        admin_import_backup(backup_bytes, passphrase.to_string()).expect("Import backup failed");
-
-        // 5. Restored key should derive identical public key
-        let restored_pub = get_admin_public_key().expect("Restored key not found");
-        assert_eq!(original_pub, restored_pub);
-    }
-
-    #[tokio::test]
-    async fn test_backup_encryption_invalid_passphrase() {
-        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
-        crate::keystore::init_test_vault();
-
-        let _ = generate_and_save_master_keys().expect("Generate keys failed");
-        let passphrase = "correct-passphrase-123456";
-        let wrong_passphrase = "wrong-passphrase-654321";
-
-        let backup_bytes =
-            admin_export_backup(passphrase.to_string()).expect("Export backup failed");
-
-        let err = admin_import_backup(backup_bytes, wrong_passphrase.to_string())
-            .expect_err("Should fail");
-        assert_eq!(err.code, "CRYPTO_ERROR");
-    }
-
-    #[tokio::test]
-    async fn test_backup_passphrase_too_short_rejected() {
-        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
-        crate::keystore::init_test_vault();
-
-        let _ = generate_and_save_master_keys().expect("Generate keys failed");
-        let short_passphrase = "short";
-
-        let err = admin_export_backup(short_passphrase.to_string())
-            .expect_err("Export short should fail");
-        assert_eq!(err.code, "CRYPTO_ERROR");
-        assert!(err.message.contains("at least 12 characters"));
+        client.set_access_token_for_test(Some("a".into()));
+        check_and_register_key_if_missing_with_client(&client)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -327,12 +209,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_keypair_refuses_to_replace_existing_key() {
+    async fn test_ensure_server_key_mismatch_blocks() {
         let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
         crate::keystore::init_test_vault();
-        let first = admin_generate_keypair().unwrap();
-        let err = admin_generate_keypair().unwrap_err();
-        assert_eq!(err.code, "KEY_ALREADY_EXISTS");
-        assert_eq!(get_admin_public_key().unwrap(), first);
+        let server = MockServer::start().await;
+        generate_and_save_master_keys().unwrap();
+        Mock::given(method("GET"))
+            .and(path("/admins/me"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(admin_me_json("Acme", Some(&"a".repeat(64)))),
+            )
+            .mount(&server)
+            .await;
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("a".into()));
+        let err = ensure_server_key_with_client(&client).await.unwrap_err();
+        assert_eq!(err.code, "PUBLIC_KEY_MISMATCH");
+        let status = keys_status_with_client(&client).await.unwrap();
+        assert!(status.has_local_key && status.is_registered_on_server && !status.matches_server);
     }
 }

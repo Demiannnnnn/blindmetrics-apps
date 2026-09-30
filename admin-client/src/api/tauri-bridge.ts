@@ -1,5 +1,14 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type {
+  AdminDevice,
+  AdminProfile,
+  ExportedBackup,
+  KeyInstalled,
+  ServerBackupConfigured,
+  SubscriptionBlock,
+  SubscriptionStatus,
+  VaultStatus,
   WorkerResponse,
   WorkerStatus,
   CreateWorkerForm,
@@ -17,13 +26,6 @@ import type {
 } from './types';
 
 export * from './types';
-
-export interface AdminProfile {
-  id: string;
-  name: string;
-  email: string;
-  organization: string;
-}
 
 export interface WorkerItem {
   id: string;
@@ -65,6 +67,8 @@ export interface KpiSummary {
   keystoreProtected: boolean;
   /** Local key differs from the one registered on the server (K2). */
   keyMismatch: boolean;
+  /** Zero-knowledge backup configured on the server (ADMIN-11). */
+  backupConfigured: boolean;
 }
 
 export type TimeRangePreset = 'today' | 'yesterday' | '7days' | 'custom';
@@ -165,7 +169,9 @@ function demoWorker(
     accepted_consent_version: status === 'ACTIVE' || status === 'PAUSED' ? 1 : null,
     consent_accepted_at: status === 'ACTIVE' ? now : null,
     enrollment_completed_at: bound ? now : null,
+    enrollment_redeemed_at: bound ? now : null,
     enrollment_expires_at: bound ? null : new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    enrollment_expired: false,
     work_hours_start: '09:00:00',
     work_hours_end: '18:00:00',
     timezone: 'America/Santiago',
@@ -212,7 +218,6 @@ function demoPage(query: WorkerListQuery): CollectionResponse<WorkerResponse> {
   };
 }
 
-let cachedAdminKey: string | null = null;
 let currentSession: AdminProfile | null = null;
 
 export function getApiBaseUrl(): string {
@@ -345,56 +350,18 @@ export async function getAdminSession(): Promise<AdminProfile | null> {
   return null;
 }
 
+/**
+ * Public key derived from the private key in the OS keystore. Never generates a key:
+ * keys are created only through the vault flows (ADMIN-11, SEC-13).
+ */
 export async function getAdminPublicKey(): Promise<string> {
-  if (cachedAdminKey) return cachedAdminKey;
-
   if (isTauri()) {
-    try {
-      const key = await invoke<string>('admin_get_public_key');
-      if (key && key.length > 10) {
-        cachedAdminKey = key;
-        return key;
-      }
-    } catch {
-      try {
-        const generated = await invoke<string>('admin_generate_keypair');
-        cachedAdminKey = generated;
-        return generated;
-      } catch (genErr) {
-        console.error("Failed to generate master keypair:", genErr);
-        if (!isDemoMode) {
-          throw genErr;
-        }
-      }
-    }
+    return await invoke<string>('admin_get_public_key');
   }
-
   if (isDemoMode) {
-    return "v3bQ4f8r9s2w8e4y1u7i5o0p3a6s9d2f5g8h1j4k7l0=";
+    return 'v3bQ4f8r9s2w8e4y1u7i5o0p3a6s9d2f5g8h1j4k7l0=';
   }
-
-  throw new Error("Admin public key unavailable outside Tauri native keystore.");
-}
-
-export async function generateAdminKeypair(): Promise<string> {
-  if (isTauri()) {
-    try {
-      const key = await invoke<string>('admin_generate_keypair');
-      cachedAdminKey = key;
-      return key;
-    } catch (err) {
-      console.error("Failed to generate keypair in OS Keystore:", err);
-      throw err;
-    }
-  }
-
-  if (isDemoMode) {
-    const mockKey = "v3bQ4f8r9s2w8e4y1u7i5o0p3a6s9d2f5g8h1j4k7l0=";
-    cachedAdminKey = mockKey;
-    return mockKey;
-  }
-
-  throw new Error("Keypair generation unavailable outside Tauri native keystore.");
+  throw new Error('Admin public key unavailable outside Tauri native keystore.');
 }
 
 export async function simulateAndDecrypt(): Promise<DecryptedTelemetryRecord> {
@@ -412,14 +379,8 @@ export async function simulateAndDecrypt(): Promise<DecryptedTelemetryRecord> {
       id: `sim-${Date.now().toString().slice(-6)}`,
       client_timestamp: new Date().toISOString(),
       payload: {
-        device_identifier: "macbook-air-m2-corporate-node",
-        worker_name: "Carlos Valenzuela",
-        cpu_usage_pct: 32.4,
-        ram_usage_pct: 68.1,
-        keystrokes_per_minute: 146,
-        clicks_per_minute: 41,
-        active_window: "VS Code — telemetry-apps",
-        top_fqdns: ["github.com", "crates.io", "docs.rs"],
+        self_test: true,
+        description: 'Autoprueba local de cifrado y descifrado (modo demo)',
         encrypted_at: new Date().toISOString(),
       },
     };
@@ -529,12 +490,14 @@ export async function fetchKpiSummary(): Promise<KpiSummary> {
 
   let keystoreProtected = false;
   let keyMismatch = false;
+  let backupConfigured = false;
   try {
-    const keyStat = await keysStatus();
-    keystoreProtected = keyStat.has_local_key;
-    keyMismatch = keyStat.is_registered_on_server && !keyStat.matches_server;
+    const vault = await vaultStatus();
+    keystoreProtected = vault.has_local_key;
+    keyMismatch = vault.key_state === 'MISMATCH';
+    backupConfigured = !!vault.server_backup?.key_backup_enabled;
   } catch (e) {
-    console.warn('keys_status check failed:', e);
+    console.warn('vault_status check failed:', e);
   }
   return {
     activeWorkers: byStatus.ACTIVE,
@@ -543,6 +506,7 @@ export async function fetchKpiSummary(): Promise<KpiSummary> {
     expiringCodes,
     keystoreProtected,
     keyMismatch,
+    backupConfigured,
   };
 }
 
@@ -592,7 +556,9 @@ export async function createWorker(form: CreateWorkerForm): Promise<CreatedWorke
         qr_payload: JSON.stringify({ t: 'telemetry-enroll', v: 1, demo: true }),
         code: 'DEMO-DEMO-DEMO',
         safety_code: '0000 0000 0000',
+        commitment: '0'.repeat(64),
         expires_at: worker.enrollment_expires_at || new Date().toISOString(),
+        api_url: 'demo',
       },
     };
   }
@@ -715,30 +681,6 @@ export async function keysRegisterOnServer(): Promise<string> {
   throw new Error("keys_register_on_server IPC unavailable outside Tauri");
 }
 
-export async function adminExportBackup(passphrase: string): Promise<Uint8Array> {
-  if (isTauri()) {
-    const raw = await invoke<number[]>('admin_export_backup', { passphrase });
-    return new Uint8Array(raw);
-  }
-  if (isDemoMode) {
-    return new TextEncoder().encode(JSON.stringify({ format: "telemetry-vault-v1-demo" }));
-  }
-  throw new Error("admin_export_backup IPC unavailable outside Tauri");
-}
-
-export async function adminImportBackup(backupData: Uint8Array, passphrase: string): Promise<void> {
-  if (isTauri()) {
-    return await invoke<void>('admin_import_backup', {
-      backupData: Array.from(backupData),
-      passphrase,
-    });
-  }
-  if (isDemoMode) {
-    return;
-  }
-  throw new Error("admin_import_backup IPC unavailable outside Tauri");
-}
-
 export async function lockAndFlushMemory(): Promise<void> {
   if (isTauri()) {
     try {
@@ -763,7 +705,7 @@ export async function adminUnlock(password: string): Promise<AdminProfile> {
         id: 'admin-demo-1',
         name: 'Administrador Demo',
         email: 'admin@telemetry.cl',
-        organization: 'Acme Corporation Chile',
+        organization: 'Organización Demo',
       };
       currentSession = profile;
       return profile;
@@ -784,7 +726,7 @@ export async function adminUnlockWithBiometric(): Promise<AdminProfile> {
       id: 'admin-demo-1',
       name: 'Administrador Demo',
       email: 'admin@telemetry.cl',
-      organization: 'Acme Corporation Chile',
+      organization: 'Organización Demo',
     };
     currentSession = profile;
     return profile;
@@ -799,3 +741,175 @@ export async function adminIsLocked(): Promise<boolean> {
   return false;
 }
 
+
+function requireTauri(command: string): never {
+  throw new Error(`${command} IPC unavailable outside Tauri`);
+}
+
+// ---------------------------------------------------------------- session (INT-02, ADMIN-10)
+
+export async function googleSignInAvailable(): Promise<boolean> {
+  if (isTauri()) {
+    try {
+      return await invoke<boolean>('google_sign_in_available');
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function adminLoginGoogle(apiUrl?: string): Promise<AdminProfile> {
+  const url = apiUrl || getApiBaseUrl();
+  setApiBaseUrl(url);
+  if (isTauri()) {
+    const profile = await invoke<AdminProfile>('admin_login_google', { apiUrl: url });
+    currentSession = profile;
+    return profile;
+  }
+  return requireTauri('admin_login_google');
+}
+
+export async function adminUpdateProfile(update: { name?: string; organization?: string }): Promise<AdminProfile> {
+  if (isTauri()) {
+    const profile = await invoke<AdminProfile>('admin_update_profile', { update });
+    currentSession = profile;
+    return profile;
+  }
+  if (isDemoMode && currentSession) {
+    currentSession = { ...currentSession, ...update };
+    return currentSession;
+  }
+  return requireTauri('admin_update_profile');
+}
+
+/** Forgets the cached profile so the next getAdminSession() reads it from Rust. */
+export function clearCachedSession(): void {
+  currentSession = null;
+}
+
+type Unlisten = () => void;
+
+/** `session-expired` from Rust (DEVICE_REVOKED, TOKEN_REUSE_DETECTED, SESSION_EXPIRED). */
+export async function onSessionExpired(handler: (reason: string) => void): Promise<Unlisten> {
+  if (!isTauri()) return () => undefined;
+  return listen<{ reason: string }>('session-expired', event => {
+    currentSession = null;
+    handler(event.payload?.reason || 'SESSION_EXPIRED');
+  });
+}
+
+/** `subscription-blocked` from Rust (402/403 SUBSCRIPTION_* on any call, ADMIN-12). */
+export async function onSubscriptionBlocked(handler: (block: SubscriptionBlock) => void): Promise<Unlisten> {
+  if (!isTauri()) return () => undefined;
+  return listen<SubscriptionBlock>('subscription-blocked', event => handler(event.payload));
+}
+
+// ---------------------------------------------------------------- subscription (ADMIN-12)
+
+export async function subscriptionStatus(): Promise<SubscriptionStatus> {
+  if (isTauri()) return await invoke<SubscriptionStatus>('subscription_status');
+  if (isDemoMode) {
+    return {
+      status: 'TRIAL',
+      effective_status: 'TRIAL',
+      reason: null,
+      expires_at: null,
+      grace_period_ends_at: null,
+      trial_days_left: 14,
+      status_changed_at: null,
+      portal_url: null,
+      support_email: null,
+      billing_configured: false,
+    };
+  }
+  return requireTauri('subscription_status');
+}
+
+export async function openBillingPortal(): Promise<void> {
+  if (isTauri()) return await invoke<void>('open_billing_portal');
+  return requireTauri('open_billing_portal');
+}
+
+// ---------------------------------------------------------------- key vault (ADMIN-11)
+
+export async function vaultStatus(): Promise<VaultStatus> {
+  if (isTauri()) return await invoke<VaultStatus>('vault_status');
+  if (isDemoMode) {
+    return {
+      key_state: 'OK',
+      has_local_key: true,
+      local_fingerprint: 'demo'.padEnd(64, '0'),
+      registered_fingerprint: 'demo'.padEnd(64, '0'),
+      server_backup: { key_backup_enabled: false, public_key_fingerprint: null, updated_at: null, matches_registered_key: false },
+      organization: currentSession?.organization ?? 'Organización Demo',
+    };
+  }
+  return requireTauri('vault_status');
+}
+
+export async function vaultCreateInitialKey(): Promise<KeyInstalled> {
+  if (isTauri()) return await invoke<KeyInstalled>('vault_create_initial_key');
+  return requireTauri('vault_create_initial_key');
+}
+
+export async function vaultExportTkb(masterPassword: string, confirmPassword?: string): Promise<ExportedBackup> {
+  if (isTauri()) return await invoke<ExportedBackup>('vault_export_tkb', { masterPassword, confirmPassword });
+  return requireTauri('vault_export_tkb');
+}
+
+export async function vaultSetupServerBackup(masterPassword: string, confirmPassword: string): Promise<ServerBackupConfigured> {
+  if (isTauri()) return await invoke<ServerBackupConfigured>('vault_setup_server_backup', { masterPassword, confirmPassword });
+  return requireTauri('vault_setup_server_backup');
+}
+
+export async function vaultDeleteServerBackup(): Promise<void> {
+  if (isTauri()) return await invoke<void>('vault_delete_server_backup');
+  return requireTauri('vault_delete_server_backup');
+}
+
+export async function vaultImportBackup(file: Uint8Array, masterPassword: string, replaceLocal: boolean): Promise<KeyInstalled> {
+  if (isTauri()) {
+    return await invoke<KeyInstalled>('vault_import_backup', {
+      fileBytes: Array.from(file),
+      masterPassword,
+      replaceLocal,
+    });
+  }
+  return requireTauri('vault_import_backup');
+}
+
+export async function vaultRecoverFromServer(masterPassword: string, replaceLocal: boolean): Promise<KeyInstalled> {
+  if (isTauri()) return await invoke<KeyInstalled>('vault_recover_from_server', { masterPassword, replaceLocal });
+  return requireTauri('vault_recover_from_server');
+}
+
+export async function vaultGenerateNewKey(acknowledgeDataLoss: boolean, confirmationPhrase: string): Promise<KeyInstalled> {
+  if (isTauri()) {
+    return await invoke<KeyInstalled>('vault_generate_new_key', { acknowledgeDataLoss, confirmationPhrase });
+  }
+  return requireTauri('vault_generate_new_key');
+}
+
+// ---------------------------------------------------------------- devices (ADMIN-10)
+
+export async function devicesList(): Promise<AdminDevice[]> {
+  if (isTauri()) return await invoke<AdminDevice[]>('devices_list');
+  if (isDemoMode) return [];
+  return requireTauri('devices_list');
+}
+
+export async function devicesRename(id: string, name: string): Promise<AdminDevice> {
+  if (isTauri()) return await invoke<AdminDevice>('devices_rename', { id, name });
+  return requireTauri('devices_rename');
+}
+
+/** Returns true when the revoked device was this one (the session ends). */
+export async function devicesRevoke(id: string): Promise<boolean> {
+  if (isTauri()) {
+    const wasCurrent = await invoke<boolean>('devices_revoke', { id });
+    if (wasCurrent) currentSession = null;
+    return wasCurrent;
+  }
+  return requireTauri('devices_revoke');
+}

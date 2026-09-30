@@ -2,7 +2,6 @@ use crate::error::CryptoError;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use hmac::{Hmac, Mac};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::Zeroizing;
@@ -63,7 +62,11 @@ pub fn pbkdf2_hmac_sha256(
 ///
 /// Encrypts `admin_private_key_b64` using AES-256-GCM with a 256-bit key derived
 /// from `passphrase` via PBKDF2-HMAC-SHA256 (100,000 iterations and 16-byte random salt).
-pub fn export_encrypted_admin_key(
+///
+/// **Test-only since TASK-CRYPTO-03:** v1 backups can still be imported but are never
+/// produced by the apps; new backups use [`crate::backup_v2`].
+#[cfg(test)]
+pub(crate) fn export_encrypted_admin_key(
     admin_private_key_b64: &str,
     passphrase: &str,
 ) -> Result<Vec<u8>, CryptoError> {
@@ -73,6 +76,8 @@ pub fn export_encrypted_admin_key(
             MIN_BACKUP_PASSPHRASE_LEN
         )));
     }
+
+    use rand::RngCore;
 
     // Verify input is a valid 32-byte X25519 private key
     let _ = crate::asymmetric::decode_private_key(admin_private_key_b64)?;
@@ -98,11 +103,13 @@ pub fn export_encrypted_admin_key(
 /// Imports and decrypts an encrypted master key backup blob (.vault).
 ///
 /// Verifies iteration count (>= 100,000), derives the key via PBKDF2-HMAC-SHA256,
-/// decrypts with AES-256-GCM, and validates the reconstructed private key.
+/// decrypts with AES-256-GCM, and validates the reconstructed private key. The key is
+/// returned in `Zeroizing` (SEC-03). Prefer [`crate::backup_v2::import_any_backup`], which
+/// accepts both formats.
 pub fn import_encrypted_admin_key(
     backup_data: &[u8],
     passphrase: &str,
-) -> Result<String, CryptoError> {
+) -> Result<Zeroizing<String>, CryptoError> {
     if passphrase.len() < MIN_BACKUP_PASSPHRASE_LEN {
         return Err(CryptoError::InvalidPassphrase(format!(
             "Passphrase must have at least {} characters",
@@ -134,10 +141,24 @@ pub fn import_encrypted_admin_key(
         .decode(&backup.encrypted_payload)
         .map_err(|e| CryptoError::InvalidBackup(format!("Corrupted encrypted payload: {}", e)))?;
 
-    let derived_key = pbkdf2_hmac_sha256(passphrase.as_bytes(), &salt, backup.iterations)?;
-    let decrypted_bytes = crate::symmetric::decrypt_bytes(&derived_key, &encrypted_payload)?;
+    // Bound the work a crafted file can demand (the format always used 100 000).
+    if backup.iterations > 10_000_000 {
+        return Err(CryptoError::InvalidBackup(
+            "Iteration count must be <= 10,000,000".into(),
+        ));
+    }
 
-    let priv_key_str = String::from_utf8(decrypted_bytes).map_err(|_| CryptoError::AeadError)?;
+    let derived_key = pbkdf2_hmac_sha256(passphrase.as_bytes(), &salt, backup.iterations)?;
+    let decrypted_bytes = Zeroizing::new(crate::symmetric::decrypt_bytes(
+        &derived_key,
+        &encrypted_payload,
+    )?);
+
+    let priv_key_str = Zeroizing::new(
+        std::str::from_utf8(&decrypted_bytes)
+            .map_err(|_| CryptoError::AeadError)?
+            .to_string(),
+    );
 
     // Validate that the decrypted string is indeed a valid X25519 private key
     let _ = crate::asymmetric::decode_private_key(&priv_key_str)?;
@@ -174,7 +195,7 @@ mod tests {
 
         let imported_priv =
             import_encrypted_admin_key(&backup_blob, passphrase).expect("Import failed");
-        assert_eq!(admin_priv, imported_priv);
+        assert_eq!(admin_priv, imported_priv.as_str());
 
         let derived_pub = derive_public_key(&imported_priv).expect("Derive pubkey failed");
         assert_eq!(admin_pub, derived_pub);

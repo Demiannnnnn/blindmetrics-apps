@@ -11,10 +11,12 @@ import {
   pauseOrResumeWorker,
   toWorkerItem,
   getAdminPublicKey,
-  generateAdminKeypair,
   simulateAndDecrypt,
   workersRegenerateToken,
+  workersSetStatus,
+  AdminProfile,
 } from '../api/tauri-bridge';
+import { describeError, errorIs } from '../lib/errors';
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
 import { CreateWorkerModal } from './CreateWorkerModal';
@@ -44,9 +46,67 @@ const PER_PAGE = 12;
 interface DashboardProps {
   organization: string;
   onSelectWorker: (worker: WorkerItem) => void;
+  /** Opens "Bóveda & Cumplimiento" (key backups, rotation, devices). */
+  onOpenVault: () => void;
+  onProfileChanged: (profile: AdminProfile) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWorker }) => {
+/** RF-ADMIN-09-4: the worker accepted consent on a device; revoke it before a new code. */
+const RevokeFirstDialog: React.FC<{
+  worker: WorkerItem;
+  onClose: () => void;
+  onRegenerated: (pkg: EnrollmentView) => void;
+}> = ({ worker, onClose, onRegenerated }) => {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirmAndRegenerate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await workersSetStatus(worker.id, 'REVOKED', 'Cambio de equipo');
+      onRegenerated(await workersRegenerateToken(worker.id, 24));
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-3 shadow-2xl">
+        <h3 className="text-base font-semibold text-white">Vincular un equipo nuevo</h3>
+        <p className="text-xs text-slate-300">
+          {worker.name} ya aceptó el consentimiento en un equipo ({worker.deviceHostname ?? 'equipo actual'}). Para vincular un
+          equipo nuevo, primero revoca el actual: dejará de enviar datos y el agente borrará sus credenciales.
+        </p>
+        <p className="text-xs text-slate-400">
+          Escribe <span className="font-semibold text-white">{worker.name}</span> para confirmar.
+        </p>
+        <input
+          value={typed}
+          onChange={e => setTyped(e.target.value)}
+          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+        />
+        {error && <p className="text-xs text-rose-300">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg">
+            Cancelar
+          </button>
+          <button
+            disabled={busy || typed.trim() !== worker.name.trim()}
+            onClick={confirmAndRegenerate}
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg disabled:opacity-40"
+          >
+            {busy ? 'Procesando…' : 'Revocar equipo actual y generar código'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWorker, onOpenVault, onProfileChanged }) => {
   const [kpis, setKpis] = useState<KpiSummary | null>(null);
   const [workers, setWorkers] = useState<WorkerItem[]>([]);
   const [searchInput, setSearchInput] = useState<string>('');
@@ -61,10 +121,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
   const [loading, setLoading] = useState<boolean>(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  // Master Crypto Key State
+  // Master Crypto Key State (read-only here; managed in Bóveda, TASK-ADMIN-11)
   const [masterPubKey, setMasterPubKey] = useState<string>('Cargando clave...');
   const [copiedKey, setCopiedKey] = useState<boolean>(false);
-  const [generatingKey, setGeneratingKey] = useState<boolean>(false);
+  const [revokeFirst, setRevokeFirst] = useState<WorkerItem | null>(null);
 
   // Decryption Test State
   const [decryptionTestResult, setDecryptionTestResult] = useState<DecryptedTelemetryRecord | null>(null);
@@ -81,7 +141,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
     setLoading(true);
     setListError(null);
     try {
-      const [k, result, pubKey] = await Promise.all([
+      getAdminPublicKey()
+        .then(setMasterPubKey)
+        .catch(() => setMasterPubKey('Sin llave en este equipo'));
+      const [k, result] = await Promise.all([
         fetchKpiSummary(),
         getWorkersPage({
           page,
@@ -90,15 +153,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
           role_type: roleFilter === 'ALL' ? undefined : roleFilter,
           status: statusFilter === 'ALL' ? undefined : statusFilter,
         }),
-        getAdminPublicKey(),
       ]);
       setKpis(k);
       setWorkers(result.items);
       setPagination(result.pagination);
-      setMasterPubKey(pubKey);
     } catch (e: any) {
       console.error('Failed to load dashboard data', e);
-      setListError(e?.message || String(e));
+      setListError(describeError(e));
     } finally {
       setLoading(false);
     }
@@ -128,13 +189,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       replaceWorker(toWorkerItem(updated));
       fetchKpiSummary().then(setKpis).catch(() => undefined);
     } catch (e: any) {
-      setListError(e?.message || String(e));
+      setListError(describeError(e));
     }
   };
 
   const handleShowEnrollment = async (worker: WorkerItem) => {
-    // RF-ADMIN-08-5: regenerating a code for a bound worker unlinks the current device.
+    // RF-ADMIN-08-5: a code for a device that never accepted consent unlinks that device.
     if (
+      worker.status === 'PENDING_CONSENT' &&
       worker.deviceHostname &&
       !confirm(`Esto desvincula el equipo actual (${worker.deviceHostname}). ¿Generar un nuevo código?`)
     ) {
@@ -145,23 +207,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       setActiveEnrollment({ worker, pkg: tokenView });
       loadData();
     } catch (e: any) {
-      setListError(`No se pudo generar el código de enrolamiento: ${e?.message || e}`);
-    }
-  };
-
-  const handleRegenerateKeypair = async () => {
-    if (!confirm('¿Desea generar un nuevo par de claves maestras en el OS Keystore? Los paquetes anteriores deberán ser actualizados.')) {
-      return;
-    }
-    setGeneratingKey(true);
-    try {
-      const newKey = await generateAdminKeypair();
-      setMasterPubKey(newKey);
-      alert('¡Nuevo par de claves X25519 generado y almacenado de forma segura en el Keystore del sistema operativo!');
-    } catch (err: any) {
-      alert(`Error al generar clave: ${err}`);
-    } finally {
-      setGeneratingKey(false);
+      if (errorIs(e, 'ENROLLMENT_ALREADY_COMPLETED')) {
+        setRevokeFirst(worker);
+        return;
+      }
+      setListError(`No se pudo generar el código de enrolamiento: ${describeError(e)}`);
     }
   };
 
@@ -171,7 +221,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       const decrypted = await simulateAndDecrypt();
       setDecryptionTestResult(decrypted);
     } catch (err: any) {
-      alert(`Error en prueba de descifrado: ${err}`);
+      alert(`Error en prueba de descifrado: ${describeError(err)}`);
     } finally {
       setTestingDecryption(false);
     }
@@ -233,16 +283,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
               className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 transition disabled:opacity-50"
             >
               <Cpu className="w-3.5 h-3.5" />
-              <span>{testingDecryption ? 'Descifrando en Rayon...' : 'Probar Descifrado Rayon'}</span>
+              <span>{testingDecryption ? 'Descifrando…' : 'Autoprueba de descifrado'}</span>
             </button>
 
             <button
-              onClick={handleRegenerateKeypair}
-              disabled={generatingKey}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium border border-slate-700 transition disabled:opacity-50"
+              onClick={onOpenVault}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium border border-slate-700 transition flex items-center gap-1.5"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${generatingKey ? 'animate-spin' : ''}`} />
-              <span className="ml-1.5">Regenerar Claves</span>
+              <Key className="w-3.5 h-3.5" />
+              <span>Respaldos y llave</span>
             </button>
           </div>
         </div>
@@ -334,6 +383,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
                 {kpis?.keystoreProtected ? 'Llave local cargada' : 'Sin llave local'}
               </span>
             </div>
+            {kpis && kpis.keystoreProtected && !kpis.backupConfigured && (
+              <button onClick={onOpenVault} className="text-[11px] text-amber-300 underline mt-0.5">
+                Sin respaldo en el servidor
+              </button>
+            )}
           </div>
         </div>
 
@@ -515,9 +569,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
         />
       )}
 
+      {revokeFirst && (
+        <RevokeFirstDialog
+          worker={revokeFirst}
+          onClose={() => setRevokeFirst(null)}
+          onRegenerated={pkg => {
+            setActiveEnrollment({ worker: revokeFirst, pkg });
+            setRevokeFirst(null);
+            loadData();
+          }}
+        />
+      )}
+
       {showCreateModal && (
         <CreateWorkerModal
           organization={organization}
+          onProfileChanged={onProfileChanged}
           onClose={() => setShowCreateModal(false)}
           onCreated={created => {
             setShowCreateModal(false);

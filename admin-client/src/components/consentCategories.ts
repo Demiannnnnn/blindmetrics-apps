@@ -126,16 +126,84 @@ export function isValidTimezone(tz: string): boolean {
   }
 }
 
-function csvCell(v: string | number | null): string {
-  const s = v === null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+/** Labels for evidence decisions (granular consent + legacy package rows). */
+export const DECISION_LABELS: Record<string, string> = {
+  ACCEPTED: 'Aceptó',
+  REJECTED: 'Rechazó',
+  WITHDRAWN: 'Retiró',
+  NARROWED: 'Reducción del admin',
+  ACCEPT: 'Aceptó',
+  REJECT: 'Rechazó',
+  WITHDRAW: 'Retiró',
+};
+
+export function decisionLabel(decision: string): string {
+  return DECISION_LABELS[decision] ?? decision;
 }
 
-/** RF-ADMIN-08-8: consent evidence export for legal requests. */
+/**
+ * Categories accepted in an evidence row (RF-ADMIN-09-7). `accepted_consent_flags = null`
+ * means "all requested" for ACCEPTED rows written before granular consent and "none" for
+ * rejections.
+ */
+export function acceptedCategoriesOf(record: ConsentRecord): ConsentKey[] {
+  const decision = record.decision;
+  const flags =
+    record.accepted_consent_flags ??
+    (decision === 'ACCEPTED' || decision === 'ACCEPT' ? record.consent_flags ?? null : null);
+  if (!flags) return [];
+  return CONSENT_CATEGORIES.filter(c => flags[c.key]).map(c => c.key);
+}
+
+export function categoryLabel(key: ConsentKey): string {
+  return CONSENT_CATEGORIES.find(c => c.key === key)?.label ?? key;
+}
+
+/** "Aceptó n de m categorías solicitadas" (RF-ADMIN-09-8). */
+export function consentSummary(effective: ConsentFlags, requested: ConsentFlags): { accepted: number; requested: number } {
+  let accepted = 0;
+  let requestedCount = 0;
+  for (const { key } of CONSENT_CATEGORIES) {
+    if (requested[key]) {
+      requestedCount += 1;
+      if (effective[key]) accepted += 1;
+    }
+  }
+  return { accepted, requested: requestedCount };
+}
+
+/** CSV cell: quotes when needed and neutralizes spreadsheet formulas (=, +, -, @, tab, CR). */
+export function csvCell(v: string | number | null | undefined): string {
+  let s = v === null || v === undefined ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r']/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** RF-ADMIN-08-8 / RF-ADMIN-09-7: consent evidence export for legal requests. */
 export function consentRecordsToCsv(records: ConsentRecord[]): string {
-  const header = ['created_at', 'consent_version', 'decision', 'ip_address', 'user_agent', 'manifest_hash'];
+  const header = [
+    'created_at',
+    'consent_version',
+    'decision',
+    'accepted_categories',
+    'ip_address',
+    'user_agent',
+    'app_version',
+    'manifest_hash',
+  ];
   const rows = records.map(r =>
-    [r.created_at, r.consent_version, r.decision, r.ip_address, r.user_agent, r.manifest_hash].map(csvCell).join(','),
+    [
+      r.created_at,
+      r.consent_version,
+      r.decision,
+      acceptedCategoriesOf(r).join(' '),
+      r.ip_address,
+      r.user_agent,
+      r.app_version ?? null,
+      r.manifest_hash,
+    ]
+      .map(csvCell)
+      .join(','),
   );
   return [header.join(','), ...rows].join('\n');
 }

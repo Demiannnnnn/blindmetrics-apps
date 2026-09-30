@@ -15,9 +15,9 @@ interface ConsentEditorProps {
 }
 
 /**
- * "Data to collect" editor (W2 / W4). The admin defines categories and the
- * text the worker will read verbatim; the worker accepts or rejects the whole
- * package on their device.
+ * "Data that may be collected" editor (W2 / W4). The admin defines categories and the
+ * text the worker will read verbatim; the worker chooses which of them to accept on their
+ * device (granular consent, DP-11).
  */
 export const ConsentEditor: React.FC<ConsentEditorProps> = ({ role, flags, descriptions, onChange }) => {
   const errors = descriptionErrors(flags, descriptions);
@@ -96,15 +96,16 @@ export const ConsentPreview: React.FC<ConsentPreviewProps> = ({ organization, fl
         <p className="text-slate-500 italic">No se recolectará ningún dato. Active al menos una categoría.</p>
       ) : (
         <>
-          <p className="text-slate-400">Su empleador recolectará los siguientes datos de este equipo:</p>
+          <p className="text-slate-400">Tu empleador solicita poder recolectar estos datos. Elige cuáles aceptas:</p>
           {enabled.map(c => (
             <div key={c.key}>
-              <p className="text-emerald-300">✅ {c.label}</p>
+              <p className="text-slate-200">☐ {c.label}</p>
               <p className="pl-5 text-slate-400 italic">“{(descriptions[c.key] || '').trim()}”</p>
             </div>
           ))}
           <p className="text-slate-500 pt-1 border-t border-slate-800">
-            Puede aceptar o rechazar el paquete completo, y retirar su consentimiento en cualquier momento.
+            Todas las casillas empiezan desmarcadas. El trabajador puede aceptar solo algunas categorías, cambiar su elección
+            o retirarla en cualquier momento.
           </p>
         </>
       )}

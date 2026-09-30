@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LayoutDashboard,
   Activity,
@@ -13,14 +13,21 @@ import {
   User,
   FileText,
   Calendar,
+  RefreshCw,
 } from 'lucide-react';
 import {
   WorkerItem,
   AdminProfile,
+  SubscriptionStatus,
+  VaultStatus,
   getWorkersList,
   getAdminSession,
   adminLogout,
   getApiBaseUrl,
+  onSessionExpired,
+  onSubscriptionBlocked,
+  subscriptionStatus,
+  vaultStatus,
   TimeRangeFilter,
   TimeRangePreset,
 } from './api/tauri-bridge';
@@ -33,10 +40,32 @@ import { FileActivity } from './components/FileActivity';
 import { FieldMap } from './components/FieldMap';
 import { ConsentSettings } from './components/ConsentSettings';
 import { AutoLockModal } from './components/AutoLockModal';
+import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
+import { TrialBanner } from './components/TrialBanner';
+import { OrganizationPrompt } from './components/OrganizationPrompt';
+import { KeyRecoveryWizard } from './components/KeyRecoveryWizard';
 import { useAutoLock } from './hooks/useAutoLock';
+import { describeError } from './lib/errors';
+import { isBlocked, shouldShowTrialBanner } from './lib/subscription';
+
+type LockStatus = Pick<SubscriptionStatus, 'effective_status' | 'reason' | 'portal_url' | 'support_email'>;
+
+/** What stands between a signed-in admin and the console (docs/admin-app-spec.md §1). */
+type Gate =
+  | { kind: 'checking' }
+  | { kind: 'error'; message: string }
+  | { kind: 'blocked'; status: LockStatus }
+  | { kind: 'organization' }
+  | { kind: 'key'; vault: VaultStatus }
+  | { kind: 'ready'; subscription: SubscriptionStatus | null };
 
 export const App: React.FC = () => {
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
+  const [expiredReason, setExpiredReason] = useState<string | null>(null);
+  const [gate, setGate] = useState<Gate>({ kind: 'checking' });
+  const [organizationSkipped, setOrganizationSkipped] = useState(false);
+  const profileRef = useRef<AdminProfile | null>(null);
+  profileRef.current = adminProfile;
   const [activeTab, setActiveTab] = useState<
     'dashboard' | 'system' | 'network' | 'productivity' | 'files' | 'location' | 'compliance'
   >('dashboard');
@@ -48,22 +77,83 @@ export const App: React.FC = () => {
   const [customFrom, setCustomFrom] = useState<string>('');
   const [customTo, setCustomTo] = useState<string>('');
 
+  /**
+   * RF-ADMIN-12-1: subscription on every start/login/unlock, then organization (RF-ADMIN-09-5)
+   * and the key state (TASK-ADMIN-11). Only a green gate mounts the console.
+   */
+  const runGates = useCallback(async () => {
+    setGate({ kind: 'checking' });
+    let subscription: SubscriptionStatus;
+    try {
+      subscription = await subscriptionStatus();
+    } catch (e) {
+      setGate({ kind: 'error', message: describeError(e, 'No se pudo verificar tu suscripción.') });
+      return;
+    }
+    if (isBlocked(subscription)) {
+      setGate({ kind: 'blocked', status: subscription });
+      return;
+    }
+    if (!profileRef.current?.organization?.trim() && !organizationSkipped) {
+      setGate({ kind: 'organization' });
+      return;
+    }
+    try {
+      const vault = await vaultStatus();
+      if (vault.key_state !== 'OK') {
+        setGate({ kind: 'key', vault });
+        return;
+      }
+    } catch (e) {
+      setGate({ kind: 'error', message: describeError(e, 'No se pudo leer el estado de la llave.') });
+      return;
+    }
+    setGate({ kind: 'ready', subscription });
+  }, [organizationSkipped]);
+
   useEffect(() => {
     getAdminSession().then(sess => {
       if (sess) setAdminProfile(sess);
     });
   }, []);
 
+  // Events from the Rust core (TASK-INT-02): session expiry and subscription blocks.
   useEffect(() => {
-    if (adminProfile) {
-      getWorkersList().then(list => {
-        setAllWorkers(list);
-        if (list.length > 0 && !selectedWorker) {
-          setSelectedWorker(list[0]);
-        }
+    const unlisteners: Array<() => void> = [];
+    onSessionExpired(reason => {
+      setAdminProfile(null);
+      setExpiredReason(reason);
+    }).then(u => unlisteners.push(u));
+    onSubscriptionBlocked(block => {
+      setGate({
+        kind: 'blocked',
+        status: {
+          effective_status: block.status,
+          reason: block.reason,
+          portal_url: block.portal_url,
+          support_email: block.support_email,
+        },
       });
+    }).then(u => unlisteners.push(u));
+    return () => unlisteners.forEach(u => u());
+  }, []);
+
+  useEffect(() => {
+    if (adminProfile) runGates();
+  }, [adminProfile?.id, runGates]);
+
+  useEffect(() => {
+    if (adminProfile && gate.kind === 'ready') {
+      getWorkersList()
+        .then(list => {
+          setAllWorkers(list);
+          if (list.length > 0 && !selectedWorker) {
+            setSelectedWorker(list[0]);
+          }
+        })
+        .catch(() => undefined);
     }
-  }, [adminProfile]);
+  }, [adminProfile, gate.kind]);
 
   // RF-ADMIN-07-1: Configurable Auto-Lock Hook with RAM Purge
   const {
@@ -74,9 +164,18 @@ export const App: React.FC = () => {
     setTimeoutMinutes,
   } = useAutoLock(5);
 
+  const resetSessionState = () => {
+    setAdminProfile(null);
+    setGate({ kind: 'checking' });
+    setAllWorkers([]);
+    setSelectedWorker(null);
+    setOrganizationSkipped(false);
+  };
+
   const handleLogout = async () => {
     await adminLogout();
-    setAdminProfile(null);
+    setExpiredReason(null);
+    resetSessionState();
   };
 
   const handlePresetChange = (preset: TimeRangePreset) => {
@@ -108,17 +207,80 @@ export const App: React.FC = () => {
 
   // If not logged in, render the login / register view
   if (!adminProfile) {
-    return <AuthView onLoginSuccess={profile => setAdminProfile(profile)} />;
+    return (
+      <AuthView
+        expiredReason={expiredReason}
+        onLoginSuccess={profile => {
+          setExpiredReason(null);
+          setAdminProfile(profile);
+        }}
+      />
+    );
   }
+
+  if (gate.kind === 'checking') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-sm text-slate-400 gap-2">
+        <RefreshCw className="w-4 h-4 animate-spin" /> Verificando suscripción y llave…
+      </div>
+    );
+  }
+
+  if (gate.kind === 'error') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-center">
+          <p className="text-sm text-rose-300">{gate.message}</p>
+          <div className="flex justify-center gap-2">
+            <button onClick={runGates} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-lg">
+              Reintentar
+            </button>
+            <button onClick={handleLogout} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg">
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (gate.kind === 'blocked') {
+    return <SubscriptionLockScreen status={gate.status} onRecheck={runGates} onLogout={handleLogout} />;
+  }
+
+  if (gate.kind === 'organization') {
+    return (
+      <OrganizationPrompt
+        initial={adminProfile.organization}
+        onSaved={profile => {
+          setAdminProfile(profile);
+          profileRef.current = profile;
+          runGates();
+        }}
+        onCancel={() => {
+          setOrganizationSkipped(true);
+        }}
+      />
+    );
+  }
+
+  if (gate.kind === 'key') {
+    return <KeyRecoveryWizard status={gate.vault} onResolved={runGates} onLogout={handleLogout} />;
+  }
+
+  const trialDays = gate.subscription?.trial_days_left ?? adminProfile.trial_days_left ?? null;
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
       {/* Auto-Lock Security Overlay (RF-ADMIN-07-1..3) */}
       <AutoLockModal
         isLocked={isLocked}
+        hasPassword={adminProfile.has_password !== false}
         onUnlock={profile => {
           setIsLocked(false);
           if (profile) setAdminProfile(profile);
+          // RF-ADMIN-12-1: re-check the subscription after every unlock.
+          runGates();
         }}
         onForcedLogout={handleLogout}
       />
@@ -235,7 +397,7 @@ export const App: React.FC = () => {
             </div>
             <div className="text-[11px] text-slate-400 truncate mt-0.5">{adminProfile.email}</div>
             <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono">
-              <span>{adminProfile.organization}</span>
+              <span>{adminProfile.organization || 'Sin organización'}</span>
               <span className="flex items-center gap-1 text-emerald-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                 Autenticado
@@ -286,6 +448,9 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
+        {gate.subscription && shouldShowTrialBanner(gate.subscription) && trialDays !== null && (
+          <TrialBanner daysLeft={trialDays} />
+        )}
         {/* RF-ADMIN-05-1: Global Context Header with Worker and Time Range Selectors */}
         <header className="h-16 border-b border-slate-800 px-6 flex items-center justify-between flex-shrink-0 bg-slate-900/60 backdrop-blur">
           <div className="flex items-center gap-4 flex-wrap">
@@ -370,6 +535,8 @@ export const App: React.FC = () => {
                 setSelectedWorker(worker);
                 setActiveTab('system');
               }}
+              onOpenVault={() => setActiveTab('compliance')}
+              onProfileChanged={setAdminProfile}
             />
           )}
 
@@ -420,7 +587,16 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'compliance' && <ConsentSettings />}
+          {activeTab === 'compliance' && (
+            <ConsentSettings
+              registeredFingerprint={adminProfile.public_key_fingerprint}
+              onCurrentDeviceRevoked={() => {
+                setExpiredReason('DEVICE_REVOKED');
+                resetSessionState();
+              }}
+              onKeyChanged={runGates}
+            />
+          )}
         </div>
       </main>
     </div>

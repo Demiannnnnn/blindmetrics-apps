@@ -1,6 +1,7 @@
 import React from 'react';
 import { WorkerItem, WorkerStatus } from '../api/tauri-bridge';
 import { Shield, Clock, MapPin, Eye, Pause, Play, QrCode, Pencil, Trash2, Laptop, AlertTriangle } from 'lucide-react';
+import { consentSummary } from './consentCategories';
 
 interface EmployeeCardProps {
   worker: WorkerItem;
@@ -38,7 +39,12 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   onDelete,
   onOpenDetail,
 }) => {
-  const badge = STATUS_BADGES[worker.status];
+  // RF-ADMIN-09-8: an unredeemed code that lapsed is shown as such.
+  const expired = worker.status === 'PENDING_ENROLLMENT' && !!worker.raw.enrollment_expired;
+  const badge = expired
+    ? { label: 'Código expirado', className: 'bg-rose-500/15 text-rose-300 border-rose-500/30' }
+    : STATUS_BADGES[worker.status];
+  const summary = consentSummary(worker.raw.consent_flags, worker.raw.requested_consent_flags);
   const canToggle = worker.status === 'ACTIVE' || worker.status === 'PAUSED';
   const accepted = worker.acceptedConsentVersion;
   const versionOutdated = accepted !== null && accepted < worker.consentVersion;
@@ -93,7 +99,12 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         </p>
 
         <div className="border-t border-slate-700/60 pt-3 mb-4">
-          <p className="text-xs font-medium text-slate-400 mb-2">Consentimientos vigentes:</p>
+          <p className="text-xs font-medium text-slate-400 mb-2">
+            Consentimientos vigentes:{' '}
+            {summary.requested > 0 && (worker.status === 'ACTIVE' || worker.status === 'PAUSED') && (
+              <span className="text-slate-300">aceptó {summary.accepted} de {summary.requested}</span>
+            )}
+          </p>
           <div className="grid grid-cols-3 gap-1.5 text-[11px]">
             {CONSENT_BADGES.map(({ key, label }) => (
               <span

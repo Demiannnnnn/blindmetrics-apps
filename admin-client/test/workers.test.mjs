@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 
 // Imports the real module (Node >= 22.18 strips TypeScript types natively).
 import {
+  acceptedCategoriesOf,
+  consentSummary,
+  csvCell,
+  decisionLabel,
   consentRecordsToCsv,
   descriptionErrors,
   normalizeDescriptions,
@@ -63,6 +67,47 @@ test('workers: consent evidence CSV escapes quotes, commas and nulls', () => {
     },
   ]);
   const [header, row] = csv.split('\n');
-  assert.equal(header, 'created_at,consent_version,decision,ip_address,user_agent,manifest_hash');
-  assert.equal(row, `2026-09-29T10:00:00Z,2,ACCEPT,,"Agent ""x"", v1",${'ab'.repeat(32)}`);
+  assert.equal(
+    header,
+    'created_at,consent_version,decision,accepted_categories,ip_address,user_agent,app_version,manifest_hash',
+  );
+  assert.equal(row, `2026-09-29T10:00:00Z,2,ACCEPT,,,"Agent ""x"", v1",,${'ab'.repeat(32)}`);
+});
+
+test('workers: granular consent evidence labels and accepted categories (ADMIN-09)', () => {
+  const requested = { ...NO_CONSENT, system_activity: true, network_activity: true, file_activity: true };
+  const chosen = { ...NO_CONSENT, system_activity: true };
+  assert.equal(decisionLabel('ACCEPTED'), 'Aceptó');
+  assert.equal(decisionLabel('NARROWED'), 'Reducción del admin');
+  assert.deepEqual(
+    acceptedCategoriesOf({ decision: 'ACCEPTED', consent_flags: requested, accepted_consent_flags: chosen }),
+    ['system_activity'],
+  );
+  // Rows written before granular consent: null = everything requested was accepted.
+  assert.deepEqual(
+    acceptedCategoriesOf({ decision: 'ACCEPTED', consent_flags: requested, accepted_consent_flags: null }),
+    ['system_activity', 'network_activity', 'file_activity'],
+  );
+  assert.deepEqual(acceptedCategoriesOf({ decision: 'REJECTED', consent_flags: requested, accepted_consent_flags: null }), []);
+  assert.deepEqual(consentSummary(chosen, requested), { accepted: 1, requested: 3 });
+});
+
+test('workers: evidence CSV neutralizes spreadsheet formulas', () => {
+  assert.equal(csvCell('=HYPERLINK("x")'), `"'=HYPERLINK(""x"")"`);
+  assert.equal(csvCell('+1'), `"'+1"`);
+  assert.equal(csvCell('@SUM(A1)'), `"'@SUM(A1)"`);
+  assert.equal(csvCell('telemetry-agent/0.3.0'), 'telemetry-agent/0.3.0');
+  const csv = consentRecordsToCsv([
+    {
+      id: 'r', worker_id: 'w', consent_version: 2, decision: 'ACCEPTED',
+      consent_flags: { ...NO_CONSENT, system_activity: true },
+      accepted_consent_flags: { ...NO_CONSENT, system_activity: true },
+      manifest_hash: 'ab', ip_address: '203.0.113.7', user_agent: '=cmd', app_version: '0.3.0',
+      created_at: '2026-09-30T10:00:00Z',
+    },
+  ]);
+  const [header, row] = csv.split('\n');
+  assert.equal(header, 'created_at,consent_version,decision,accepted_categories,ip_address,user_agent,app_version,manifest_hash');
+  assert.match(row, /system_activity/);
+  assert.match(row, /"'=cmd"/);
 });

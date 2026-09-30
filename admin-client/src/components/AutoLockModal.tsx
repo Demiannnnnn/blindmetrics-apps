@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { Lock, KeyRound, ShieldAlert, Fingerprint, LogOut, AlertCircle } from 'lucide-react';
-import { adminUnlock, adminUnlockWithBiometric, AdminProfile } from '../api/tauri-bridge';
+import { adminLoginGoogle, adminUnlock, adminUnlockWithBiometric, AdminProfile } from '../api/tauri-bridge';
+import { describeError, errorIs } from '../lib/errors';
 
 interface AutoLockModalProps {
   isLocked: boolean;
+  /** Google-only accounts (RF-ADMIN-10-4) unlock by signing in with Google again. */
+  hasPassword: boolean;
   onUnlock: (profile?: AdminProfile) => void;
   onForcedLogout: () => void;
 }
 
 export const AutoLockModal: React.FC<AutoLockModalProps> = ({
   isLocked,
+  hasPassword,
   onUnlock,
   onForcedLogout,
 }) => {
@@ -36,14 +40,26 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
     } catch (err: any) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
-      const errMsg = err?.message || String(err);
-      setErrorMessage(errMsg);
+      setErrorMessage(describeError(err));
 
       // Force logout after 5 failed attempts (RF-ADMIN-07-3 & Section 5)
-      if (newAttempts >= 5 || errMsg.includes('Límite de intentos')) {
+      if (newAttempts >= 5 || errorIs(err, 'UNLOCK_LIMIT_REACHED')) {
         alert("Demasiados intentos fallidos. Por seguridad, la sesión ha sido revocada.");
         onForcedLogout();
       }
+    } finally {
+      setPassword('');
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleUnlock = async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      onUnlock(await adminLoginGoogle());
+    } catch (err) {
+      setErrorMessage(describeError(err, 'No se pudo iniciar sesión con Google.'));
     } finally {
       setLoading(false);
     }
@@ -59,7 +75,7 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
       setAttempts(0);
       onUnlock(profile);
     } catch (err: any) {
-      setErrorMessage(err?.message || "Biometría no disponible o rechazada");
+      setErrorMessage(describeError(err, 'Biometría no disponible o rechazada'));
     } finally {
       setLoading(false);
     }
@@ -84,7 +100,20 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
           <span>Reingrese su contraseña o use biometría para regenerar credenciales de sesión en RAM.</span>
         </div>
 
+        {!hasPassword && (
+          <button
+            type="button"
+            onClick={handleGoogleUnlock}
+            disabled={loading}
+            className="w-full py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-medium rounded-xl text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
+          >
+            <span className="font-bold text-indigo-600">G</span>
+            Continuar con Google
+          </button>
+        )}
+
         <form onSubmit={handleUnlock} className="space-y-4">
+          {hasPassword && (
           <div className="relative">
             <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -97,6 +126,7 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
               disabled={loading}
             />
           </div>
+          )}
 
           {errorMessage && (
             <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center gap-2 text-left">
@@ -106,6 +136,7 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
           )}
 
           <div className="space-y-2">
+            {hasPassword && (
             <button
               type="submit"
               disabled={loading || !password}
@@ -117,6 +148,7 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
                 <span>Desbloquear y Restaurar Sesión</span>
               )}
             </button>
+            )}
 
             {/* Biometric Quick Unlock (RF-ADMIN-07-3) */}
             <button

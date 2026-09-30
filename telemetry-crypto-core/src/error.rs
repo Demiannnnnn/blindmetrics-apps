@@ -40,4 +40,10 @@ pub enum CryptoError {
 
     #[error("Invalid backup format: {0}")]
     InvalidBackup(String),
+
+    #[error("Insecure or unsupported key derivation parameters: {0}")]
+    InsecureKdfParams(String),
+
+    #[error("The backup contains a different key than expected")]
+    BackupKeyMismatch,
 }
