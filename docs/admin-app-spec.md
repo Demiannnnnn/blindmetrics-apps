@@ -109,18 +109,18 @@ Unchanged from ADMIN-04/05/06: two-phase progress, integrity panel, "No recolect
 - Auto-lock minutes, server URL, logout, version. Privacy principles cards.
 
 ### L — Auto-lock
-After inactivity: clear decrypted data from React state and Rust caches, drop the access token (keep the refresh token), show unlock (password or, for Google-only accounts, sign in again).
+After inactivity: clear decrypted data from React state and Rust caches, drop the access token (keep the refresh token), show unlock (password or, for Google-only accounts, sign in again with Google). Five wrong passwords revoke the session. The "Biometría" button must only unlock after a real OS prompt (Touch ID / Windows Hello); today it does not verify anything (known gap).
 
 ## 3. Tauri commands
 
 | Domain | Commands |
 |:-------|:---------|
-| session | `admin_login(email, password, api_url)`, `admin_register(form)`, `admin_login_google(api_url)`, `google_sign_in_available()`, `admin_logout()`, `admin_get_session()`, `admin_update_profile({ name?, organization? })`, `admin_lock_and_flush_memory()`, `admin_unlock(password)`, `admin_is_locked()` |
-| keys / vault | `keys_status()`, `vault_status()`, `vault_create_initial_key()`, `keys_register_on_server()`, `vault_export_tkb(master_password, confirm_password?)`, `vault_setup_server_backup(master_password, confirm_password)`, `vault_delete_server_backup()`, `vault_import_backup(file_bytes, master_password, replace_local)`, `vault_recover_from_server(master_password, replace_local)`, `vault_generate_new_key(acknowledge_data_loss, confirmation_phrase)` |
+| session | `admin_login(email, password, api_url)`, `admin_register(form)`, `admin_login_google(api_url)`, `google_sign_in_available()`, `admin_logout()`, `admin_get_session()`, `admin_update_profile({ name?, organization? })`, `admin_lock_and_flush_memory()`, `admin_unlock(password)`, `admin_unlock_with_biometric()` (⚠️ today re-opens the session with the stored refresh token **without** an OS biometric prompt — known gap, see `implementation-status.md`), `admin_is_locked()` |
+| keys / vault | `admin_get_public_key()` (`KEY_SETUP_REQUIRED` when there is no local key — never generates one), `keys_status()`, `vault_status()`, `vault_create_initial_key()`, `keys_register_on_server()`, `vault_export_tkb(master_password, confirm_password?)`, `vault_setup_server_backup(master_password, confirm_password)`, `vault_delete_server_backup()`, `vault_import_backup(file_bytes, master_password, replace_local)`, `vault_recover_from_server(master_password, replace_local)`, `vault_generate_new_key(acknowledge_data_loss, confirmation_phrase)` |
 | devices | `devices_list()`, `devices_rename(id, name)`, `devices_revoke(id)` |
 | subscription | `subscription_status()`, `open_billing_portal()` |
 | workers | `workers_list(query)`, `workers_get(id)`, `workers_create(form)`, `workers_update(id, form)`, `workers_delete(id)`, `workers_regenerate_token(id, ttl_hours?)`, `workers_update_consent_config(id, flags, descriptions)`, `workers_set_status(id, status, reason)`, `workers_get_consent_records(id)` |
-| telemetry | `fetch_and_decrypt_telemetry(worker_id, category, from, to)`, `admin_decrypt_records(records)` |
+| telemetry | `fetch_and_decrypt_telemetry(worker_id, category, from?, to?, subcategory?, page?, per_page?)` (category ∈ `system`, `network`, `productivity`, `files`, `location`; UUID and dates validated and percent-encoded), `admin_decrypt_records(records)`, `admin_simulate_and_decrypt()` (local self-test: encrypts a neutral sample to the local public key and decrypts it; no API call, no key creation) |
 
 All return `Result<T, CommandError { code, message, reason?, details? }>`. None returns a token, a private key, a Master Password or a raw ciphertext to the UI. Events: `session-expired { reason }`, `subscription-blocked { status, reason, portal_url, support_email }`.
 

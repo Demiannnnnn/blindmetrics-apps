@@ -3,9 +3,12 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-05` |
-| **Módulos Afectados** | [`agent/src/io/transport.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/io/transport.rs), [`agent/src/background/worker.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/background/worker.rs) |
-| **Dependencias** | [`TASK-AGENT-04`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-04-metrics-buffer-and-encryption.md) |
+| **Módulos Afectados** | [`agent/src/io/transport.rs`](../../agent/src/io/transport.rs), [`agent/src/background/worker.rs`](../../agent/src/background/worker.rs) |
+| **Dependencias** | [`TASK-AGENT-04`](task-04-metrics-buffer-and-encryption.md) |
 | **Prioridad** | Crítica / P0 |
+
+
+> ℹ️ **Ampliada (2026-09-30) por [`TASK-AGENT-09`](task-09-granular-consent-and-billing-pause.md) e [`INT-02`](../integration/task-02-api-v2-contract-alignment.md).** `402 SUBSCRIPTION_SUSPENDED` / `403 SUBSCRIPTION_CANCELLED` en la ingesta **conservan** el sobre en la cola (no es rechazo por consentimiento) y ponen el motor en `EmployerSuspended`; el refresh tras `401` es single-flight (candado global) y reutiliza el token ya rotado.
 
 ---
 
@@ -58,7 +61,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Repositorio de Cola Fuera de Línea ([`agent/src/io/queue.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/io/queue.rs))
+### A. Repositorio de Cola Fuera de Línea ([`agent/src/io/queue.rs`](../../agent/src/io/queue.rs))
 
 ```rust
 use rusqlite::{params, Connection, Result};
@@ -137,7 +140,7 @@ impl OfflineQueue {
 }
 ```
 
-### B. Cliente de Transporte HTTP ([`agent/src/io/transport.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/io/transport.rs))
+### B. Cliente de Transporte HTTP ([`agent/src/io/transport.rs`](../../agent/src/io/transport.rs))
 
 ```rust
 use reqwest::{Client, StatusCode};

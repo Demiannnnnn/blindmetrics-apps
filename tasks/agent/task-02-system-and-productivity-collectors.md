@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-02` |
-| **Módulos Afectados** | [`agent/src/core/collectors/`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/collectors/) (`system.rs`, `productivity.rs`, `mod.rs`), [`agent/src/io/system_hooks.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/io/system_hooks.rs) |
-| **Dependencias** | [`TASK-AGENT-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-01-agent-foundations-and-device-id.md) |
+| **Módulos Afectados** | [`agent/src/core/collectors/`](../../agent/src/core/collectors/) (`system.rs`, `productivity.rs`, `mod.rs`), [`agent/src/io/system_hooks.rs`](../../agent/src/io/system_hooks.rs) |
+| **Dependencias** | [`TASK-AGENT-01`](task-01-agent-foundations-and-device-id.md) |
 | **Prioridad** | Crítica / P0 |
 
 ---
@@ -61,7 +61,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Colector de Productividad con Contadores Atómicos ([`agent/src/core/collectors/productivity.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/collectors/productivity.rs))
+### A. Colector de Productividad con Contadores Atómicos ([`agent/src/core/collectors/productivity.rs`](../../agent/src/core/collectors/productivity.rs))
 
 ```rust
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -117,7 +117,7 @@ impl ProductivityCollector {
 }
 ```
 
-### B. Colector de Sistema e Inactividad ([`agent/src/core/collectors/system.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/collectors/system.rs))
+### B. Colector de Sistema e Inactividad ([`agent/src/core/collectors/system.rs`](../../agent/src/core/collectors/system.rs))
 
 ```rust
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};

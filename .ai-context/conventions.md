@@ -34,7 +34,7 @@
 
 - Unit tests in-module (`#[cfg(test)]`), integration tests in `<crate>/tests/`.
 - Name: `test_<module>_<behaviour>_<expected>`.
-- Tests **must not** touch the real user config dir or OS keystore: inject paths (`tempfile`) and use an in-memory credential store trait. (`ui::tests::test_traffic_light_states` currently writes the real `config.json` — fix under TASK-INT-01.)
+- Tests **must not** touch the real user config dir or OS keystore: inject paths (`tempfile`) and use an in-memory credential store trait. (Fixed in INT-01: `ui::tests::test_traffic_light_states` uses `WorkerConfig::load_or_init_at` with a `tempfile` directory; admin tests use `keystore::init_test_vault()` and never the OS keystore.)
 - HTTP code is tested against `wiremock` (or `httpmock`) servers using the JSON shapes from `api-contract.md`.
 - Privacy constraints get dedicated tests (e.g. `test_location_collector_not_started_for_office_role`).
 

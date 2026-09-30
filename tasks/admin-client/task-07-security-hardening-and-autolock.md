@@ -3,9 +3,12 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-07` |
-| **Módulos Afectados** | [`admin-client/src-tauri/src/commands/auth.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/auth.rs), [`admin-client/src/App.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/App.tsx) |
-| **Dependencias** | [`TASK-ADMIN-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-01-tauri-foundations-and-keystore.md), [`TASK-ADMIN-04`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-04-parallel-decryption-engine.md) |
+| **Módulos Afectados** | [`admin-client/src-tauri/src/commands/auth.rs`](../../admin-client/src-tauri/src/commands/auth.rs), [`admin-client/src/App.tsx`](../../admin-client/src/App.tsx) |
+| **Dependencias** | [`TASK-ADMIN-01`](task-01-tauri-foundations-and-keystore.md), [`TASK-ADMIN-04`](task-04-parallel-decryption-engine.md) |
 | **Prioridad** | Alta / P1 |
+
+
+> ⚠️ **Brecha conocida (auditoría 2026-09-30):** RF-ADMIN-07-3 está marcado como hecho, pero `admin_unlock_with_biometric` **no invoca ninguna verificación del sistema operativo**: reabre la sesión con el refresh token guardado (`unlock_with_refresh`). Cualquiera frente al equipo bloqueado puede desbloquearlo con ese botón. Pendiente: integrar LocalAuthentication (macOS) / Windows Hello antes de `unlock_with_refresh`, u ocultar el botón hasta tenerlo. Registrado en [`implementation-status.md`](../../.ai-context/implementation-status.md) y en el modelo de amenazas de [`security-model.md`](../../.ai-context/security-model.md).
 
 ---
 
@@ -49,7 +52,7 @@ stateDiagram-v2
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Comando de Purga de Memoria en Rust ([`admin-client/src-tauri/src/commands/auth.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/auth.rs))
+### A. Comando de Purga de Memoria en Rust ([`admin-client/src-tauri/src/commands/auth.rs`](../../admin-client/src-tauri/src/commands/auth.rs))
 
 ```rust
 use tauri::command;
@@ -72,7 +75,7 @@ pub fn admin_lock_and_flush_memory() -> Result<(), String> {
 }
 ```
 
-### B. Hook de Detección de Inactividad en React ([`admin-client/src/hooks/useAutoLock.ts`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/hooks/useAutoLock.ts))
+### B. Hook de Detección de Inactividad en React ([`admin-client/src/hooks/useAutoLock.ts`](../../admin-client/src/hooks/useAutoLock.ts))
 
 ```typescript
 import { useEffect, useRef, useState } from 'react';

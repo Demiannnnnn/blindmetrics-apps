@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-01` |
-| **Módulos Afectados** | [`agent/src/`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/) (`config.rs`, `device.rs`, `main.rs`, `errors.rs`) |
+| **Módulos Afectados** | [`agent/src/`](../../agent/src/) (`config.rs`, `device.rs`, `main.rs`, `errors.rs`) |
 | **Dependencias** | Ninguna (Tarea Base del Agente) |
 | **Prioridad** | Crítica / P0 |
 
@@ -57,7 +57,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Módulo de Huella de Hardware ([`agent/src/device.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/device.rs))
+### A. Módulo de Huella de Hardware ([`agent/src/device.rs`](../../agent/src/device.rs))
 
 ```rust
 use sha2::{Digest, Sha256};
@@ -112,7 +112,7 @@ fn get_raw_hardware_id() -> Option<String> {
 }
 ```
 
-### B. Configuración del Agente ([`agent/src/config.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/config.rs))
+### B. Configuración del Agente ([`agent/src/config.rs`](../../agent/src/config.rs))
 
 ```rust
 use serde::{Deserialize, Serialize};

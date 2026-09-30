@@ -32,7 +32,7 @@ flowchart TD
 
 ### E1 — Enrollment
 - Title: "Link this computer to your employer".
-- Two options: **Paste QR** (the QR content: the base64 `qr_payload` shown by the admin app, or the raw JSON of older admin versions; camera/image decoding is a later enhancement) and **Enter code** (`XXXX-XXXX-XXXX`, auto-uppercase, accepts I/L/O and maps them).
+- Two options: **Paste QR** (the QR content: the base64 `qr_payload` shown by the admin app, or the raw JSON of older admin versions; camera/image decoding is a later enhancement) and **Enter code** (`XXXX-XXXX-XXXX`; lowercase, spaces and dashes accepted; `I`/`L` → `1` and `O` → `0` for compatibility with v1 codes — v2 codes never contain `0 O 1 I L`).
 - Manual code also needs the **server address** (prefilled from `TELEMETRY_API_URL` in dev; required field in production). The QR carries it.
 - Button **Link** → `POST /workers/enroll` with `device_identifier` and `device_info`.
 - Errors by `details.reason` (AGENT-09):
@@ -113,7 +113,9 @@ Rules:
 4. **Diagnostics** — API reachability (`/health`), last successful send, queue size (items/MB), app version, device id (first 8 chars), key fingerprint (first 16 hex), OS permission status (Accessibility, Screen Recording, Location, portal).
 
 ### W — Withdraw confirmation
-"If you withdraw, all collection stops immediately and unsent data on this computer is deleted." **Withdraw** → purge queue & buffer (DP-09) → `PATCH /workers/me/consent { accepted: false }` → I. Works offline: stop collectors and purge locally first, send the PATCH when back online.
+"If you withdraw, all collection stops immediately and unsent data on this computer is deleted." **Withdraw** → purge queue & buffer (DP-09) → `PATCH /workers/me/consent { accepted: false, consent_version: <current> }` (one retry with the server's current version on `409`) → I. Offline: collectors stop and local data is purged first (always), then the PATCH is sent.
+
+> ⚠️ **Implementation gap (2026-09-30):** if the PATCH fails (offline), the agent shows *"Se detuvo la recolección y se borraron los datos locales, pero el servidor no confirmó el retiro"* but does **not** retry automatically, and because the accepted hash was already cleared a second press only purges locally. Target: persist a *pending withdrawal* and resend it on the next successful `/workers/me` poll. Collection stays stopped meanwhile (nothing is collected or sent).
 
 ### R — Unlinked notice
 "This computer was unlinked by your employer." Credentials, pinned key and queue wiped. → E1.
@@ -145,10 +147,11 @@ There is **no** worker-side "pause 15 min" (old docs): pausing is an admin actio
 - Employer subscription blocked (`ingestion_blocked_reason` or ingest `402`/`403 SUBSCRIPTION_*`) → `EmployerSuspended`: no collectors, no ingestion, queue **kept**; resumes on the next poll after reactivation. Notifications on both edges.
 - Token refresh is single-flight (one refresh at a time; a concurrent refresh would revoke the whole session family).
 - Collectors start/stop within 1 s of a RunMode or effective-flag change.
-- Flush every `WORKER_FLUSH_INTERVAL` (default 30 s; min 15 s): group by category → encrypt → send; failures → queue.
+- Flush every `WORKER_FLUSH_INTERVAL` (default 30 s; values below 5 s are ignored): group by category → encrypt → send; failures → queue.
 - Queue: cap 100 MB or 7 days (oldest dropped first); drain with backoff 2 s ×2 → 300 s ±20 %; drop 403 consent/status envelopes, keep subscription-blocked ones; purge on withdraw/revoke.
 - Token refresh on 401 (persist new refresh token first); refresh 401 → R.
 - `--headless` runs the same engine without a window **only** when a tray icon is available; otherwise refuse to start headless (no invisible monitoring).
+  > ⚠️ **Implementation gap (2026-09-30):** `agent/src/main.rs` currently starts the engine in `--headless` mode without creating a tray icon (only notifications remain visible). Until fixed, do not ship or document `--headless` for end users.
 
 ## 6. Configuration
 

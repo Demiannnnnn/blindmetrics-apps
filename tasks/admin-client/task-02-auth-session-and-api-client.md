@@ -3,9 +3,12 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-02` |
-| **Módulos Afectados** | [`admin-client/src-tauri/src/`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/) (`client.rs`, `commands/auth.rs`), [`admin-client/src/api/`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/api/) (`tauri-bridge.ts`) |
-| **Dependencias** | [`TASK-ADMIN-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-01-tauri-foundations-and-keystore.md) |
+| **Módulos Afectados** | [`admin-client/src-tauri/src/`](../../admin-client/src-tauri/src/) (`client.rs`, `commands/auth.rs`), [`admin-client/src/api/`](../../admin-client/src/api/) (`tauri-bridge.ts`) |
+| **Dependencias** | [`TASK-ADMIN-01`](task-01-tauri-foundations-and-keystore.md) |
 | **Prioridad** | Crítica / P0 |
+
+
+> ⚠️ **Ampliada (2026-09-30) por [`TASK-INT-02`](../integration/task-02-api-v2-contract-alignment.md) y [`TASK-ADMIN-10`](task-10-google-sign-in-and-admin-devices.md).** El refresh ahora es **single-flight** (un solo `POST /auth/refresh` a la vez; reuso ⇒ `401 TOKEN_REUSE_DETECTED` revoca la familia), los errores son tipados (`CommandError { code, message, reason?, details? }`), `401 DEVICE_REVOKED` cierra la sesión sin refrescar, cada inicio de sesión envía el descriptor de dispositivo y existe el inicio con Google (loopback + PKCE + nonce). Si `GET /admins/me` falla tras autenticar, la sesión se descarta (sin perfil de relleno).
 
 ---
 
@@ -70,7 +73,7 @@ sequenceDiagram
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Cliente HTTP Autenticado ([`admin-client/src-tauri/src/client.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/client.rs))
+### A. Cliente HTTP Autenticado ([`admin-client/src-tauri/src/client.rs`](../../admin-client/src-tauri/src/client.rs))
 
 ```rust
 use reqwest::{Client, StatusCode};

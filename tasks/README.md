@@ -2,19 +2,21 @@
 
 Guía de implementación de las apps desktop del ecosistema Telemetry: **Admin** (`admin-client`, Tauri 2 + React), **Worker** (`agent`, Rust + egui) y el crate compartido **`telemetry-crypto-core`**. Mismo formato que las tareas de `telemetry-api`: cada tarea tiene contexto, requerimientos (`RF-*`), pseudocódigo, reglas, validaciones, logs, DoD y pruebas.
 
-> **Antes de tomar una tarea** lee [`.ai-context/implementation-status.md`](../.ai-context/implementation-status.md). Varias tareas marcadas "implementadas" en commits anteriores son en realidad stubs o mocks. El estado de esta tabla refleja la auditoría del 2026-09-28, no los mensajes de commit.
+> **Antes de tomar una tarea** lee [`.ai-context/implementation-status.md`](../.ai-context/implementation-status.md). Varias tareas marcadas "implementadas" en commits anteriores son en realidad stubs o mocks. El estado de esta tabla refleja la auditoría del 2026-09-30 (contrato v2 cerrado en INT-02, CRYPTO-03, AGENT-09 y ADMIN-09..12), no los mensajes de commit.
 
 ---
 
 ## 1. Principios de Arquitectura y Gobernanza
 
 1. **Servidor ciego:** las apps nunca envían texto plano, llaves privadas ni DEKs a la API. Toda la criptografía vive en `telemetry-crypto-core` (SEC-01, SEC-02).
-2. **El admin define, el worker acepta:** el admin configura las categorías y sus descripciones; el empleado acepta o rechaza el paquete completo y puede retirarlo en cualquier momento. Sin toggles por categoría para el worker. Defaults siempre en `false` (DP-08).
+2. **El admin define, el worker elige:** el admin configura las categorías que *pueden* recolectarse y su descripción; el empleado acepta el subconjunto que quiera (o ninguno), puede cambiarlo y retirarlo en cualquier momento. Casillas siempre desmarcadas por defecto (DP-08, DP-11).
 3. **Enrollment con integridad:** código de un solo uso + QR con compromiso criptográfico + llave fijada en el agent (SEC-07, SEC-08). Diseño: `telemetry-api/ENROLLMENT.md`.
 4. **Recolección solo en `ACTIVE`** y solo de categorías aceptadas en el dispositivo (DP-06, DP-07).
 5. **Sin datos falsos en producción:** nada de mocks silenciosos ni valores hardcodeados que parezcan reales (PLAT-02).
 6. **Sin panics:** cero `unwrap`/`expect` fuera de tests (release usa `panic = "abort"`).
-7. **Contratos explícitos:** HTTP según [`.ai-context/api-contract.md`](../.ai-context/api-contract.md); payloads en claro según [`docs/telemetry-payloads.md`](../docs/telemetry-payloads.md).
+7. **Contratos explícitos:** HTTP según [`.ai-context/api-contract.md`](../.ai-context/api-contract.md) (contrato v2 de `telemetry-api` TASK-13..17); payloads en claro según [`docs/telemetry-payloads.md`](../docs/telemetry-payloads.md).
+8. **La llave del admin es custodiada, no confiada:** respaldos solo cifrados con Master Password + Argon2id en el cliente; el servidor nunca ve la contraseña ni la llave en claro (SEC-12, SEC-13).
+9. **La facturación nunca es excusa para perder datos ni derechos:** la app admin se bloquea y manda al portal; el agent deja de recolectar pero conserva lo ya cifrado y los derechos del trabajador (BILL-01..03).
 
 Las reglas completas con IDs están en [`.ai-context/constraints.md`](../.ai-context/constraints.md).
 
@@ -26,10 +28,12 @@ Las reglas completas con IDs están en [`.ai-context/constraints.md`](../.ai-con
 tasks/
 ├── README.md
 ├── integration/
-│   └── task-01-api-contract-alignment.md                 # INT-01: hablar el contrato real de la API, sin mocks silenciosos
+│   ├── task-01-api-contract-alignment.md                 # INT-01: hablar el contrato real de la API, sin mocks silenciosos
+│   └── task-02-api-v2-contract-alignment.md              # INT-02: errores tipados, refresh single-flight, dispositivo, suscripción
 ├── crypto-core/
 │   ├── task-01-crypto-core-foundations.md                # X25519 / HKDF / AES-GCM
-│   └── task-02-enrollment-manifest-commitment.md         # Manifiesto, compromiso, código de verificación, payloads compartidos
+│   ├── task-02-enrollment-manifest-commitment.md         # Manifiesto, compromiso, código de verificación, payloads compartidos
+│   └── task-03-key-backup-v2-argon2id.md                 # Respaldo v2 (.tkb): Argon2id + AES-256-GCM, import v1
 ├── agent/
 │   ├── task-01-agent-foundations-and-device-id.md
 │   ├── task-02-system-and-productivity-collectors.md
@@ -38,7 +42,8 @@ tasks/
 │   ├── task-05-offline-queue-and-transport.md
 │   ├── task-06-egui-transparency-ui-and-consent.md
 │   ├── task-07-system-notifications-and-tray.md
-│   └── task-08-enrollment-consent-and-lifecycle.md       # Enrollment QR/código, consentimiento todo-o-nada, RunMode
+│   ├── task-08-enrollment-consent-and-lifecycle.md       # Enrollment QR/código, consentimiento (paquete), RunMode
+│   └── task-09-granular-consent-and-billing-pause.md     # Consentimiento granular, errores enrollment v2, pausa por suscripción
 └── admin-client/
     ├── task-01-tauri-foundations-and-keystore.md
     ├── task-02-auth-session-and-api-client.md
@@ -47,7 +52,11 @@ tasks/
     ├── task-05-telemetry-analytics-dashboard.md
     ├── task-06-field-worker-map-tracking.md
     ├── task-07-security-hardening-and-autolock.md
-    └── task-08-enrollment-and-worker-lifecycle.md        # Registro de llave, alta con descripciones, QR, ciclo de vida
+    ├── task-08-enrollment-and-worker-lifecycle.md        # Registro de llave, alta con descripciones, QR, ciclo de vida
+    ├── task-09-enrollment-v2-and-consent-evidence.md     # QR verificado v2, cambio de equipo, organización, evidencia granular
+    ├── task-10-google-sign-in-and-admin-devices.md       # Google (loopback + PKCE) y dispositivos autorizados
+    ├── task-11-key-vault-backup-and-recovery.md          # APP-02: .tkb, respaldo en servidor, recuperación, nueva llave
+    └── task-12-subscription-lock-screen.md               # APP-01: verificación de suscripción y pantalla de bloqueo
 ```
 
 ---
@@ -57,9 +66,12 @@ tasks/
 ```mermaid
 flowchart TD
     API12["telemetry-api TASK-12<br/>Enrollment + ciclo de vida (servidor)"]:::ext
+    API1317["telemetry-api TASK-13..17<br/>Contrato v2: enrollment v2, consentimiento granular,<br/>Google, dispositivos, vault, suscripción"]:::ext
     C1["CRYPTO-01 Primitivas"]
     C2["CRYPTO-02 Manifiesto y compromiso"]
+    C3["CRYPTO-03 Respaldo v2 (.tkb)"]
     INT1["INT-01 Alineación con el contrato API"]
+    INT2["INT-02 Contrato v2 transversal"]
 
     subgraph Agent["agent"]
         A1["AGENT-01 Base y device id"]
@@ -70,6 +82,7 @@ flowchart TD
         A6["AGENT-06 UI de transparencia y derechos"]
         A7["AGENT-07 Notificaciones y bandeja"]
         A8["AGENT-08 Enrollment, consentimiento y ciclo de vida"]
+        A9["AGENT-09 Consentimiento granular y pausa por suscripción"]
     end
 
     subgraph Admin["admin-client"]
@@ -81,6 +94,10 @@ flowchart TD
         D6["ADMIN-06 Mapa FIELD"]
         D7["ADMIN-07 Auto-lock y hardening"]
         D8["ADMIN-08 Llave, alta, QR y ciclo de vida"]
+        D9["ADMIN-09 Enrollment v2 y evidencia granular"]
+        D10["ADMIN-10 Google y dispositivos"]
+        D11["ADMIN-11 Bóveda: .tkb, servidor, recuperación (APP-02)"]
+        D12["ADMIN-12 Bloqueo por suscripción (APP-01)"]
     end
 
     C1 --> C2
@@ -95,11 +112,19 @@ flowchart TD
     D1 --> D2 --> D3 --> D8
     D2 --> D4 --> D5 & D6
     D1 & D4 --> D7
+    API1317 --> INT2
+    INT1 --> INT2
+    C1 --> C3
+    INT2 --> A9 & D9 & D10 & D11 & D12
+    A8 --> A9
+    D8 --> D9
+    C3 --> D11
+    D10 --> D11
 
     classDef ext fill:#fff3cd,stroke:#b8860b;
 ```
 
-**Orden recomendado:** `INT-01` → (`telemetry-api TASK-12` ∥ `CRYPTO-02`) → `ADMIN-08` ∥ `AGENT-08` → colectores reales (`AGENT-02/03`) → vistas con datos reales (`ADMIN-04/05/06`) → hardening (`AGENT-05/07`, `ADMIN-07`).
+**Orden recomendado:** `INT-01` → (`telemetry-api TASK-12` ∥ `CRYPTO-02`) → `ADMIN-08` ∥ `AGENT-08` → colectores reales (`AGENT-02/03`) → vistas con datos reales (`ADMIN-04/05/06`) → hardening (`AGENT-05/07`, `ADMIN-07`) → **contrato v2** (`telemetry-api TASK-13..17`) → `INT-02` ∥ `CRYPTO-03` → `ADMIN-12` (APP-01) → `ADMIN-11` (APP-02) → `ADMIN-09` ∥ `AGENT-09` → `ADMIN-10`.
 
 ---
 
@@ -110,33 +135,40 @@ Leyenda: 🟢 Completada · 🟡 Parcial (existe con defectos o partes faltantes
 | ID | Archivo | Descripción | Estado |
 |:---|:---|:---|:---:|
 | **INT-01** | [`integration/task-01-api-contract-alignment.md`](integration/task-01-api-contract-alignment.md) | Formato de ingesta `records[]`, un sobre por categoría, envelope `{data}`, login admin con `role`, sin fallbacks falsos, sin panics. | 🟢 |
+| **INT-02** | [`integration/task-02-api-v2-contract-alignment.md`](integration/task-02-api-v2-contract-alignment.md) | Contrato v2: errores tipados con `reason`, refresh single-flight (ambas apps), descriptor de dispositivo, códigos de suscripción, `Retry-After`, sin fallback de organización. | 🟢 |
 | **CRYPTO-01** | [`crypto-core/task-01-crypto-core-foundations.md`](crypto-core/task-01-crypto-core-foundations.md) | X25519, HKDF-SHA256, AES-256-GCM, framing del sobre, zeroize. | 🟢 |
 | **CRYPTO-02** | [`crypto-core/task-02-enrollment-manifest-commitment.md`](crypto-core/task-02-enrollment-manifest-commitment.md) | Manifiesto canónico, compromiso, código de verificación, fingerprint, QR, payloads compartidos. | 🟢 |
+| **CRYPTO-03** | [`crypto-core/task-03-key-backup-v2-argon2id.md`](crypto-core/task-03-key-backup-v2-argon2id.md) | Respaldo v2 de `K_admin_priv`: Argon2id + AES-256-GCM (AAD), contenedor `.tkb`, importación v1/v2, vector fijo compartido con `telemetry-web`. | 🟢 |
 | **AGENT-01** | [`agent/task-01-agent-foundations-and-device-id.md`](agent/task-01-agent-foundations-and-device-id.md) | Config local y `device_identifier` determinista con fallback. Credenciales en keystore (AGENT-08). | 🟢 |
 | **AGENT-02** | [`agent/task-02-system-and-productivity-collectors.md`](agent/task-02-system-and-productivity-collectors.md) | Hook O(1) con `rdev`, KPM/CPM atómicos, ventana activa real e idle nativo sin fake data (PLAT-02), capturas `xcap` notificadas (DP-05). | 🟢 |
 | **AGENT-03** | [`agent/task-03-network-files-and-location-collectors.md`](agent/task-03-network-files-and-location-collectors.md) | Agregación FQDN limpia (DP-02), watcher reactivo de metadatos de archivos (DP-03), geolocalización solo para FIELD en horario laboral (DP-04). | 🟢 |
 | **AGENT-04** | [`agent/task-04-metrics-buffer-and-encryption.md`](agent/task-04-metrics-buffer-and-encryption.md) | Doble búfer en memoria con `std::mem::take`, descarte FIFO, partición canónica por categoría y cifrado `telemetry-crypto-core`. | 🟢 |
-| **AGENT-05** | [`agent/task-05-offline-queue-and-transport.md`](agent/task-05-offline-queue-and-transport.md) | Cola SQLite WAL con retención 7 días, límite 5MB por payload, tope 100MB, cuarentena 10 reintentos, backoff exponencial con jitter y auto-renovación JWT en 401. | 🟢 |
+| **AGENT-05** | [`agent/task-05-offline-queue-and-transport.md`](agent/task-05-offline-queue-and-transport.md) | Cola SQLite WAL con retención 7 días, límite 5MB por payload, tope 100MB, cuarentena 10 reintentos, backoff exponencial con jitter y auto-renovación JWT en 401. ⚠️ Ampliada por AGENT-09: `402`/`403` de suscripción conservan los sobres; refresh single-flight. | 🟢 |
 | **AGENT-06** | [`agent/task-06-egui-transparency-ui-and-consent.md`](agent/task-06-egui-transparency-ui-and-consent.md) | Semáforo visual, horario laboral y portal ARCO con endpoints reales de exportación y supresión ante la API. | 🟢 |
 | **AGENT-07** | [`agent/task-07-system-notifications-and-tray.md`](agent/task-07-system-notifications-and-tray.md) | Catálogo completo de notificaciones de transparencia (`notify-rust`), bandeja del sistema con `tray-icon` y minimizado al cerrar ventana. | 🟢 |
-| **AGENT-08** | [`agent/task-08-enrollment-consent-and-lifecycle.md`](agent/task-08-enrollment-consent-and-lifecycle.md) | Enrollment con verificación, llave fijada, consentimiento todo o nada, `RunMode`, retiro, revocación. | 🟢 |
-| **ADMIN-01** | [`admin-client/task-01-tauri-foundations-and-keystore.md`](admin-client/task-01-tauri-foundations-and-keystore.md) | Keystore y generación de llave, exportación e importación de backup cifrado (.vault) con PBKDF2 + AES-GCM. | 🟢 |
-| **ADMIN-02** | [`admin-client/task-02-auth-session-and-api-client.md`](admin-client/task-02-auth-session-and-api-client.md) | Login y registro contra la API real, rotación transparente de refresh token en 401, tokens aislados en Rust. | 🟢 |
+| **AGENT-08** | [`agent/task-08-enrollment-consent-and-lifecycle.md`](agent/task-08-enrollment-consent-and-lifecycle.md) | Enrollment con verificación, llave fijada, `RunMode`, retiro, revocación. ⚠️ El consentimiento todo-o-nada fue reemplazado por AGENT-09. | 🟢 |
+| **AGENT-09** | [`agent/task-09-granular-consent-and-billing-pause.md`](agent/task-09-granular-consent-and-billing-pause.md) | Consentimiento granular (`PATCH /workers/me/consent`), errores de enrollment v2 con `Retry-After`, QR base64, `EmployerSuspended` por suscripción. ⚠️ Falta reenviar el retiro que falló sin conexión. | 🟡 |
+| **ADMIN-01** | [`admin-client/task-01-tauri-foundations-and-keystore.md`](admin-client/task-01-tauri-foundations-and-keystore.md) | Keystore y generación de llave, exportación e importación de backup cifrado (.vault) con PBKDF2 + AES-GCM. ⚠️ La exportación `.vault` fue reemplazada por `.tkb` (ADMIN-11); la importación v1 se mantiene. | 🟢 |
+| **ADMIN-02** | [`admin-client/task-02-auth-session-and-api-client.md`](admin-client/task-02-auth-session-and-api-client.md) | Login y registro contra la API real, rotación transparente de refresh token en 401, tokens aislados en Rust. ⚠️ Ampliada por INT-02/ADMIN-10: refresh single-flight, errores tipados, descriptor de dispositivo, Google. | 🟢 |
 | **ADMIN-03** | [`admin-client/task-03-worker-management-and-enrollment.md`](admin-client/task-03-worker-management-and-enrollment.md) | Listado paginado con filtros reales, edición (`PUT /workers/:id`), pausa/reanudación y baja con confirmación. ⚠️ Alta y paquete de enrollment reemplazados por ADMIN-08. | 🟢 |
 | **ADMIN-04** | [`admin-client/task-04-parallel-decryption-engine.md`](admin-client/task-04-parallel-decryption-engine.md) | Pipeline `rayon` en memoria tolerante a registros corruptos con fetch real a la API. | 🟢 |
 | **ADMIN-05** | [`admin-client/task-05-telemetry-analytics-dashboard.md`](admin-client/task-05-telemetry-analytics-dashboard.md) | Vistas especializadas (Sistema, Red, Productividad/Capturas, Archivos) con datos reales descifrados, LTTB, modo blur y selector global de contexto. | 🟢 |
 | **ADMIN-06** | [`admin-client/task-06-field-worker-map-tracking.md`](admin-client/task-06-field-worker-map-tracking.md) | Mapa Leaflet con polilínea cronológica, geocercas, popups interactivos, bloqueo para OFFICE y auditoría de jornada. | 🟢 |
-| **ADMIN-07** | [`admin-client/task-07-security-hardening-and-autolock.md`](admin-client/task-07-security-hardening-and-autolock.md) | Hook `useAutoLock` configurable (5-30 min), zeroize de `access_token` en RAM, re-autenticación y revocación tras 5 fallos. | 🟢 |
+| **ADMIN-07** | [`admin-client/task-07-security-hardening-and-autolock.md`](admin-client/task-07-security-hardening-and-autolock.md) | Hook `useAutoLock` configurable (5-30 min), zeroize de `access_token` en RAM, re-autenticación y revocación tras 5 fallos. ⚠️ El botón de biometría no verifica con el SO (brecha conocida). | 🟡 |
 | **ADMIN-08** | [`admin-client/task-08-enrollment-and-worker-lifecycle.md`](admin-client/task-08-enrollment-and-worker-lifecycle.md) | Registro de llave, alta con descripciones, QR con compromiso, detalle W4 con acciones de ciclo de vida, edición de consentimiento y evidencia CSV. Falta: alertas de rechazos / sin datos 24 h (la API no expone `last_seen`). | 🟡 |
+| **ADMIN-09** | [`admin-client/task-09-enrollment-v2-and-consent-evidence.md`](admin-client/task-09-enrollment-v2-and-consent-evidence.md) | Verificación local del paquete de enrollment v2 (compromiso, código de seguridad, `qr_payload`), `REVOKE_FIRST`, organización faltante, evidencia con categorías aceptadas. | 🟢 |
+| **ADMIN-10** | [`admin-client/task-10-google-sign-in-and-admin-devices.md`](admin-client/task-10-google-sign-in-and-admin-devices.md) | Inicio con Google (loopback + PKCE + nonce) y gestión de dispositivos autorizados. | 🟢 |
+| **ADMIN-11** | [`admin-client/task-11-key-vault-backup-and-recovery.md`](admin-client/task-11-key-vault-backup-and-recovery.md) | **APP-02:** exportar `.tkb`, respaldo en servidor, recuperar (archivo/servidor), generar nueva llave con doble confirmación, zeroize. | 🟢 |
+| **ADMIN-12** | [`admin-client/task-12-subscription-lock-screen.md`](admin-client/task-12-subscription-lock-screen.md) | **APP-01:** verificación de suscripción en cada inicio, pantalla de bloqueo con portal, aviso de prueba. | 🟢 |
 
 ---
 
 ## 5. Definición de Terminado (DoD) — aplica a todas las tareas
 
 1. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` y `cargo test --workspace` en verde.
-2. `cd admin-client && npm run build` en verde si se tocó la UI.
+2. `cd admin-client && npm run build && npm test` en verde si se tocó la UI.
 3. Cero `unwrap`/`expect` nuevos fuera de tests; ningún mock alcanzable sin `VITE_DEMO_MODE=true`.
-4. Cada restricción tocada (`DP-*`, `SEC-*`, `PERF-*`, …) está referenciada en el código y cubierta por un test.
+4. Cada restricción tocada (`DP-*`, `SEC-*`, `PERF-*`, `BILL-*`, …) está referenciada en el código y cubierta por un test.
 5. Pruebas nombradas `test_<modulo>_<accion>_<resultado_esperado>`; sin acceso al directorio de configuración ni al keystore reales.
 6. Checkboxes del DoD de la tarea marcados, estado en esta tabla y en [`implementation-status.md`](../.ai-context/implementation-status.md) actualizados en el mismo PR.
 7. Si cambia un contrato: `api-contract.md` o `telemetry-payloads.md` actualizados.

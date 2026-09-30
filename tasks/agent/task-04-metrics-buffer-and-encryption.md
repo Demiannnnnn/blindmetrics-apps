@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-04` |
-| **Módulos Afectados** | [`agent/src/core/buffer.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/buffer.rs), [`agent/src/io/encryption.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/io/encryption.rs) |
-| **Dependencias** | [`TASK-CRYPTO-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/crypto-core/task-01-crypto-core-foundations.md), [`TASK-AGENT-02`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-02-system-and-productivity-collectors.md) |
+| **Módulos Afectados** | [`agent/src/core/buffer.rs`](../../agent/src/core/buffer.rs), [`agent/src/io/encryption.rs`](../../agent/src/io/encryption.rs) |
+| **Dependencias** | [`TASK-CRYPTO-01`](../crypto-core/task-01-crypto-core-foundations.md), [`TASK-AGENT-02`](task-02-system-and-productivity-collectors.md) |
 | **Prioridad** | Crítica / P0 |
 
 ---
@@ -53,7 +53,7 @@ sequenceDiagram
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Estructura del Doble Búfer ([`agent/src/core/buffer.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/buffer.rs))
+### A. Estructura del Doble Búfer ([`agent/src/core/buffer.rs`](../../agent/src/core/buffer.rs))
 
 ```rust
 use std::sync::Mutex;
@@ -103,7 +103,7 @@ impl MetricsBuffer {
 }
 ```
 
-### B. Pipeline de Cifrado de Lotes ([`agent/src/io/encryption.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/io/encryption.rs))
+### B. Pipeline de Cifrado de Lotes ([`agent/src/io/encryption.rs`](../../agent/src/io/encryption.rs))
 
 ```rust
 use telemetry_crypto_core::{encrypt_telemetry_batch, EncryptedEnvelope, CryptoError};

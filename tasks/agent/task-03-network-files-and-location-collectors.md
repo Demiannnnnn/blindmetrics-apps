@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-03` |
-| **Módulos Afectados** | [`agent/src/core/collectors/`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/collectors/) (`network.rs`, `files.rs`, `location.rs`) |
-| **Dependencias** | [`TASK-AGENT-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-01-agent-foundations-and-device-id.md) |
+| **Módulos Afectados** | [`agent/src/core/collectors/`](../../agent/src/core/collectors/) (`network.rs`, `files.rs`, `location.rs`) |
+| **Dependencias** | [`TASK-AGENT-01`](task-01-agent-foundations-and-device-id.md) |
 | **Prioridad** | Alta / P1 |
 
 ---
@@ -59,7 +59,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Colector de Red FQDN ([`agent/src/core/collectors/network.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/collectors/network.rs))
+### A. Colector de Red FQDN ([`agent/src/core/collectors/network.rs`](../../agent/src/core/collectors/network.rs))
 
 ```rust
 use std::collections::HashMap;
@@ -126,7 +126,7 @@ fn sanitize_fqdn(input: &str) -> Option<String> {
 }
 ```
 
-### B. Colector de Geolocalización FIELD con Control Horario ([`agent/src/core/collectors/location.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/core/collectors/location.rs))
+### B. Colector de Geolocalización FIELD con Control Horario ([`agent/src/core/collectors/location.rs`](../../agent/src/core/collectors/location.rs))
 
 ```rust
 use chrono::{DateTime, Local, NaiveTime, Utc};

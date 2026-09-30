@@ -3,9 +3,12 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-01` |
-| **Módulos Afectados** | [`admin-client/src-tauri/src/`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/) (`main.rs`, `keystore.rs`, `commands/keys.rs`) |
-| **Dependencias** | [`TASK-CRYPTO-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/crypto-core/task-01-crypto-core-foundations.md) |
+| **Módulos Afectados** | [`admin-client/src-tauri/src/`](../../admin-client/src-tauri/src/) (`main.rs`, `keystore.rs`, `commands/keys.rs`) |
+| **Dependencias** | [`TASK-CRYPTO-01`](../crypto-core/task-01-crypto-core-foundations.md) |
 | **Prioridad** | Crítica / P0 |
+
+
+> ⚠️ **Parcialmente reemplazada (2026-09-30) por [`TASK-ADMIN-11`](task-11-key-vault-backup-and-recovery.md) y [`TASK-CRYPTO-03`](../crypto-core/task-03-key-backup-v2-argon2id.md).** El keystore (`keyring`, servicio `TelemetryAdminVault`) sigue vigente. Quedan **obsoletos**: la exportación `.vault` con PBKDF2 (hoy solo se **importa** como formato heredado), la frase de paso de 12 caracteres sin normalizar y los comandos `admin_generate_keypair`, `admin_export_backup` y `admin_import_backup` (eliminados del IPC). La llave ya no se genera de forma implícita: solo en el flujo K0 o tras la doble confirmación de "Generar nueva llave"; los respaldos usan `.tkb` v2 (Master Password NFC + Argon2id + AES-256-GCM) y el respaldo opcional en el servidor.
 
 ---
 
@@ -57,7 +60,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Módulo de Abstracción de Keystore ([`admin-client/src-tauri/src/keystore.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/keystore.rs))
+### A. Módulo de Abstracción de Keystore ([`admin-client/src-tauri/src/keystore.rs`](../../admin-client/src-tauri/src/keystore.rs))
 
 ```rust
 use keyring::Entry;
@@ -90,7 +93,7 @@ pub fn load_admin_private_key() -> Result<String, KeystoreError> {
 }
 ```
 
-### B. Comandos Tauri de Bóveda ([`admin-client/src-tauri/src/commands/keys.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/keys.rs))
+### B. Comandos Tauri de Bóveda ([`admin-client/src-tauri/src/commands/keys.rs`](../../admin-client/src-tauri/src/commands/keys.rs))
 
 ```rust
 use tauri::command;

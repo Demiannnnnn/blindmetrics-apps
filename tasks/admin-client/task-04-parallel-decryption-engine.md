@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-04` |
-| **Módulos Afectados** | [`admin-client/src-tauri/src/commands/telemetry.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/telemetry.rs), [`admin-client/src-tauri/src/core/`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/core/) |
-| **Dependencias** | [`TASK-CRYPTO-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/crypto-core/task-01-crypto-core-foundations.md), [`TASK-ADMIN-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-01-tauri-foundations-and-keystore.md), [`TASK-ADMIN-02`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-02-auth-session-and-api-client.md) |
+| **Módulos Afectados** | [`admin-client/src-tauri/src/commands/telemetry.rs`](../../admin-client/src-tauri/src/commands/telemetry.rs), [`admin-client/src-tauri/src/core/`](../../admin-client/src-tauri/src/core/) |
+| **Dependencias** | [`TASK-CRYPTO-01`](../crypto-core/task-01-crypto-core-foundations.md), [`TASK-ADMIN-01`](task-01-tauri-foundations-and-keystore.md), [`TASK-ADMIN-02`](task-02-auth-session-and-api-client.md) |
 | **Prioridad** | Crítica / P0 |
 
 ---
@@ -62,7 +62,7 @@ sequenceDiagram
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Comando de Descifrado Paralelo ([`admin-client/src-tauri/src/commands/telemetry.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/telemetry.rs))
+### A. Comando de Descifrado Paralelo ([`admin-client/src-tauri/src/commands/telemetry.rs`](../../admin-client/src-tauri/src/commands/telemetry.rs))
 
 ```rust
 use rayon::prelude::*;

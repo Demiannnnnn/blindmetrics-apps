@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-07` |
-| **Módulos Afectados** | [`agent/src/notifications.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/notifications.rs), [`agent/src/ui/tray.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/ui/tray.rs) |
-| **Dependencias** | [`TASK-AGENT-06`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/agent/task-06-egui-transparency-ui-and-consent.md) |
+| **Módulos Afectados** | [`agent/src/notifications.rs`](../../agent/src/notifications.rs), [`agent/src/ui/tray.rs`](../../agent/src/ui/tray.rs) |
+| **Dependencias** | [`TASK-AGENT-06`](task-06-egui-transparency-ui-and-consent.md) |
 | **Prioridad** | Media / P2 |
 
 
@@ -57,7 +57,7 @@ flowchart LR
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Despachador de Notificaciones ([`agent/src/notifications.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/notifications.rs))
+### A. Despachador de Notificaciones ([`agent/src/notifications.rs`](../../agent/src/notifications.rs))
 
 ```rust
 use notify_rust::Notification;
@@ -101,7 +101,7 @@ impl NotificationDispatcher {
 }
 ```
 
-### B. Gestión de Bandeja del Sistema ([`agent/src/ui/tray.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/agent/src/ui/tray.rs))
+### B. Gestión de Bandeja del Sistema ([`agent/src/ui/tray.rs`](../../agent/src/ui/tray.rs))
 
 ```rust
 use tray_icon::{

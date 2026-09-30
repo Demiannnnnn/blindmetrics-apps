@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-CRYPTO-01` |
-| **Módulos Afectados** | [`telemetry-crypto-core/src/`](file:///Users/demian/Documents/GitHub/telemetry-apps/telemetry-crypto-core/src/) (`asymmetric.rs`, `symmetric.rs`, `kdf.rs`, `error.rs`, `lib.rs`) |
+| **Módulos Afectados** | [`telemetry-crypto-core/src/`](../../telemetry-crypto-core/src/) (`asymmetric.rs`, `symmetric.rs`, `kdf.rs`, `error.rs`, `lib.rs`) |
 | **Dependencias** | Ninguna (Crate Base del Workspace) |
 | **Prioridad** | Crítica / P0 |
 
@@ -64,7 +64,7 @@ flowchart LR
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Estructuras de Error y Envelope ([`src/error.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/telemetry-crypto-core/src/error.rs), [`src/lib.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/telemetry-crypto-core/src/lib.rs))
+### A. Estructuras de Error y Envelope ([`src/error.rs`](../../telemetry-crypto-core/src/error.rs), [`src/lib.rs`](../../telemetry-crypto-core/src/lib.rs))
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -93,7 +93,7 @@ pub struct EncryptedEnvelope {
 }
 ```
 
-### B. Módulo Asimétrico y Derivación ([`src/asymmetric.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/telemetry-crypto-core/src/asymmetric.rs), [`src/kdf.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/telemetry-crypto-core/src/kdf.rs))
+### B. Módulo Asimétrico y Derivación ([`src/asymmetric.rs`](../../telemetry-crypto-core/src/asymmetric.rs), [`src/kdf.rs`](../../telemetry-crypto-core/src/kdf.rs))
 
 ```rust
 use rand::rngs::OsRng;
@@ -125,7 +125,7 @@ pub fn derive_shared_key(shared_secret: &[u8; 32]) -> Result<Zeroizing<[u8; 32]>
 }
 ```
 
-### C. Cifrado y Descifrado AEAD ([`src/symmetric.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/telemetry-crypto-core/src/symmetric.rs))
+### C. Cifrado y Descifrado AEAD ([`src/symmetric.rs`](../../telemetry-crypto-core/src/symmetric.rs))
 
 ```rust
 use aes_gcm::{

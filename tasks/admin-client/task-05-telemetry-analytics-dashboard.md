@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-05` |
-| **Módulos Afectados** | [`admin-client/src/components/`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/components/) (`Dashboard.tsx`, `ActivityChart.tsx`), [`admin-client/src/App.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/App.tsx) |
-| **Dependencias** | [`TASK-ADMIN-04`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-04-parallel-decryption-engine.md) |
+| **Módulos Afectados** | [`admin-client/src/components/`](../../admin-client/src/components/) (`Dashboard.tsx`, `ActivityChart.tsx`), [`admin-client/src/App.tsx`](../../admin-client/src/App.tsx) |
+| **Dependencias** | [`TASK-ADMIN-04`](task-04-parallel-decryption-engine.md) |
 | **Prioridad** | Alta / P1 |
 
 ---
@@ -47,7 +47,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Componente de Gráficos de Actividad ([`admin-client/src/components/ActivityChart.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/components/ActivityChart.tsx))
+### A. Componente de Gráficos de Actividad ([`admin-client/src/components/ActivityChart.tsx`](../../admin-client/src/components/ActivityChart.tsx))
 
 ```tsx
 import React from 'react';
@@ -100,7 +100,7 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({ data }) => {
 };
 ```
 
-### B. Galería de Capturas con Filtro de Privacidad ([`admin-client/src/components/ScreenshotGallery.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/components/ScreenshotGallery.tsx))
+### B. Galería de Capturas con Filtro de Privacidad ([`admin-client/src/components/ScreenshotGallery.tsx`](../../admin-client/src/components/ScreenshotGallery.tsx))
 
 ```tsx
 import React, { useState } from 'react';

@@ -159,6 +159,7 @@ pub enum RunMode {
 7. [x] Con la suscripción del empleador suspendida: sin colectores, sin ingesta, cola intacta, semáforo 🟡; al reactivarse se reanuda y se vacía la cola.
 8. [x] Ningún uso de `PATCH /workers/:id/consent`.
 9. [x] `cargo test -p agent -p telemetry-crypto-core` y clippy en verde.
+10. [ ] **Pendiente:** retiro sin conexión reenviado automáticamente al volver la red (RF-AGENT-09-4). Hoy la recolección se detiene y se purga localmente, pero si el `PATCH` falla no se reintenta (ver `implementation-status.md`, fila *Withdrawal*).
 
 ---
 

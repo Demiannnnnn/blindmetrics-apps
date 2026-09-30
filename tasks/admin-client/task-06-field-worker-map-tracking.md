@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-06` |
-| **Módulos Afectados** | [`admin-client/src/components/FieldMap.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/components/FieldMap.tsx), [`admin-client/src-tauri/src/commands/telemetry.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/telemetry.rs) |
-| **Dependencias** | [`TASK-ADMIN-04`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-04-parallel-decryption-engine.md) |
+| **Módulos Afectados** | [`admin-client/src/components/FieldMap.tsx`](../../admin-client/src/components/FieldMap.tsx), [`admin-client/src-tauri/src/commands/telemetry.rs`](../../admin-client/src-tauri/src/commands/telemetry.rs) |
+| **Dependencias** | [`TASK-ADMIN-04`](task-04-parallel-decryption-engine.md) |
 | **Prioridad** | Media / P2 |
 
 ---
@@ -47,7 +47,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Componente de Mapa de Rutas ([`admin-client/src/components/FieldMap.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/components/FieldMap.tsx))
+### A. Componente de Mapa de Rutas ([`admin-client/src/components/FieldMap.tsx`](../../admin-client/src/components/FieldMap.tsx))
 
 ```tsx
 import React from 'react';

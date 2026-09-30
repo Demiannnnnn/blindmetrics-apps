@@ -3,8 +3,8 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-03` |
-| **Módulos Afectados** | [`admin-client/src-tauri/src/commands/workers.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/workers.rs), [`admin-client/src/components/EmployeeCard.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/components/EmployeeCard.tsx) |
-| **Dependencias** | [`TASK-ADMIN-01`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-01-tauri-foundations-and-keystore.md), [`TASK-ADMIN-02`](file:///Users/demian/Documents/GitHub/telemetry-apps/tasks/admin-client/task-02-auth-session-and-api-client.md) |
+| **Módulos Afectados** | [`admin-client/src-tauri/src/commands/workers.rs`](../../admin-client/src-tauri/src/commands/workers.rs), [`admin-client/src/components/EmployeeCard.tsx`](../../admin-client/src/components/EmployeeCard.tsx) |
+| **Dependencias** | [`TASK-ADMIN-01`](task-01-tauri-foundations-and-keystore.md), [`TASK-ADMIN-02`](task-02-auth-session-and-api-client.md) |
 | **Prioridad** | Alta / P1 |
 
 
@@ -60,7 +60,7 @@ flowchart TD
 
 ## 3. Arquitectura de Código y Pseudocódigo
 
-### A. Comandos de Trabajadores en Rust ([`admin-client/src-tauri/src/commands/workers.rs`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src-tauri/src/commands/workers.rs))
+### A. Comandos de Trabajadores en Rust ([`admin-client/src-tauri/src/commands/workers.rs`](../../admin-client/src-tauri/src/commands/workers.rs))
 
 ```rust
 use tauri::command;
@@ -111,7 +111,7 @@ pub async fn admin_create_worker(
 }
 ```
 
-### B. Componente Frontend de Tarjeta de Empleado ([`admin-client/src/components/EmployeeCard.tsx`](file:///Users/demian/Documents/GitHub/telemetry-apps/admin-client/src/components/EmployeeCard.tsx))
+### B. Componente Frontend de Tarjeta de Empleado ([`admin-client/src/components/EmployeeCard.tsx`](../../admin-client/src/components/EmployeeCard.tsx))
 
 ```tsx
 import React from 'react';

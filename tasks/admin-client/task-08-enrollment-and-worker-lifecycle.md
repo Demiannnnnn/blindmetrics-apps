@@ -9,6 +9,9 @@
 | **Especificación funcional** | [`docs/admin-app-spec.md`](../../docs/admin-app-spec.md) (pantallas K1, K2, W1–W4) |
 | **Prioridad** | Crítica / P0 |
 
+
+> ⚠️ **Ampliada (2026-09-30) por [`TASK-ADMIN-09`](task-09-enrollment-v2-and-consent-evidence.md).** El paquete de enrollment ahora es v2 (`{ code, expires_at, commitment, safety_code, qr_payload }`) y la app lo **verifica localmente** antes de mostrar el QR (que es el `qr_payload` verificado); regenerar un código de un enrollment completado responde `409 ENROLLMENT_ALREADY_COMPLETED` + `REVOKE_FIRST`; la organización es obligatoria (`ORGANIZATION_NAME_MISSING`); la evidencia muestra la decisión y las categorías aceptadas. La registración de la llave pasó a la Bóveda (ADMIN-11).
+
 ---
 
 ## 1. Contexto y Arquitectura

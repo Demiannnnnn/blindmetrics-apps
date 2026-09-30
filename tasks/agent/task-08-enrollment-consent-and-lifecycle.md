@@ -9,6 +9,9 @@
 | **Especificación funcional** | [`docs/worker-app-spec.md`](../../docs/worker-app-spec.md) |
 | **Prioridad** | Crítica / P0 |
 
+
+> ⚠️ **Parcialmente reemplazada (2026-09-30) por [`TASK-AGENT-09`](task-09-granular-consent-and-billing-pause.md).** El consentimiento de **paquete completo** (C1 con ACEPTAR/RECHAZAR todo y `PATCH /workers/:id/consent`, RF-AGENT-08-5) quedó obsoleto: C1 es **granular** (una casilla por categoría, desmarcada por defecto) y usa `PATCH /workers/me/consent`. También cambian los errores de enrollment (v2 por `details.reason`, `ENROLLMENT_LOCKED` con `Retry-After`), el QR (se acepta el `qr_payload` base64) y el refresh (single-flight). El resto (llave fijada, `RunMode`, retiro, revocación) sigue vigente.
+
 ---
 
 ## 1. Contexto y Arquitectura
@@ -119,7 +122,7 @@ La UI egui nunca hace `await`: envía `UiCommand::{Enroll, ConfirmSafetyCode, Ac
 - SEC-07/SEC-08: la llave usada para cifrar sale **siempre** de `CredentialStore::pinned_admin_public_key`, nunca de una respuesta HTTP.
 - DP-06..DP-09 tienen tests dedicados (§8).
 - Sin secretos en `config.json` ni en logs; el código de enrollment no se loguea.
-- `--headless` solo si existe un ícono en la bandeja (spec §5); si no, se niega a iniciar.
+- `--headless` solo si existe un ícono en la bandeja (spec §5); si no, se niega a iniciar. ⚠️ **No implementado (auditoría 2026-09-30):** `agent/src/main.rs` arranca el motor en `--headless` sin bandeja; ver `implementation-status.md` §5.
 
 ---
 

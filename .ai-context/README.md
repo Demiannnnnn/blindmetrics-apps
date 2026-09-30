@@ -22,8 +22,12 @@ Read this directory before touching code. It is the source of truth for *what th
 | Functional spec — Worker app (screens, flows, states) | [`docs/worker-app-spec.md`](../docs/worker-app-spec.md) |
 | Plaintext telemetry payload schemas (agent ⇄ admin contract) | [`docs/telemetry-payloads.md`](../docs/telemetry-payloads.md) |
 | Task roadmap | [`tasks/README.md`](../tasks/README.md) |
-| Server: enrollment & consent lifecycle design | `telemetry-api/ENROLLMENT.md` |
-| Server: API spec, DB schema, security model | `telemetry-api/docs/` |
+| Server: enrollment & consent lifecycle design (v1 + v2) | `telemetry-api/ENROLLMENT.md` |
+| Server: design of contract v2 (hardening, enrollment v2, Google, devices, vault, subscriptions) | `telemetry-api/ARCHITECTURE-CHANGES.md` and `telemetry-api/tasks/task-13..17` |
+| Server: API spec, DB schema, security model | `telemetry-api/docs/` (`api-specification.md` is the HTTP source of truth) |
+| Server: interactive contract | Swagger UI `/swagger-ui/` and `/api-docs/openapi.json` of a running API (dev builds) |
+| Server-side mirror of these apps' spec and endpoint mapping | `telemetry-api/telemetry-apps.md` |
+| `.tkb` reference vector shared with `telemetry-web` | [`tasks/crypto-core/task-03-key-backup-v2-argon2id.md`](../tasks/crypto-core/task-03-key-backup-v2-argon2id.md) |
 
 ## Naming — read this, the old docs were inconsistent
 
@@ -31,7 +35,7 @@ Read this directory before touching code. It is the source of truth for *what th
 |:--------|:----------|:--------------|:----------------|:----------------------------|
 | Worker app | `agent/` | `agent` | `agent` | `telemetry-worker`, "Worker Desktop App" |
 | Admin app (Rust side) | `admin-client/src-tauri/` | `admin-client-core` | `Telemetry Admin` (`com.telemetry.admin`) | `telemetry-admin`, `telemetry-admin-core` |
-| Admin app (UI) | `admin-client/src/` | npm `telemetry-admin-ui` | — | — |
+| Admin app (UI) | `admin-client/src/` | npm `telemetry-admin` | — | `telemetry-admin-ui` |
 | Shared crypto | `telemetry-crypto-core/` | `telemetry-crypto-core` | library | — |
 
 Use the directory/package names in code and docs. "Worker" is the **person/role**; "agent" is the **software** on their machine.
