@@ -28,8 +28,19 @@ impl Default for ConsentSettings {
     }
 }
 
+/// Server the agent is built for, fixed at compile time by `build.rs` from `TELEMETRY_API_URL`
+/// (`agent/.env` or the environment). The worker never types or changes it.
+pub const API_BASE_URL: &str = env!("TELEMETRY_API_URL");
+
+fn compiled_api_base_url() -> String {
+    API_BASE_URL.to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorkerConfig {
+    /// Always `API_BASE_URL` in the app. Never read from or written to disk (an old config file's
+    /// value is ignored); tests point it at a local mock server.
+    #[serde(skip, default = "compiled_api_base_url")]
     pub api_base_url: String,
     pub device_identifier: String,
     pub flush_interval_secs: u64,
@@ -120,11 +131,6 @@ impl WorkerConfig {
         };
 
         if is_new {
-            if let Ok(env_url) = std::env::var("TELEMETRY_API_URL") {
-                if !env_url.trim().is_empty() {
-                    cfg.api_base_url = env_url.trim().to_string();
-                }
-            }
             if let Ok(env_flush) = std::env::var("WORKER_FLUSH_INTERVAL") {
                 if let Ok(secs) = env_flush.trim().parse::<u64>() {
                     if secs >= 5 {
@@ -144,8 +150,7 @@ impl WorkerConfig {
 
     fn default_config() -> Self {
         Self {
-            api_base_url: std::env::var("TELEMETRY_API_URL")
-                .unwrap_or_else(|_| "http://localhost:8080/api/v1".to_string()),
+            api_base_url: compiled_api_base_url(),
             device_identifier: get_device_identifier(),
             flush_interval_secs: 30,
             consents: ConsentSettings::default(),
@@ -213,8 +218,17 @@ mod tests {
         assert!(!json.contains("secret_access"));
         assert!(!json.contains("secret_refresh"));
 
+        // The server URL is compiled in: never persisted, and ignored if an old file has one
+        assert!(!json.contains("api_base_url"));
         let deserialized: WorkerConfig = serde_json::from_str(&json).expect("Deserialize failed");
-        assert_eq!(config.api_base_url, deserialized.api_base_url);
+        assert_eq!(deserialized.api_base_url, API_BASE_URL);
+        let legacy: WorkerConfig = serde_json::from_str(&json.replacen(
+            '{',
+            r#"{"api_base_url":"https://evil.example/api/v1","#,
+            1,
+        ))
+        .expect("Deserialize legacy failed");
+        assert_eq!(legacy.api_base_url, API_BASE_URL);
         assert_eq!(config.device_identifier, deserialized.device_identifier);
         assert_eq!(config.flush_interval_secs, deserialized.flush_interval_secs);
         assert_eq!(config.consents, deserialized.consents);

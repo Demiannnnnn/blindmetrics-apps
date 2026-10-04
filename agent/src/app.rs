@@ -6,8 +6,8 @@ use crate::core::buffer::MetricsBuffer;
 use crate::core::collectors::keystroke_counter::KeystrokeCollector;
 use crate::credentials::CredentialStore;
 use crate::enrollment::{
-    commit_enrollment, enroll, normalize_code, validate_server_url, EnrollmentError,
-    EnrollmentInput, PendingEnrollment, Verification,
+    commit_enrollment, enroll, normalize_code, qr_targets_server, EnrollmentError, EnrollmentInput,
+    PendingEnrollment, Verification,
 };
 use crate::session::{with_access_token, SessionError};
 use crate::state::{AwaitingReason, BillingBlock, RunMode, WorkerSelf};
@@ -73,7 +73,6 @@ pub struct WorkerDesktopApp {
     enroll_locked_until: Option<std::time::Instant>,
     pub screen: ActiveScreen,
     pub enrollment_code: String,
-    pub enrollment_server_url: String,
     /// E1 mode: pasted QR payload (verified automatically) or manual code.
     enroll_with_qr: bool,
     enrollment_qr_text: String,
@@ -116,7 +115,6 @@ impl WorkerDesktopApp {
         });
 
         Self {
-            enrollment_server_url: config.api_base_url.clone(),
             config,
             buffer,
             cred_store,
@@ -287,8 +285,7 @@ impl WorkerDesktopApp {
     }
 
     fn commit_pending(&mut self, pending: &PendingEnrollment) {
-        let url = self.enrollment_server_url.trim().to_string();
-        match commit_enrollment(pending, &url, self.cred_store.as_ref(), &mut self.config) {
+        match commit_enrollment(pending, self.cred_store.as_ref(), &mut self.config) {
             Ok(()) => {
                 self.consent_offer = Some(ConsentOffer::from_enrollment(pending));
                 self.consent_selection = ConsentFlags::default();
@@ -412,34 +409,32 @@ impl WorkerDesktopApp {
 }
 
 /// Builds the enrollment input from the E1 form (RF-AGENT-08-1): a pasted QR
-/// payload (verified against its commitment) or a manual code + server URL.
+/// payload (verified against its commitment) or a manual code. `server_url` is the
+/// server the agent is built for; a QR issued for another server is rejected.
 fn parse_enrollment_input(
     with_qr: bool,
     qr_text: &str,
     code: &str,
     server_url: &str,
 ) -> Result<EnrollmentInput, String> {
-    let allow_http = cfg!(debug_assertions);
     if with_qr {
         // RF-AGENT-09-8: base64 `qr_payload` of the API or raw JSON of older admin apps.
         let qr = EnrollmentQr::parse_payload(qr_text).map_err(|_| {
             "El contenido pegado no es un código de vinculación válido.".to_string()
         })?;
-        validate_server_url(&qr.api_url, allow_http)?;
+        if !qr_targets_server(&qr.api_url, server_url) {
+            return Err(
+                "Este código de vinculación es de otro servidor. Pide a tu administrador uno generado desde la aplicación oficial."
+                    .into(),
+            );
+        }
         return Ok(EnrollmentInput::Qr(qr));
     }
     let code = normalize_code(code);
     if code.len() != 12 {
         return Err("El código debe tener 12 caracteres válidos.".into());
     }
-    if server_url.trim().is_empty() {
-        return Err("Ingrese la dirección del servidor.".into());
-    }
-    validate_server_url(server_url, allow_http)?;
-    Ok(EnrollmentInput::Manual {
-        api_url: server_url.to_string(),
-        code,
-    })
+    Ok(EnrollmentInput::Manual { code })
 }
 
 /// RF-AGENT-09-9: messages by `details.reason` of `POST /workers/enroll`.
@@ -657,16 +652,11 @@ impl WorkerDesktopApp {
                     .hint_text("eyJ0IjoidGVsZW1ldHJ5LWVucm9sbCIs…"),
             );
             ui.label(
-                RichText::new(
-                    "El QR incluye la dirección del servidor y se verifica automáticamente.",
-                )
-                .small()
-                .color(Color32::LIGHT_GRAY),
+                RichText::new("El código se verifica automáticamente.")
+                    .small()
+                    .color(Color32::LIGHT_GRAY),
             );
         } else {
-            ui.label("Dirección del servidor:");
-            ui.text_edit_singleline(&mut self.enrollment_server_url);
-            ui.add_space(6.0);
             ui.label("Código de 12 caracteres (ej. K7QM-4XRT-9PWD):");
             ui.text_edit_singleline(&mut self.enrollment_code);
         }
@@ -700,10 +690,8 @@ impl WorkerDesktopApp {
                     return;
                 }
             };
-            // The QR carries the server address; manual codes use the typed one.
-            self.enrollment_server_url =
-                input.api_url(&self.config.api_base_url).trim().to_string();
-            let api = match ApiClient::new(self.enrollment_server_url.clone()) {
+            // Always the server the agent is built for (config::API_BASE_URL)
+            let api = match ApiClient::new(self.config.api_base_url.clone()) {
                 Ok(api) => api,
                 Err(e) => {
                     self.error_message = Some(format!("Dirección de servidor inválida: {}", e));
@@ -727,7 +715,7 @@ impl WorkerDesktopApp {
             self.enroll_with_qr,
             &self.enrollment_qr_text,
             &self.enrollment_code,
-            &self.enrollment_server_url,
+            &self.config.api_base_url,
         )
     }
 
@@ -1409,45 +1397,35 @@ mod tests {
 
     #[test]
     fn test_enrollment_input_manual_code_normalized() {
-        let input =
-            parse_enrollment_input(false, "", "k7qm-4xrt-9pwo", "https://api.acme.cl/api/v1")
-                .unwrap();
+        let server = "https://api.acme.cl/api/v1";
+        let input = parse_enrollment_input(false, "", "k7qm-4xrt-9pwo", server).unwrap();
         assert_eq!(
             input,
             EnrollmentInput::Manual {
-                api_url: "https://api.acme.cl/api/v1".into(),
                 code: "K7QM4XRT9PW0".into(),
             }
         );
-        assert!(parse_enrollment_input(false, "", "K7QM", "https://x").is_err());
-        assert!(parse_enrollment_input(false, "", "K7QM-4XRT-9PWD", " ").is_err());
+        assert!(parse_enrollment_input(false, "", "K7QM", server).is_err());
     }
 
     #[test]
-    fn test_enrollment_input_pasted_qr_carries_server_url() {
-        let qr = EnrollmentQr::new(
-            "https://api.acme.cl/api/v1".into(),
-            "K7QM-4XRT-9PWD".into(),
-            "a".repeat(64),
-        )
-        .unwrap();
-        let input = parse_enrollment_input(true, &qr.to_json().unwrap(), "", "").unwrap();
-        assert_eq!(input.api_url("fallback"), "https://api.acme.cl/api/v1");
+    fn test_enrollment_input_pasted_qr_must_target_the_built_in_server() {
+        let server = "https://api.acme.cl/api/v1";
+        let qr = EnrollmentQr::new(server.into(), "K7QM-4XRT-9PWD".into(), "a".repeat(64)).unwrap();
+        let input = parse_enrollment_input(true, &qr.to_json().unwrap(), "", server).unwrap();
         assert!(matches!(input, EnrollmentInput::Qr(_)));
-        assert!(parse_enrollment_input(true, "not a qr", "", "").is_err());
+        assert!(parse_enrollment_input(true, "not a qr", "", server).is_err());
         // RF-AGENT-09-8: the API's canonical base64 payload works the same way.
-        let from_base64 = parse_enrollment_input(true, &qr.to_payload().unwrap(), "", "").unwrap();
+        let from_base64 =
+            parse_enrollment_input(true, &qr.to_payload().unwrap(), "", server).unwrap();
         assert_eq!(from_base64, input);
-        // SEC-10: a QR pointing to plain http is rejected outside debug builds.
-        let http_qr = EnrollmentQr::new(
-            "http://api.acme.cl/api/v1".into(),
+        // A QR issued for another server is rejected instead of followed.
+        let foreign = EnrollmentQr::new(
+            "https://evil.example/api/v1".into(),
             "K7QM-4XRT-9PWD".into(),
             "a".repeat(64),
         )
         .unwrap();
-        assert_eq!(
-            parse_enrollment_input(true, &http_qr.to_json().unwrap(), "", "").is_ok(),
-            cfg!(debug_assertions)
-        );
+        assert!(parse_enrollment_input(true, &foreign.to_json().unwrap(), "", server).is_err());
     }
 }

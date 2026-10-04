@@ -11,7 +11,7 @@ use telemetry_crypto_core::{
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnrollmentInput {
     Qr(EnrollmentQr),
-    Manual { api_url: String, code: String },
+    Manual { code: String },
 }
 
 impl EnrollmentInput {
@@ -21,37 +21,13 @@ impl EnrollmentInput {
             EnrollmentInput::Manual { code, .. } => normalize_code(code),
         }
     }
-
-    pub fn api_url<'a>(&'a self, fallback: &'a str) -> &'a str {
-        match self {
-            EnrollmentInput::Qr(qr) => &qr.api_url,
-            EnrollmentInput::Manual { api_url, .. } => {
-                if api_url.trim().is_empty() {
-                    fallback
-                } else {
-                    api_url.trim()
-                }
-            }
-        }
-    }
 }
 
-/// SEC-10: release builds only talk to `https://` servers; `http://` is accepted in debug
-/// builds (local development). The URL must have a host and no credentials.
-pub fn validate_server_url(url: &str, allow_http: bool) -> Result<(), String> {
-    let url = url.trim();
-    let rest = if let Some(rest) = url.strip_prefix("https://") {
-        rest
-    } else if let Some(rest) = url.strip_prefix("http://").filter(|_| allow_http) {
-        rest
-    } else {
-        return Err("La dirección del servidor debe comenzar con https://".into());
-    };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.is_empty() || authority.contains('@') || url.chars().any(char::is_whitespace) {
-        return Err("La dirección del servidor no es válida.".into());
-    }
-    Ok(())
+/// The agent only talks to the server it was built for (`config::API_BASE_URL`). An enrollment
+/// QR from an admin app pointed at another server is rejected instead of followed.
+pub fn qr_targets_server(qr_api_url: &str, server_url: &str) -> bool {
+    let normalize = |u: &str| u.trim().trim_end_matches('/').to_ascii_lowercase();
+    normalize(qr_api_url) == normalize(server_url)
 }
 
 /// Normalizes a manual code: uppercase, strip whitespace & dashes, Crockford replacements I/L->1, O->0.
@@ -156,7 +132,6 @@ pub async fn enroll(
 
 pub fn commit_enrollment(
     pending: &PendingEnrollment,
-    api_url: &str,
     cred_store: &dyn CredentialStore,
     config: &mut WorkerConfig,
 ) -> Result<(), String> {
@@ -166,7 +141,6 @@ pub fn commit_enrollment(
     cred_store.set_pinned_fingerprint(Some(&pending.resp.admin_public_key_fingerprint))?;
     cred_store.set_worker_id(Some(&pending.resp.worker_id))?;
 
-    config.api_base_url = api_url.trim_end_matches('/').to_string();
     config.save().map_err(|e| e.to_string())?;
 
     tracing::info!(
@@ -224,13 +198,23 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_server_url_rules() {
-        assert!(validate_server_url("https://api.acme.cl/api/v1", false).is_ok());
-        assert!(validate_server_url("http://localhost:8080/api/v1", true).is_ok());
-        assert!(validate_server_url("http://api.acme.cl/api/v1", false).is_err());
-        assert!(validate_server_url("https://user:pw@api.acme.cl", false).is_err());
-        assert!(validate_server_url("ftp://api.acme.cl", true).is_err());
-        assert!(validate_server_url("https://", false).is_err());
+    fn test_qr_targets_server_only_matches_the_built_in_server() {
+        assert!(qr_targets_server(
+            "https://api.acme.cl/api/v1",
+            "https://api.acme.cl/api/v1"
+        ));
+        assert!(qr_targets_server(
+            "https://API.acme.cl/api/v1/",
+            "https://api.acme.cl/api/v1"
+        ));
+        assert!(!qr_targets_server(
+            "https://evil.example/api/v1",
+            "https://api.acme.cl/api/v1"
+        ));
+        assert!(!qr_targets_server(
+            "http://api.acme.cl/api/v1",
+            "https://api.acme.cl/api/v1"
+        ));
     }
 
     #[test]
@@ -340,7 +324,6 @@ mod tests {
         };
 
         let manual_input = EnrollmentInput::Manual {
-            api_url: server.uri(),
             code: "k7qm-4xrt-9pwd".into(),
         };
 
@@ -396,7 +379,6 @@ mod tests {
         };
 
         let manual_input = EnrollmentInput::Manual {
-            api_url: server.uri(),
             code: "K7QM-4XRT-9PWD".into(),
         };
 
