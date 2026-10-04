@@ -188,17 +188,17 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
   const paginatedShots = screenshots.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-lg space-y-5">
+    <div className="bg-surface-subtle border border-default rounded-card p-5 space-y-5">
       {/* Header with Blur Mode Toggle */}
       <div className="flex flex-wrap justify-between items-center gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Camera className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
+            <Camera className="w-5 h-5 text-accent" />
             Galería de Capturas Periódicas de Productividad
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-muted">
             Capturas descargadas y descifradas localmente en RAM para:{' '}
-            <span className="text-indigo-400 font-medium">{workerName}</span>
+            <span className="text-accent font-medium">{workerName}</span>
           </p>
         </div>
 
@@ -206,11 +206,11 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
           {/* RF-ADMIN-05-3: Blur Toggle Button */}
           <button
             onClick={() => setPrivacyBlur(!privacyBlur)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border transition ${
-              privacyBlur
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
-                : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
-            }`}
+            className={`px-3 py-1.5 rounded-control text-xs font-medium flex items-center gap-2 border transition ${
+ privacyBlur
+ ? 'bg-warning-subtle text-warning border-default hover:bg-warning-subtle'
+ : 'bg-surface-subtle text-fg border-strong hover:bg-strong'
+ }`}
           >
             {privacyBlur ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             <span>{privacyBlur ? '🔒 Modo Blur Activo (Texto Oculto)' : '🔓 Texto Visible'}</span>
@@ -219,59 +219,59 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
       </div>
 
       {loading ? (
-        <div className="h-72 w-full flex flex-col items-center justify-center bg-slate-900/40 rounded-xl border border-slate-700/50">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-xs text-slate-400 mt-3 font-mono">Descifrando capturas JPEG/WebP en memoria...</p>
+        <div className="h-72 w-full flex flex-col items-center justify-center bg-surface rounded-card border border-default">
+          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs text-muted mt-3 font-mono">Descifrando capturas JPEG/WebP en memoria...</p>
         </div>
       ) : screenshots.length === 0 ? (
         // Empty State or Demo mode fallback
         isDemoMode ? (
           <div className="space-y-4">
-            <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-lg p-3 text-xs text-indigo-300 flex items-center gap-2">
-              <Shield className="w-4 h-4 shrink-0 text-indigo-400" />
+            <div className="bg-accent-subtle border border-default rounded-control p-3 text-xs text-accent flex items-center gap-2">
+              <Shield className="w-4 h-4 shrink-0 text-accent" />
               <span>Modo Demostración: Simulando tarjetas de capturas de pantalla periódicas.</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {mockScreenshotsData.map(shot => (
                 <div
                   key={shot.id}
-                  className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden shadow-md flex flex-col justify-between"
+                  className="bg-surface border border-default rounded-card overflow-hidden flex flex-col justify-between"
                 >
-                  <div className="relative h-44 bg-slate-950 flex items-center justify-center overflow-hidden">
+                  <div className="relative h-44 bg-bg flex items-center justify-center overflow-hidden">
                     <div
                       className={`w-full h-full p-4 flex flex-col justify-between transition-all duration-300 ${
                         privacyBlur ? 'blur-md select-none' : ''
                       }`}
                       style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)' }}
                     >
-                      <div className="flex justify-between items-center text-[10px] text-slate-400 border-b border-slate-800 pb-2">
+                      <div className="flex justify-between items-center text-[10px] text-muted border-b border-default pb-2">
                         <span>{shot.appContext}</span>
                         <span>{shot.time}</span>
                       </div>
-                      <div className="text-center py-6 text-xs text-indigo-300 font-mono">
+                      <div className="text-center py-6 text-xs text-accent font-mono">
                         [Simulación de captura protegida]
                       </div>
-                      <div className="text-[9px] text-slate-500 font-mono text-right">
+                      <div className="text-[9px] text-muted font-mono text-right">
                         Watermark: Telemetry Audit
                       </div>
                     </div>
                   </div>
-                  <div className="p-3 bg-slate-800 text-xs flex justify-between items-center border-t border-slate-700/80">
-                    <span className="font-semibold text-slate-200">{shot.appContext}</span>
-                    <span className="text-slate-400 font-mono text-[11px]">{shot.time} hrs</span>
+                  <div className="p-3 bg-surface-subtle text-xs flex justify-between items-center border-t border-default">
+                    <span className="font-semibold text-fg">{shot.appContext}</span>
+                    <span className="text-muted font-mono text-[11px]">{shot.time} hrs</span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
         ) : (
-          <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-12 text-center space-y-3">
-            <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
-              <AlertCircle className="w-6 h-6 text-indigo-400" />
+          <div className="bg-surface border border-default rounded-card p-12 text-center space-y-3">
+            <div className="w-12 h-12 rounded-full bg-surface-subtle text-muted flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6 text-accent" />
             </div>
-            <h3 className="text-base font-semibold text-white">Sin Capturas en el Período</h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-              No se encontraron capturas de pantalla descifradas para <strong className="text-slate-200">{workerName}</strong> en el rango temporal seleccionado.
+            <h3 className="text-base font-semibold text-fg">Sin Capturas en el Período</h3>
+            <p className="text-xs text-muted max-w-md mx-auto leading-relaxed">
+              No se encontraron capturas de pantalla descifradas para <strong className="text-fg">{workerName}</strong> en el rango temporal seleccionado.
             </p>
           </div>
         )
@@ -282,9 +282,9 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
             {paginatedShots.map(shot => (
               <div
                 key={shot.id}
-                className="group relative bg-slate-900 border border-slate-700 rounded-xl overflow-hidden shadow-md flex flex-col justify-between"
+                className="group relative bg-surface border border-default rounded-card overflow-hidden flex flex-col justify-between"
               >
-                <div className="relative h-48 bg-slate-950 flex items-center justify-center overflow-hidden">
+                <div className="relative h-48 bg-bg flex items-center justify-center overflow-hidden">
                   <img
                     src={shot.blobUrl}
                     alt={shot.appContext}
@@ -294,17 +294,17 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
                   />
 
                   {/* Hover Overlay with Zoom and Watermarked Export */}
-                  <div className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                  <div className="absolute inset-0 bg-bg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
                     <button
                       onClick={() => setSelectedShot(shot)}
-                      className="p-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition shadow-lg"
+                      className="p-2.5 bg-accent text-accent-fg rounded-control hover:bg-accent-hover transition"
                       title="Inspeccionar en detalle"
                     >
                       <ZoomIn className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleExportWatermarked(shot)}
-                      className="p-2.5 bg-slate-700 text-slate-200 rounded-lg hover:bg-slate-600 transition shadow-lg"
+                      className="p-2.5 bg-surface-subtle text-fg rounded-control hover:bg-strong transition"
                       title="Exportar con marca de agua legal"
                     >
                       <Download className="w-4 h-4" />
@@ -312,9 +312,9 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
                   </div>
                 </div>
 
-                <div className="p-3 bg-slate-800 text-xs flex justify-between items-center border-t border-slate-700/80">
-                  <span className="font-semibold text-slate-200 truncate">{shot.appContext}</span>
-                  <span className="text-slate-400 font-mono text-[11px] shrink-0 ml-2">
+                <div className="p-3 bg-surface-subtle text-xs flex justify-between items-center border-t border-default">
+                  <span className="font-semibold text-fg truncate">{shot.appContext}</span>
+                  <span className="text-muted font-mono text-[11px] shrink-0 ml-2">
                     {shot.timestamp}
                   </span>
                 </div>
@@ -324,7 +324,7 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
 
           {/* Pagination Controls */}
           {totalPages > 1 && (
-            <div className="flex justify-between items-center pt-2 border-t border-slate-700/80 text-xs text-slate-400">
+            <div className="flex justify-between items-center pt-2 border-t border-default text-xs text-muted">
               <span>
                 Mostrando {paginatedShots.length} de {screenshots.length} capturas
               </span>
@@ -332,17 +332,17 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
                 <button
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  className="p-1.5 rounded-control bg-surface-subtle border border-default text-fg hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed transition"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <span className="font-mono text-slate-200">
+                <span className="font-mono text-fg">
                   Página {currentPage} de {totalPages}
                 </span>
                 <button
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  className="p-1.5 rounded-control bg-surface-subtle border border-default text-fg hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed transition"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -354,22 +354,22 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
 
       {/* Modal for Zoomed Screenshot */}
       {selectedShot && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-4xl w-full p-5 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Camera className="w-4 h-4 text-indigo-400" />
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
+          <div className="bg-surface border border-default rounded-card max-w-4xl w-full p-5 space-y-4 ">
+            <div className="flex justify-between items-center border-b border-default pb-3">
+              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+                <Camera className="w-4 h-4 text-accent" />
                 {selectedShot.appContext} — {selectedShot.timestamp}
               </h3>
               <button
                 onClick={() => setSelectedShot(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+                className="text-muted hover:text-fg p-1 rounded-control hover:bg-surface-subtle transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="relative max-h-[65vh] overflow-hidden rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800">
+            <div className="relative max-h-[65vh] overflow-hidden rounded-card bg-bg flex items-center justify-center border border-default">
               <img
                 src={selectedShot.blobUrl}
                 alt="Vista ampliada"
@@ -377,7 +377,7 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
                   privacyBlur ? 'blur-md hover:blur-none' : ''
                 }`}
               />
-              <div className="absolute bottom-0 inset-x-0 bg-slate-950/80 backdrop-blur-sm p-2 text-center text-[11px] text-amber-300 font-mono border-t border-slate-800">
+              <div className="absolute bottom-0 inset-x-0 bg-bg p-2 text-center text-[11px] text-warning font-mono border-t border-default">
                 Watermark de Auditoría: {workerName} — {selectedShot.timestamp} (Confidencial)
               </div>
             </div>
@@ -385,22 +385,22 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
             <div className="flex justify-between items-center pt-2">
               <button
                 onClick={() => setPrivacyBlur(!privacyBlur)}
-                className="text-xs text-slate-300 flex items-center gap-1.5 hover:text-white transition"
+                className="text-xs text-fg flex items-center gap-1.5 hover:text-fg transition"
               >
-                {privacyBlur ? <Eye className="w-4 h-4 text-amber-400" /> : <EyeOff className="w-4 h-4" />}
+                {privacyBlur ? <Eye className="w-4 h-4 text-warning" /> : <EyeOff className="w-4 h-4" />}
                 <span>{privacyBlur ? 'Revelar texto nítido' : 'Aplicar desenfoque'}</span>
               </button>
               <div className="flex gap-2">
                 <button
                   onClick={() => handleExportWatermarked(selectedShot)}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition shadow"
+                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg rounded-control text-xs font-medium flex items-center gap-1.5 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Descargar con Marca de Agua</span>
                 </button>
                 <button
                   onClick={() => setSelectedShot(null)}
-                  className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs hover:bg-slate-700 transition"
+                  className="px-3 py-1.5 bg-surface-subtle text-fg rounded-control text-xs hover:bg-surface-subtle transition"
                 >
                   Cerrar
                 </button>

@@ -218,7 +218,7 @@ export const App: React.FC = () => {
 
   if (gate.kind === 'checking') {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-sm text-slate-400 gap-2">
+      <div className="min-h-screen bg-bg flex items-center justify-center text-sm text-muted gap-2">
         <RefreshCw className="w-4 h-4 animate-spin" /> Verificando suscripción y llave…
       </div>
     );
@@ -226,14 +226,14 @@ export const App: React.FC = () => {
 
   if (gate.kind === 'error') {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-center">
-          <p className="text-sm text-rose-300">{gate.message}</p>
+      <div className="min-h-screen bg-bg flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-surface border border-default rounded-card p-6 space-y-4 text-center">
+          <p className="text-sm text-danger">{gate.message}</p>
           <div className="flex justify-center gap-2">
-            <button onClick={runGates} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-lg">
+            <button onClick={runGates} className="px-4 py-2 bg-accent hover:bg-accent-hover text-accent-fg text-xs rounded-control">
               Reintentar
             </button>
-            <button onClick={handleLogout} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg">
+            <button onClick={handleLogout} className="px-4 py-2 bg-surface-subtle hover:bg-surface-subtle text-fg text-xs rounded-control">
               Cerrar sesión
             </button>
           </div>
@@ -269,7 +269,7 @@ export const App: React.FC = () => {
   const trialDays = gate.subscription?.trial_days_left ?? adminProfile.trial_days_left ?? null;
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-surface text-fg font-sans overflow-hidden">
       {/* Auto-Lock Security Overlay (RF-ADMIN-07-1..3) */}
       <AutoLockModal
         isLocked={isLocked}
@@ -284,16 +284,16 @@ export const App: React.FC = () => {
       />
 
       {/* Sidebar Navigation */}
-      <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between flex-shrink-0">
+      <aside className="w-64 bg-ink border-r border-ink-line flex flex-col justify-between flex-shrink-0">
         <div>
           {/* Logo / Header */}
-          <div className="p-5 border-b border-slate-800 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-emerald-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-600/30 ring-1 ring-white/20">
+          <div className="p-5 border-b border-ink-line flex items-center gap-3">
+            <div className="w-9 h-9 rounded-card bg-brand flex items-center justify-center font-bold text-white ">
               T
             </div>
             <div>
-              <h1 className="text-sm font-bold text-white tracking-wide">Telemetry Admin</h1>
-              <p className="text-[10px] text-slate-400 font-mono">Zero-Knowledge Console</p>
+              <h1 className="text-sm font-semibold text-ink-fg">Telemetry</h1>
+              <p className="text-[11px] text-ink-muted">Consola de administración</p>
             </div>
           </div>
 
@@ -301,10 +301,10 @@ export const App: React.FC = () => {
           <nav className="p-3 space-y-1 text-xs">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
                 activeTab === 'dashboard'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -313,10 +313,10 @@ export const App: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('system')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
                 activeTab === 'system'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
               }`}
             >
               <Activity className="w-4 h-4" />
@@ -325,10 +325,10 @@ export const App: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('network')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
                 activeTab === 'network'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
               }`}
             >
               <Globe className="w-4 h-4" />
@@ -337,10 +337,10 @@ export const App: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('productivity')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
                 activeTab === 'productivity'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
               }`}
             >
               <Camera className="w-4 h-4" />
@@ -349,10 +349,10 @@ export const App: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('files')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
                 activeTab === 'files'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
               }`}
             >
               <FileText className="w-4 h-4" />
@@ -361,10 +361,10 @@ export const App: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('location')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
                 activeTab === 'location'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
               }`}
             >
               <MapPin className="w-4 h-4" />
@@ -373,10 +373,10 @@ export const App: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('compliance')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
                 activeTab === 'compliance'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
               }`}
             >
               <ShieldCheck className="w-4 h-4" />
@@ -386,18 +386,18 @@ export const App: React.FC = () => {
         </div>
 
         {/* User Session & Lock Button */}
-        <div className="p-3 border-t border-slate-800 space-y-2">
+        <div className="p-3 border-t border-ink-line space-y-2">
           {/* Active Admin User Card */}
-          <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-800 text-xs">
-            <div className="flex items-center gap-2 text-slate-200 font-semibold truncate">
-              <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          <div className="p-2.5 bg-ink-raised rounded-card border border-ink-line text-xs">
+            <div className="flex items-center gap-2 text-ink-fg font-semibold truncate">
+              <User className="w-3.5 h-3.5 text-brand shrink-0" />
               <span className="truncate">{adminProfile.name}</span>
             </div>
-            <div className="text-[11px] text-slate-400 truncate mt-0.5">{adminProfile.email}</div>
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono">
+            <div className="text-[11px] text-ink-muted truncate mt-0.5">{adminProfile.email}</div>
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-ink-line text-[10px] text-ink-muted font-mono">
               <span>{adminProfile.organization || 'Sin organización'}</span>
-              <span className="flex items-center gap-1 text-emerald-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span className="flex items-center gap-1 text-ink-muted">
+                <span className="w-1.5 h-1.5 rounded-full bg-success"></span>
                 Autenticado
               </span>
             </div>
@@ -406,16 +406,16 @@ export const App: React.FC = () => {
           <div className="flex gap-2">
             <button
               onClick={lockApp}
-              className="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 px-2.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+              className="flex-1 bg-ink-raised hover:bg-ink-line text-ink-fg border border-ink-line px-2.5 py-2 rounded-card text-xs flex items-center justify-center gap-1.5 transition"
               title="Bloquear sesión por inactividad y purgar RAM"
             >
-              <Lock className="w-3.5 h-3.5 text-amber-400" />
+              <Lock className="w-3.5 h-3.5 text-ink-muted" />
               <span>Bloquear</span>
             </button>
 
             <button
               onClick={handleLogout}
-              className="p-2 bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-700/80 rounded-xl transition"
+              className="p-2 bg-ink-raised hover:bg-ink-line text-ink-muted hover:text-brand border border-ink-line rounded-card transition"
               title="Cerrar Sesión"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -423,12 +423,12 @@ export const App: React.FC = () => {
           </div>
 
           {/* Auto-Lock Inactivity Timeout Configuration (RF-ADMIN-07-1) */}
-          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 pt-0.5">
+          <div className="flex items-center justify-between text-[11px] text-ink-muted px-1 pt-0.5">
             <span>Auto-bloqueo:</span>
             <select
               value={timeoutMinutes}
               onChange={e => setTimeoutMinutes(parseInt(e.target.value, 10))}
-              className="bg-slate-900 border border-slate-700 text-slate-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:border-indigo-500 cursor-pointer"
+              className="bg-ink-raised border border-ink-line text-ink-fg rounded-control px-1.5 py-0.5 text-[11px] focus:outline-none focus:border-brand cursor-pointer"
             >
               <option value={5}>5 min</option>
               <option value={10}>10 min</option>
@@ -446,11 +446,11 @@ export const App: React.FC = () => {
           <TrialBanner daysLeft={trialDays} />
         )}
         {/* RF-ADMIN-05-1: Global Context Header with Worker and Time Range Selectors */}
-        <header className="h-16 border-b border-slate-800 px-6 flex items-center justify-between flex-shrink-0 bg-slate-900/60 backdrop-blur">
+        <header className="h-16 border-b border-default px-6 flex items-center justify-between flex-shrink-0 bg-surface">
           <div className="flex items-center gap-4 flex-wrap">
             {/* Worker Selector Dropdown */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-400">Trabajador:</span>
+              <span className="text-xs font-medium text-muted">Trabajador:</span>
               <div className="relative">
                 <select
                   value={selectedWorker?.id ?? ''}
@@ -458,7 +458,7 @@ export const App: React.FC = () => {
                     const w = allWorkers.find(item => item.id === e.target.value);
                     if (w) setSelectedWorker(w);
                   }}
-                  className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  className="bg-surface-subtle border border-default text-fg text-xs font-semibold rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-accent cursor-pointer"
                 >
                   {allWorkers.map(w => (
                     <option key={w.id} value={w.id}>
@@ -466,26 +466,26 @@ export const App: React.FC = () => {
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-muted absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             </div>
 
             {/* Time Range Selector (RF-ADMIN-05-1) */}
             <div className="flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-xs font-medium text-slate-400">Rango:</span>
+              <Calendar className="w-3.5 h-3.5 text-muted" />
+              <span className="text-xs font-medium text-muted">Rango:</span>
               <div className="relative">
                 <select
                   value={timeRange.preset}
                   onChange={e => handlePresetChange(e.target.value as TimeRangePreset)}
-                  className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium rounded-lg pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  className="bg-surface-subtle border border-default text-fg text-xs font-medium rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-accent cursor-pointer"
                 >
                   <option value="today">Hoy</option>
                   <option value="yesterday">Ayer</option>
                   <option value="7days">Últimos 7 días</option>
                   <option value="custom">Personalizado</option>
                 </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-muted absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
 
               {/* Custom Date Inputs */}
@@ -495,14 +495,14 @@ export const App: React.FC = () => {
                     type="date"
                     value={customFrom}
                     onChange={e => handleCustomDateChange(e.target.value, customTo)}
-                    className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500"
+                    className="bg-surface-subtle border border-default text-fg rounded px-2 py-1 text-xs focus:outline-none focus:border-accent"
                   />
-                  <span className="text-slate-500">-</span>
+                  <span className="text-muted">-</span>
                   <input
                     type="date"
                     value={customTo}
                     onChange={e => handleCustomDateChange(customFrom, e.target.value)}
-                    className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500"
+                    className="bg-surface-subtle border border-default text-fg rounded px-2 py-1 text-xs focus:outline-none focus:border-accent"
                   />
                 </div>
               )}
@@ -511,10 +511,10 @@ export const App: React.FC = () => {
 
           {/* Crypto Status & Time */}
           <div className="flex items-center gap-4 text-xs font-mono">
-            <span className="bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 px-2.5 py-1 rounded-md">
+            <span className="bg-surface-subtle text-muted border border-default px-2.5 py-1 rounded-badge">
               X25519-AES256GCM
             </span>
-            <span className="text-slate-400 hidden sm:inline">
+            <span className="text-muted hidden sm:inline">
               {selectedWorker?.timezone ?? 'America/Santiago'}
             </span>
           </div>

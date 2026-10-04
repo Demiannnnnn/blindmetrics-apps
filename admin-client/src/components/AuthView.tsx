@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, KeyRound, User, Building, ArrowRight, AlertTriangle, Sparkles } from 'lucide-react';
+import { ShieldCheck, KeyRound, User, Building, ArrowRight, AlertTriangle } from 'lucide-react';
 import {
   adminLogin,
   adminLoginGoogle,
@@ -88,30 +88,36 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center px-4 relative overflow-hidden text-slate-100">
-      {/* Background glow effects */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-80 h-80 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-bg flex flex-col text-fg">
+      {/* Ink top bar with the logo (ecosystem auth layout) */}
+      <header className="h-14 shrink-0 bg-ink border-b border-ink-line flex items-center px-6 gap-3">
+        <span className="w-7 h-7 rounded-control bg-brand flex items-center justify-center" aria-hidden="true">
+          <ShieldCheck className="w-4 h-4 text-white" strokeWidth={2} />
+        </span>
+        <span className="text-sm font-semibold text-ink-fg">Telemetry</span>
+        <span className="text-xs text-ink-muted">Consola de administración</span>
+      </header>
 
-      <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-8 backdrop-blur-xl relative z-10">
-        {/* Brand Header */}
-        <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-14 h-14 bg-gradient-to-tr from-indigo-600 to-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 mb-4 ring-1 ring-white/20">
-            <ShieldCheck className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Telemetry Admin</h1>
-          <p className="text-xs text-slate-400 mt-1">Consola Ejecutiva con Cifrado Zero-Knowledge</p>
+      <div className="flex-1 flex justify-center items-start sm:items-center px-4 py-10 overflow-y-auto">
+      <div className="w-full max-w-md bg-surface border border-default rounded-card p-8">
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-fg">
+            {tab === 'login' ? 'Inicia sesión' : 'Crea tu cuenta de administrador'}
+          </h1>
+          <p className="text-sm text-muted mt-1">
+            Tus datos se cifran en este equipo; el servidor nunca puede leerlos.
+          </p>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex bg-slate-950/60 p-1 rounded-xl mb-6 border border-slate-800/80">
+        <div className="flex bg-surface-subtle p-1 rounded-control mb-6 border border-default">
           <button
             type="button"
             onClick={() => { setTab('login'); setErrorMessage(null); }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+            className={`flex-1 py-1.5 text-xs font-medium rounded-control transition-colors ${
               tab === 'login'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-surface text-fg border border-default'
+                : 'text-muted hover:text-fg border border-transparent'
             }`}
           >
             Iniciar Sesión
@@ -119,10 +125,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
           <button
             type="button"
             onClick={() => { setTab('register'); setErrorMessage(null); }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+            className={`flex-1 py-1.5 text-xs font-medium rounded-control transition-colors ${
               tab === 'register'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-surface text-fg border border-default'
+                : 'text-muted hover:text-fg border border-transparent'
             }`}
           >
             Crear Cuenta Admin
@@ -130,8 +136,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
         </div>
 
         {errorMessage && (
-          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg flex items-start gap-2 text-xs text-rose-300">
-            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+          <div className="mb-4 p-3 bg-danger-subtle border border-default rounded-control flex items-start gap-2 text-xs text-danger">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-danger mt-0.5" />
             <span>{errorMessage}</span>
           </div>
         )}
@@ -140,8 +146,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
           {tab === 'register' && (
             <>
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-slate-400" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-muted" />
                   Nombre Completo
                 </label>
                 <input
@@ -150,13 +156,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Tu nombre completo"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Building className="w-3.5 h-3.5 text-slate-400" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1.5">
+                  <Building className="w-3.5 h-3.5 text-muted" />
                   Organización o Empresa
                 </label>
                 <input
@@ -165,27 +171,27 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
                   value={organization}
                   onChange={(e) => setOrganization(e.target.value)}
                   placeholder="Nombre de tu empresa"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
             </>
           )}
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">Correo Electrónico</label>
+            <label className="block text-xs font-medium text-fg mb-1.5">Correo Electrónico</label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@empresa.com"
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <KeyRound className="w-3.5 h-3.5 text-slate-400" />
+            <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1.5">
+              <KeyRound className="w-3.5 h-3.5 text-muted" />
               Contraseña de la cuenta
             </label>
             <input
@@ -194,7 +200,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
 
@@ -202,7 +208,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-2 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-medium rounded-lg text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition-all disabled:opacity-50"
+            className="w-full mt-2 py-2.5 bg-accent text-accent-fg font-medium rounded-control text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
           >
             {loading ? (
               <span>Autenticando...</span>
@@ -222,39 +228,39 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
             onClick={handleGoogle}
             disabled={loading || !googleAvailable}
             title={googleAvailable ? undefined : 'El inicio con Google no está configurado en esta versión'}
-            className="w-full py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-medium rounded-lg text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
+            className="w-full py-2.5 bg-surface hover:bg-surface-subtle text-muted font-medium rounded-control text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
           >
-            <span className="font-bold text-indigo-600">G</span>
+            <span className="font-bold text-accent">G</span>
             <span>Continuar con Google</span>
           </button>
           {!googleAvailable && (
-            <p className="text-[11px] text-slate-500 text-center mt-1.5">
+            <p className="text-[11px] text-muted text-center mt-1.5">
               El inicio con Google no está configurado en esta versión.
             </p>
           )}
           {googleAvailable && (
-            <p className="text-[11px] text-slate-500 text-center mt-1.5">
+            <p className="text-[11px] text-muted text-center mt-1.5">
               Se abrirá tu navegador; esta app nunca ve tu contraseña de Google.
             </p>
           )}
         </div>
 
         {isDemoMode && (
-          <div className="mt-6 pt-5 border-t border-slate-800">
+          <div className="mt-6 pt-5 border-t border-default">
             <button
               type="button"
               onClick={handleDemoAccess}
               disabled={loading}
-              className="w-full py-2 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 rounded-lg text-xs text-slate-300 flex items-center justify-center gap-2 transition-all"
+              className="w-full py-2 bg-surface-subtle hover:bg-surface-subtle border border-default rounded-control text-xs text-fg flex items-center justify-center gap-2 transition-all"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Entrar en Modo Demo</span>
+              <span>Entrar en modo demo</span>
             </button>
-            <p className="text-[11px] text-slate-500 text-center mt-2">
+            <p className="text-[11px] text-muted text-center mt-2">
               Solo para demostraciones: usa datos ficticios, sin servidor.
             </p>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

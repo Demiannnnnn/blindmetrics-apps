@@ -56,36 +56,36 @@ export const WorkerEditModal: React.FC<WorkerEditModalProps> = ({ worker, onClos
   };
 
   const input =
-    'w-full mt-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500';
+    'w-full mt-1 bg-surface border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-none focus:border-accent';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
-        <div className="flex justify-between items-center border-b border-slate-700 pb-3">
+      <div className="bg-surface-subtle border border-default rounded-card max-w-lg w-full p-6 space-y-4 shadow-md">
+        <div className="flex justify-between items-center border-b border-default pb-3">
           <div>
-            <h3 className="text-base font-semibold text-white">Editar Trabajador</h3>
-            <p className="text-xs text-slate-400 font-mono">{worker.email}</p>
+            <h3 className="text-base font-semibold text-fg">Editar Trabajador</h3>
+            <p className="text-xs text-muted font-mono">{worker.email}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+          <button onClick={onClose} className="text-muted hover:text-fg">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-xs text-slate-400 font-medium">Nombre Completo</label>
+            <label className="text-xs text-muted font-medium">Nombre Completo</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} className={input} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-slate-400 font-medium">Rol Laboral</label>
+              <label className="text-xs text-muted font-medium">Rol Laboral</label>
               <select value={role} onChange={e => setRole(e.target.value as 'OFFICE' | 'FIELD')} className={input}>
                 <option value="OFFICE">Oficina (OFFICE)</option>
                 <option value="FIELD">Terreno (FIELD)</option>
               </select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 font-medium">Zona Horaria (IANA)</label>
+              <label className="text-xs text-muted font-medium">Zona Horaria (IANA)</label>
               <input list="iana-timezones-edit" value={timezone} onChange={e => setTimezone(e.target.value)} className={input} />
               <datalist id="iana-timezones-edit">
                 {timezones.map(tz => (
@@ -96,25 +96,25 @@ export const WorkerEditModal: React.FC<WorkerEditModalProps> = ({ worker, onClos
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-slate-400 font-medium">Inicio Turno</label>
+              <label className="text-xs text-muted font-medium">Inicio Turno</label>
               <input type="time" value={start} onChange={e => setStart(e.target.value)} className={input} />
             </div>
             <div>
-              <label className="text-xs text-slate-400 font-medium">Fin Turno</label>
+              <label className="text-xs text-muted font-medium">Fin Turno</label>
               <input type="time" value={end} onChange={e => setEnd(e.target.value)} className={input} />
             </div>
           </div>
 
-          {error && <div className="p-2.5 bg-rose-950/50 border border-rose-800/60 rounded-lg text-xs text-rose-300">{error}</div>}
+          {error && <div className="p-2.5 bg-danger-subtle border border-danger rounded-control text-xs text-danger">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg text-xs hover:bg-slate-600 transition">
+            <button type="button" onClick={onClose} className="px-4 py-2 bg-surface-subtle text-fg rounded-control text-xs hover:bg-strong transition">
               Cancelar
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50"
+              className="px-4 py-2 bg-accent hover:bg-accent-hover text-accent-fg rounded-control text-xs font-semibold transition disabled:opacity-50"
             >
               {saving ? 'Guardando…' : 'Guardar cambios'}
             </button>

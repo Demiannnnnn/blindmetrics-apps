@@ -135,46 +135,46 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const btn = 'px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-40';
+  const btn = 'px-3 py-1.5 rounded-control text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-40';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-4xl w-full p-6 shadow-2xl max-h-[92vh] overflow-y-auto space-y-5">
+      <div className="bg-surface-subtle border border-default rounded-card max-w-4xl w-full p-6 shadow-md max-h-[92vh] overflow-y-auto space-y-5">
         {/* Header */}
-        <div className="flex justify-between items-start border-b border-slate-700 pb-3">
+        <div className="flex justify-between items-start border-b border-default pb-3">
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold text-white">{worker.name}</h3>
+              <h3 className="text-lg font-semibold text-fg">{worker.name}</h3>
               <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full border ${badge.className}`}>{badge.label}</span>
-              <span className="text-xs text-slate-400">{worker.role_type}</span>
+              <span className="text-xs text-muted">{worker.role_type}</span>
             </div>
-            <p className="text-xs text-slate-400 font-mono">{worker.email}</p>
-            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+            <p className="text-xs text-muted font-mono">{worker.email}</p>
+            <p className="text-[11px] text-muted mt-1 flex items-center gap-1">
               <Laptop className="w-3 h-3" />
               {worker.device_info
                 ? `${worker.device_info.hostname} · ${worker.device_info.os} · agent ${worker.device_info.app_version}`
                 : 'Sin equipo vinculado'}
             </p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-muted">
               Vinculado: {fmtDate(worker.enrollment_completed_at)} · Último cambio de estado: {fmtDate(worker.status_changed_at)}
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+          <button onClick={onClose} className="text-muted hover:text-fg">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {error && <div className="p-2.5 bg-rose-950/50 border border-rose-800/60 rounded-lg text-xs text-rose-300">{error}</div>}
-        {notice && <div className="p-2.5 bg-emerald-950/40 border border-emerald-800/60 rounded-lg text-xs text-emerald-300">{notice}</div>}
+        {error && <div className="p-2.5 bg-danger-subtle border border-danger rounded-control text-xs text-danger">{error}</div>}
+        {notice && <div className="p-2.5 bg-success-subtle border border-success rounded-control text-xs text-success">{notice}</div>}
 
         {/* Lifecycle actions (enabled per status; the API decides) */}
         <section className="space-y-2">
-          <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Acciones</h4>
+          <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">Acciones</h4>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => onViewTelemetry(item)} className={`${btn} bg-indigo-600 hover:bg-indigo-500 text-white`}>
+            <button onClick={() => onViewTelemetry(item)} className={`${btn} bg-accent hover:bg-accent-hover text-accent-fg`}>
               <Eye className="w-3.5 h-3.5" /> Ver telemetría
             </button>
-            <button onClick={() => onRegenerate(item)} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}>
+            <button onClick={() => onRegenerate(item)} className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}>
               <QrCode className="w-3.5 h-3.5" />
               {worker.device_identifier ? 'Mover a equipo nuevo' : 'Regenerar código'}
             </button>
@@ -183,11 +183,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 value={reason}
                 onChange={e => setReason(e.target.value)}
                 placeholder="Motivo (opcional)"
-                className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 w-44 focus:outline-none focus:border-indigo-500"
+                className="bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 w-44 focus:outline-none focus:border-accent"
               />
             )}
             {worker.status === 'ACTIVE' && (
-              <button disabled={busy} onClick={() => setStatus('PAUSED')} className={`${btn} bg-amber-900/60 hover:bg-amber-800 text-amber-200`}>
+              <button disabled={busy} onClick={() => setStatus('PAUSED')} className={`${btn} bg-warning-subtle hover:bg-warning-subtle text-warning`}>
                 <Pause className="w-3.5 h-3.5" /> Pausar
               </button>
             )}
@@ -196,36 +196,36 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 disabled={busy || !hasConsent}
                 onClick={() => setStatus('ACTIVE')}
                 title={hasConsent ? undefined : 'El trabajador no tiene un consentimiento vigente'}
-                className={`${btn} bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200`}
+                className={`${btn} bg-success-subtle hover:bg-success-subtle text-success`}
               >
                 <Play className="w-3.5 h-3.5" /> Reanudar
               </button>
             )}
             {worker.status !== 'REVOKED' && (
-              <button disabled={busy} onClick={() => setShowRevoke(v => !v)} className={`${btn} bg-rose-950/70 hover:bg-rose-900 text-rose-300`}>
+              <button disabled={busy} onClick={() => setShowRevoke(v => !v)} className={`${btn} bg-danger-subtle hover:bg-danger-subtle text-danger`}>
                 <Ban className="w-3.5 h-3.5" /> Revocar
               </button>
             )}
-            <button onClick={() => onDelete(item)} className={`${btn} bg-rose-950/70 hover:bg-rose-900 text-rose-300`}>
+            <button onClick={() => onDelete(item)} className={`${btn} bg-danger-subtle hover:bg-danger-subtle text-danger`}>
               <Trash2 className="w-3.5 h-3.5" /> Eliminar
             </button>
           </div>
           {showRevoke && (
-            <div className="p-3 bg-rose-950/30 border border-rose-900/60 rounded-lg space-y-2 text-xs text-slate-300">
+            <div className="p-3 bg-danger-subtle border border-danger rounded-control space-y-2 text-xs text-fg">
               <p>
                 Revocar desvincula el equipo: el agente borra sus credenciales, la llave fijada y la cola local. Escriba{' '}
-                <span className="font-semibold text-white">{worker.name}</span> para confirmar.
+                <span className="font-semibold text-fg">{worker.name}</span> para confirmar.
               </p>
               <div className="flex gap-2">
                 <input
                   value={revokeTyped}
                   onChange={e => setRevokeTyped(e.target.value)}
-                  className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-rose-500"
+                  className="flex-1 bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 focus:outline-none focus:border-danger"
                 />
                 <button
                   disabled={busy || revokeTyped.trim() !== worker.name.trim()}
                   onClick={() => setStatus('REVOKED')}
-                  className={`${btn} bg-rose-600 hover:bg-rose-500 text-white`}
+                  className={`${btn} bg-danger hover:bg-danger-hover text-accent-fg`}
                 >
                   Confirmar revocación
                 </button>
@@ -237,17 +237,17 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         {/* Consent */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
+            <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
               Consentimiento · vigente v{worker.consent_version} · aceptada v{worker.accepted_consent_version ?? '–'}
               {hasConsent && summary.requested > 0 && (
-                <span className="normal-case font-normal text-slate-400">
+                <span className="normal-case font-normal text-muted">
                   {' '}
                   · aceptó {summary.accepted} de {summary.requested} categorías solicitadas
                 </span>
               )}
             </h4>
             {!editingConsent && worker.status !== 'REVOKED' && (
-              <button onClick={() => setEditingConsent(true)} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}>
+              <button onClick={() => setEditingConsent(true)} className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}>
                 <Pencil className="w-3.5 h-3.5" /> Editar datos a recolectar
               </button>
             )}
@@ -266,15 +266,15 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               />
               <div className="space-y-3">
                 <ConsentPreview organization={organization} flags={draftFlags} descriptions={draftDescriptions} />
-                <p className="text-[11px] text-amber-300">
+                <p className="text-[11px] text-warning">
                   Ampliar lo que se recolecta publica una nueva versión: las categorías nuevas solo se recolectan si el
                   trabajador las acepta; mientras tanto siguen vigentes las que ya había aceptado.
                 </p>
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => setEditingConsent(false)} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-300`}>
+                  <button onClick={() => setEditingConsent(false)} className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}>
                     Cancelar
                   </button>
-                  <button disabled={busy} onClick={saveConsent} className={`${btn} bg-indigo-600 hover:bg-indigo-500 text-white`}>
+                  <button disabled={busy} onClick={saveConsent} className={`${btn} bg-accent hover:bg-accent-hover text-accent-fg`}>
                     Publicar nueva versión
                   </button>
                 </div>
@@ -282,7 +282,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
             </div>
           ) : (
             <table className="w-full text-xs">
-              <thead className="text-slate-400">
+              <thead className="text-muted">
                 <tr className="text-left">
                   <th className="py-1 font-medium">Categoría</th>
                   <th className="py-1 font-medium">Solicitado</th>
@@ -290,13 +290,13 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   <th className="py-1 font-medium">Descripción mostrada al trabajador</th>
                 </tr>
               </thead>
-              <tbody className="text-slate-300">
+              <tbody className="text-fg">
                 {CONSENT_CATEGORIES.map(c => (
-                  <tr key={c.key} className="border-t border-slate-700/60 align-top">
+                  <tr key={c.key} className="border-t border-default align-top">
                     <td className="py-1.5 pr-2">{c.label}</td>
                     <td className="py-1.5">{worker.requested_consent_flags[c.key] ? '✅' : '—'}</td>
                     <td className="py-1.5">{worker.consent_flags[c.key] ? '✅' : '—'}</td>
-                    <td className="py-1.5 text-slate-400 italic">{worker.consent_descriptions[c.key] || ''}</td>
+                    <td className="py-1.5 text-muted italic">{worker.consent_descriptions[c.key] || ''}</td>
                   </tr>
                 ))}
               </tbody>
@@ -307,24 +307,24 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         {/* Consent evidence */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Historial de consentimiento</h4>
+            <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">Historial de consentimiento</h4>
             <button
               onClick={exportCsv}
               disabled={!records || records.length === 0}
-              className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}
+              className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}
             >
               <Download className="w-3.5 h-3.5" /> Exportar CSV
             </button>
           </div>
           {recordsError ? (
-            <p className="text-xs text-rose-300">No se pudo cargar el historial: {recordsError}</p>
+            <p className="text-xs text-danger">No se pudo cargar el historial: {recordsError}</p>
           ) : records === null ? (
-            <p className="text-xs text-slate-400">Cargando…</p>
+            <p className="text-xs text-muted">Cargando…</p>
           ) : records.length === 0 ? (
-            <p className="text-xs text-slate-400">Sin decisiones registradas.</p>
+            <p className="text-xs text-muted">Sin decisiones registradas.</p>
           ) : (
             <table className="w-full text-xs">
-              <thead className="text-slate-400">
+              <thead className="text-muted">
                 <tr className="text-left">
                   <th className="py-1 font-medium">Fecha</th>
                   <th className="py-1 font-medium">Versión</th>
@@ -334,18 +334,18 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   <th className="py-1 font-medium">Manifiesto</th>
                 </tr>
               </thead>
-              <tbody className="text-slate-300">
+              <tbody className="text-fg">
                 {records.map(r => (
-                  <tr key={r.id} className="border-t border-slate-700/60">
+                  <tr key={r.id} className="border-t border-default">
                     <td className="py-1.5">{fmtDate(r.created_at)}</td>
                     <td className="py-1.5">v{r.consent_version}</td>
                     <td className="py-1.5">{decisionLabel(r.decision)}</td>
-                    <td className="py-1.5 text-slate-400">
+                    <td className="py-1.5 text-muted">
                       {acceptedCategoriesOf(r).map(categoryLabel).join(', ') || '—'}
                     </td>
                     <td className="py-1.5 font-mono">
                       {r.ip_address ?? '—'}
-                      {r.app_version ? <span className="text-slate-500"> · {r.app_version}</span> : null}
+                      {r.app_version ? <span className="text-muted"> · {r.app_version}</span> : null}
                     </td>
                     <td className="py-1.5 font-mono" title={r.manifest_hash ?? undefined}>
                       {r.manifest_hash ? `${r.manifest_hash.slice(0, 12)}…` : '—'}

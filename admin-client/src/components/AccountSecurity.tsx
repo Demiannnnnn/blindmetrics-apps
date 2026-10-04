@@ -85,28 +85,28 @@ export const AccountSecurity: React.FC<{
   };
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-lg space-y-5">
+    <div className="bg-surface-subtle border border-default rounded-card p-5 space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Laptop className="w-5 h-5 text-indigo-400" /> Dispositivos autorizados y suscripción
+        <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
+          <Laptop className="w-5 h-5 text-accent" /> Dispositivos autorizados y suscripción
         </h2>
-        <button onClick={load} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg" title="Actualizar">
-          <RefreshCw className="w-4 h-4 text-slate-300" />
+        <button onClick={load} className="p-2 bg-surface-subtle hover:bg-strong rounded-control" title="Actualizar">
+          <RefreshCw className="w-4 h-4 text-fg" />
         </button>
       </div>
-      {error && <p className="text-xs text-rose-300">{error}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
 
       <section className="space-y-2">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-muted">
           Si pierdes un equipo, revócalo aquí: su sesión termina de inmediato aunque tenga credenciales vigentes.
         </p>
         {devices === null ? (
-          <p className="text-xs text-slate-400">Cargando…</p>
+          <p className="text-xs text-muted">Cargando…</p>
         ) : devices.length === 0 ? (
-          <p className="text-xs text-slate-400">Sin dispositivos registrados.</p>
+          <p className="text-xs text-muted">Sin dispositivos registrados.</p>
         ) : (
           <table className="w-full text-xs">
-            <thead className="text-slate-400">
+            <thead className="text-muted">
               <tr className="text-left">
                 <th className="py-1 font-medium">Equipo</th>
                 <th className="py-1 font-medium">Llave</th>
@@ -115,9 +115,9 @@ export const AccountSecurity: React.FC<{
                 <th className="py-1" />
               </tr>
             </thead>
-            <tbody className="text-slate-300">
+            <tbody className="text-fg">
               {devices.map(d => (
-                <tr key={d.id} className="border-t border-slate-700/60">
+                <tr key={d.id} className="border-t border-default">
                   <td className="py-1.5 pr-2">
                     {editing === d.id ? (
                       <span className="flex items-center gap-1">
@@ -125,35 +125,35 @@ export const AccountSecurity: React.FC<{
                           value={draftName}
                           maxLength={255}
                           onChange={e => setDraftName(e.target.value)}
-                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white w-40"
+                          className="bg-surface border border-default rounded px-2 py-1 text-xs text-fg w-40"
                         />
-                        <button onClick={() => rename(d)} className="p-1 hover:bg-slate-700 rounded" title="Guardar">
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <button onClick={() => rename(d)} className="p-1 hover:bg-surface-subtle rounded" title="Guardar">
+                          <Check className="w-3.5 h-3.5 text-success" />
                         </button>
-                        <button onClick={() => setEditing(null)} className="p-1 hover:bg-slate-700 rounded" title="Cancelar">
+                        <button onClick={() => setEditing(null)} className="p-1 hover:bg-surface-subtle rounded" title="Cancelar">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </span>
                     ) : (
                       <span>
                         {d.device_name}
-                        {d.is_current && <span className="ml-1.5 text-[10px] text-indigo-300">(este equipo)</span>}
-                        <span className="block text-[10px] text-slate-500 font-mono">{d.device_fingerprint.slice(0, 13)}</span>
+                        {d.is_current && <span className="ml-1.5 text-[10px] text-accent">(este equipo)</span>}
+                        <span className="block text-[10px] text-muted font-mono">{d.device_fingerprint.slice(0, 13)}</span>
                       </span>
                     )}
                   </td>
                   <td className="py-1.5">
                     {!d.public_key_fingerprint ? (
-                      <span className="text-slate-500">—</span>
+                      <span className="text-muted">—</span>
                     ) : sameFingerprint(d.public_key_fingerprint, registeredFingerprint) ? (
-                      <span className="text-emerald-400" title={d.public_key_fingerprint}>✅ {shortFingerprint(d.public_key_fingerprint).slice(0, 9)}</span>
+                      <span className="text-success" title={d.public_key_fingerprint}>✅ {shortFingerprint(d.public_key_fingerprint).slice(0, 9)}</span>
                     ) : (
-                      <span className="text-amber-300" title="Llave distinta a la registrada">⚠️ otra</span>
+                      <span className="text-warning" title="Llave distinta a la registrada">⚠️ otra</span>
                     )}
                   </td>
                   <td className="py-1.5">{relative(d.last_seen_at)}</td>
                   <td className="py-1.5">
-                    {d.is_active ? <span className="text-emerald-400">Activo</span> : <span className="text-rose-300">Revocado</span>}
+                    {d.is_active ? <span className="text-success">Activo</span> : <span className="text-danger">Revocado</span>}
                   </td>
                   <td className="py-1.5 text-right whitespace-nowrap">
                     {d.is_active && (
@@ -163,12 +163,12 @@ export const AccountSecurity: React.FC<{
                             setEditing(d.id);
                             setDraftName(d.device_name);
                           }}
-                          className="p-1.5 hover:bg-slate-700 rounded"
+                          className="p-1.5 hover:bg-surface-subtle rounded"
                           title="Renombrar"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => revoke(d)} className="p-1.5 hover:bg-rose-900/60 rounded text-rose-300" title="Revocar">
+                        <button onClick={() => revoke(d)} className="p-1.5 hover:bg-danger-subtle rounded text-danger" title="Revocar">
                           <Ban className="w-3.5 h-3.5" />
                         </button>
                       </>
@@ -181,29 +181,29 @@ export const AccountSecurity: React.FC<{
         )}
       </section>
 
-      <section className="pt-4 border-t border-slate-700/60 space-y-2">
-        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-          <CreditCard className="w-4 h-4 text-indigo-400" /> Suscripción
+      <section className="pt-4 border-t border-default space-y-2">
+        <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+          <CreditCard className="w-4 h-4 text-accent" /> Suscripción
         </h3>
         {subscription ? (
-          <div className="text-xs text-slate-300 space-y-1">
+          <div className="text-xs text-fg space-y-1">
             <p>
-              Estado: <span className="font-semibold text-white">{STATUS_LABELS[subscription.effective_status] ?? subscription.effective_status}</span>
+              Estado: <span className="font-semibold text-fg">{STATUS_LABELS[subscription.effective_status] ?? subscription.effective_status}</span>
               {subscription.effective_status === 'TRIAL' && subscription.trial_days_left !== null && (
-                <span className="text-slate-400"> · {subscription.trial_days_left} día(s) restantes</span>
+                <span className="text-muted"> · {subscription.trial_days_left} día(s) restantes</span>
               )}
             </p>
             {subscription.expires_at && <p>Vence: {new Date(subscription.expires_at).toLocaleDateString()}</p>}
             {isSafePortalUrl(subscription.portal_url) ? (
-              <button onClick={openPortal} className="mt-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg">
+              <button onClick={openPortal} className="mt-1 px-3 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg rounded-control">
                 Gestionar suscripción ({displayUrl(subscription.portal_url)})
               </button>
             ) : (
-              <p className="text-slate-500">El servidor no informó el portal de facturación.</p>
+              <p className="text-muted">El servidor no informó el portal de facturación.</p>
             )}
           </div>
         ) : (
-          <p className="text-xs text-slate-400">Cargando…</p>
+          <p className="text-xs text-muted">Cargando…</p>
         )}
       </section>
     </div>

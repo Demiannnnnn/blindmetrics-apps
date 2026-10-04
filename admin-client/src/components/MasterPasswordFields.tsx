@@ -14,9 +14,9 @@ interface MasterPasswordFieldsProps {
 }
 
 const STRENGTH_COLORS: Record<string, string> = {
-  débil: 'text-rose-400',
-  aceptable: 'text-amber-300',
-  fuerte: 'text-emerald-400',
+  débil: 'text-danger',
+  aceptable: 'text-warning',
+  fuerte: 'text-success',
 };
 
 /**
@@ -37,13 +37,13 @@ export const MasterPasswordFields: React.FC<MasterPasswordFieldsProps> = ({
   const issue = isNew && password ? masterPasswordIssue(password, confirmation || undefined) : null;
   const strength = password ? passwordStrength(password) : null;
   const input =
-    'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500';
+    'w-full bg-bg border border-default rounded-control px-3 py-2 text-xs text-fg placeholder-muted focus:outline-none focus:border-accent';
 
   return (
     <div className="space-y-2">
-      <label className="block text-xs font-medium text-slate-300">
+      <label className="block text-xs font-medium text-fg">
         <span className="flex items-center gap-1.5 mb-1">
-          <KeyRound className="w-3.5 h-3.5 text-slate-400" />
+          <KeyRound className="w-3.5 h-3.5 text-muted" />
           {label}
         </span>
         <input
@@ -58,7 +58,7 @@ export const MasterPasswordFields: React.FC<MasterPasswordFieldsProps> = ({
         />
       </label>
       {isNew && (
-        <label className="block text-xs font-medium text-slate-300">
+        <label className="block text-xs font-medium text-fg">
           <span className="block mb-1">Repite la Master Password</span>
           <input
             type="password"
@@ -72,12 +72,12 @@ export const MasterPasswordFields: React.FC<MasterPasswordFieldsProps> = ({
       )}
       {isNew && (
         <div className="flex justify-between text-[11px]">
-          <span className="text-rose-400">{confirmation ? issue ?? '' : ''}</span>
+          <span className="text-danger">{confirmation ? issue ?? '' : ''}</span>
           {strength && <span className={STRENGTH_COLORS[strength]}>Fortaleza: {strength}</span>}
         </div>
       )}
       {isNew && (
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[11px] text-muted">
           No es la contraseña de tu cuenta. Nadie puede recuperarla: si la olvidas y pierdes este equipo, los datos
           históricos quedan ilegibles.
         </p>

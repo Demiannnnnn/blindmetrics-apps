@@ -13,14 +13,14 @@ import { describeError } from '../lib/errors';
 import { backupFileIssue, masterPasswordIssue, NEW_KEY_PHRASE, newKeyConfirmationValid, shortFingerprint } from '../lib/vault';
 import { MasterPasswordFields } from './MasterPasswordFields';
 
-const panel = 'p-4 bg-slate-950/60 border border-slate-700/70 rounded-xl space-y-3';
+const panel = 'p-4 bg-bg border border-default rounded-card space-y-3';
 const primary =
-  'px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg disabled:opacity-50 flex items-center gap-1.5';
-const secondary = 'px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg';
+  'px-4 py-2 bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold rounded-control disabled:opacity-50 flex items-center gap-1.5';
+const secondary = 'px-3 py-2 bg-surface-subtle hover:bg-surface-subtle text-fg text-xs rounded-control';
 
 function ErrorLine({ message }: { message: string | null }) {
   return message ? (
-    <p className="text-xs text-rose-300 flex items-start gap-1.5">
+    <p className="text-xs text-danger flex items-start gap-1.5">
       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
       {message}
     </p>
@@ -66,12 +66,12 @@ export const ExportTkbPanel: React.FC<{
   if (result) {
     return (
       <div className={panel}>
-        <p className="text-xs text-emerald-300 flex items-center gap-1.5">
+        <p className="text-xs text-success flex items-center gap-1.5">
           <CheckCircle2 className="w-4 h-4" /> Respaldo guardado
         </p>
-        <p className="text-xs text-slate-300 font-mono break-all select-all">{result.path}</p>
-        <p className="text-[11px] text-slate-400">Llave {shortFingerprint(result.public_key_fingerprint)}</p>
-        <p className="text-[11px] text-amber-300">{SAFE_KEEPING_WARNING}</p>
+        <p className="text-xs text-fg font-mono break-all select-all">{result.path}</p>
+        <p className="text-[11px] text-muted">Llave {shortFingerprint(result.public_key_fingerprint)}</p>
+        <p className="text-[11px] text-warning">{SAFE_KEEPING_WARNING}</p>
         {onCancel && (
           <button onClick={onCancel} className={secondary}>
             Cerrar
@@ -83,10 +83,10 @@ export const ExportTkbPanel: React.FC<{
 
   return (
     <form onSubmit={submit} className={panel}>
-      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-        <Download className="w-4 h-4 text-indigo-400" /> Exportar respaldo (.tkb)
+      <h4 className="text-sm font-semibold text-fg flex items-center gap-2">
+        <Download className="w-4 h-4 text-accent" /> Exportar respaldo (.tkb)
       </h4>
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-muted">
         {verifyWithServer
           ? 'Ingresa tu Master Password: se verifica con tu respaldo del servidor y se usa para cifrar el archivo (Argon2id + AES-256-GCM, en este equipo).'
           : 'Elige una Master Password para cifrar el archivo (Argon2id + AES-256-GCM, en este equipo).'}
@@ -148,10 +148,10 @@ export const ServerBackupPanel: React.FC<{
   if (done) {
     return (
       <div className={panel}>
-        <p className="text-xs text-emerald-300 flex items-center gap-1.5">
+        <p className="text-xs text-success flex items-center gap-1.5">
           <CheckCircle2 className="w-4 h-4" /> Respaldo cifrado guardado en el servidor
         </p>
-        <p className="text-[11px] text-slate-400">
+        <p className="text-[11px] text-muted">
           En un equipo nuevo podrás recuperar la llave con tu Master Password. El servidor no puede descifrarlo.
         </p>
         {onCancel && (
@@ -165,10 +165,10 @@ export const ServerBackupPanel: React.FC<{
 
   return (
     <form onSubmit={submit} className={panel}>
-      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-        <Server className="w-4 h-4 text-indigo-400" /> {enabled ? 'Reemplazar respaldo en el servidor' : 'Respaldo cifrado en el servidor'}
+      <h4 className="text-sm font-semibold text-fg flex items-center gap-2">
+        <Server className="w-4 h-4 text-accent" /> {enabled ? 'Reemplazar respaldo en el servidor' : 'Respaldo cifrado en el servidor'}
       </h4>
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-muted">
         La llave se cifra en este equipo con tu Master Password; el servidor solo guarda el resultado cifrado y nunca ve la
         contraseña.
       </p>
@@ -180,7 +180,7 @@ export const ServerBackupPanel: React.FC<{
         disabled={busy}
       />
       {enabled && (
-        <label className="flex items-start gap-2 text-xs text-amber-300">
+        <label className="flex items-start gap-2 text-xs text-warning">
           <input type="checkbox" checked={replaceAck} onChange={e => setReplaceAck(e.target.checked)} className="mt-0.5" />
           Entiendo que la Master Password anterior deja de servir para recuperar la llave desde el servidor.
         </label>
@@ -214,10 +214,10 @@ export const DeleteServerBackupButton: React.FC<{ onDone: () => void }> = ({ onD
   };
   return (
     <span className="inline-flex flex-col">
-      <button onClick={remove} className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 text-xs rounded-lg flex items-center gap-1.5">
+      <button onClick={remove} className="px-3 py-1.5 bg-danger-subtle hover:bg-danger-subtle text-danger text-xs rounded-control flex items-center gap-1.5">
         <Trash2 className="w-3.5 h-3.5" /> Eliminar respaldo del servidor
       </button>
-      {error && <span className="text-[11px] text-rose-300 mt-1">{error}</span>}
+      {error && <span className="text-[11px] text-danger mt-1">{error}</span>}
     </span>
   );
 };
@@ -252,17 +252,17 @@ export const ImportBackupPanel: React.FC<{
 
   return (
     <form onSubmit={submit} className={panel}>
-      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-        <Upload className="w-4 h-4 text-sky-400" /> Restaurar desde archivo
+      <h4 className="text-sm font-semibold text-fg flex items-center gap-2">
+        <Upload className="w-4 h-4 text-info" /> Restaurar desde archivo
       </h4>
-      <p className="text-xs text-slate-400">Archivo .tkb (o .vault de versiones anteriores) y la Master Password con que se creó.</p>
+      <p className="text-xs text-muted">Archivo .tkb (o .vault de versiones anteriores) y la Master Password con que se creó.</p>
       <input
         type="file"
         accept=".tkb,.vault,.json"
         onChange={e => setFile(e.target.files?.[0] ?? null)}
-        className="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-slate-700 file:text-slate-200"
+        className="block w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-control file:border-0 file:bg-surface-subtle file:text-fg"
       />
-      {file && fileIssue && <p className="text-[11px] text-rose-400">{fileIssue}</p>}
+      {file && fileIssue && <p className="text-[11px] text-danger">{fileIssue}</p>}
       <MasterPasswordFields password={password} onPasswordChange={setPassword} disabled={busy} />
       <ErrorLine message={error} />
       <div className="flex justify-end gap-2">
@@ -306,10 +306,10 @@ export const RecoverFromServerPanel: React.FC<{
 
   return (
     <form onSubmit={submit} className={panel}>
-      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-        <Server className="w-4 h-4 text-sky-400" /> Recuperar con Master Password
+      <h4 className="text-sm font-semibold text-fg flex items-center gap-2">
+        <Server className="w-4 h-4 text-info" /> Recuperar con Master Password
       </h4>
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-muted">
         Se descarga tu respaldo cifrado (queda registrado en la auditoría) y se descifra en este equipo.
       </p>
       <MasterPasswordFields password={password} onPasswordChange={setPassword} autoFocus disabled={busy} />
@@ -354,26 +354,26 @@ export const GenerateNewKeyPanel: React.FC<{
   };
 
   return (
-    <form onSubmit={submit} className="p-4 bg-rose-950/30 border border-rose-800/60 rounded-xl space-y-3">
-      <h4 className="text-sm font-semibold text-rose-200 flex items-center gap-2">
+    <form onSubmit={submit} className="p-4 bg-danger-subtle border border-danger rounded-card space-y-3">
+      <h4 className="text-sm font-semibold text-danger flex items-center gap-2">
         <KeyRound className="w-4 h-4" /> Generar nueva llave (acción destructiva)
       </h4>
-      <ul className="text-xs text-rose-200/90 list-disc pl-5 space-y-1">
+      <ul className="text-xs text-danger list-disc pl-5 space-y-1">
         <li>Los datos históricos cifrados con la llave anterior serán ilegibles sin esa llave.</li>
         <li>Todos tus trabajadores quedan desvinculados y deberán vincularse de nuevo con un código nuevo.</li>
         <li>El respaldo del servidor de la llave anterior se elimina.</li>
       </ul>
-      <label className="flex items-start gap-2 text-xs text-rose-100">
+      <label className="flex items-start gap-2 text-xs text-danger">
         <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} className="mt-0.5" />
         Entiendo que los datos históricos cifrados con la llave anterior serán ilegibles y que todos mis trabajadores
         quedarán desvinculados.
       </label>
-      <label className="block text-xs text-rose-100">
+      <label className="block text-xs text-danger">
         Escribe <span className="font-mono font-semibold">{NEW_KEY_PHRASE}</span> para confirmar:
         <input
           value={phrase}
           onChange={e => setPhrase(e.target.value)}
-          className="mt-1 w-full bg-slate-950 border border-rose-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-rose-500"
+          className="mt-1 w-full bg-bg border border-danger rounded-control px-3 py-2 text-xs text-fg font-mono focus:outline-none focus:border-danger"
         />
       </label>
       <ErrorLine message={error} />
@@ -386,7 +386,7 @@ export const GenerateNewKeyPanel: React.FC<{
         <button
           type="submit"
           disabled={busy || !valid}
-          className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg disabled:opacity-40"
+          className="px-4 py-2 bg-danger hover:bg-danger-hover text-accent-fg text-xs font-semibold rounded-control disabled:opacity-40"
         >
           {busy ? 'Generando…' : 'Generar nueva llave'}
         </button>

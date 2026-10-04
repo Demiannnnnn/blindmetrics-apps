@@ -35,82 +35,82 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({ 
   };
 
   // RF-ADMIN-12-5: activation arrives through Flow's webhook; re-check every minute.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      onRecheck().catch(() => undefined);
-    }, RECHECK_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [onRecheck]);
+ useEffect(() => {
+ const timer = setInterval(() => {
+ onRecheck().catch(() => undefined);
+ }, RECHECK_INTERVAL_MS);
+ return () => clearInterval(timer);
+ }, [onRecheck]);
 
-  const openPortal = async () => {
-    setError(null);
-    try {
-      await openBillingPortal();
-    } catch (e) {
-      setError(describeError(e));
-    }
-  };
+ const openPortal = async () => {
+ setError(null);
+ try {
+ await openBillingPortal();
+ } catch (e) {
+ setError(describeError(e));
+ }
+ };
 
-  const copyEmail = () => {
-    if (!status.support_email) return;
-    navigator.clipboard.writeText(status.support_email);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+ const copyEmail = () => {
+ if (!status.support_email) return;
+ navigator.clipboard.writeText(status.support_email);
+ setCopied(true);
+ setTimeout(() => setCopied(false), 2000);
+ };
 
-  return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 text-slate-100">
-      <div className="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-2xl p-8 shadow-2xl space-y-5">
-        <div>
-          <h1 className="text-xl font-bold text-white">{copy.title}</h1>
-          <p className="text-sm text-slate-300 mt-2">{copy.body}</p>
-        </div>
+ return (
+ <div className="min-h-screen bg-bg flex items-center justify-center p-4 text-fg">
+ <div className="max-w-md w-full bg-surface border border-default rounded-card p-8 space-y-5">
+ <div>
+ <h1 className="text-xl font-bold text-accent-fg">{copy.title}</h1>
+ <p className="text-sm text-fg mt-2">{copy.body}</p>
+ </div>
 
-        <div className="space-y-2">
-          <p className="text-sm text-slate-300">Para reactivar tu cuenta, accede al portal web:</p>
-          {portalOk ? (
-            <>
-              <p className="font-mono text-sm text-indigo-300 break-all">{displayUrl(status.portal_url)}</p>
-              <button
-                onClick={openPortal}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg flex items-center justify-center gap-2 transition"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Abrir en navegador
-              </button>
-            </>
-          ) : (
-            <p className="text-sm text-amber-300">El servidor no informó un portal válido. Contacta a soporte.</p>
-          )}
-        </div>
+ <div className="space-y-2">
+ <p className="text-sm text-fg">Para reactivar tu cuenta, accede al portal web:</p>
+ {portalOk ? (
+ <>
+ <p className="font-mono text-sm text-accent break-all">{displayUrl(status.portal_url)}</p>
+ <button
+ onClick={openPortal}
+ className="w-full py-2.5 bg-accent hover:bg-accent-hover text-accent-fg text-sm font-semibold rounded-control flex items-center justify-center gap-2 transition"
+ >
+ <ExternalLink className="w-4 h-4" />
+ Abrir en navegador
+ </button>
+ </>
+ ) : (
+ <p className="text-sm text-warning">El servidor no informó un portal válido. Contacta a soporte.</p>
+ )}
+ </div>
 
-        {status.support_email && status.support_email.includes('@') && (
-          <p className="text-xs text-slate-400 flex items-center gap-2">
-            ¿Preguntas? <span className="font-mono text-slate-200 select-all">{status.support_email}</span>
-            <button onClick={copyEmail} className="p-1 rounded hover:bg-slate-800" title="Copiar correo">
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-          </p>
-        )}
+ {status.support_email && status.support_email.includes('@') && (
+ <p className="text-xs text-muted flex items-center gap-2">
+ ¿Preguntas? <span className="font-mono text-fg select-all">{status.support_email}</span>
+ <button onClick={copyEmail} className="p-1 rounded hover:bg-surface-subtle" title="Copiar correo">
+ {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+ </button>
+ </p>
+ )}
 
-        <p className="text-[11px] text-slate-500">
-          Mientras tanto tus trabajadores dejan de enviar datos; lo ya recibido se conserva cifrado.
-        </p>
+ <p className="text-[11px] text-muted">
+ Mientras tanto tus trabajadores dejan de enviar datos; lo ya recibido se conserva cifrado.
+ </p>
 
-        {error && <p className="text-xs text-rose-300">{error}</p>}
+ {error && <p className="text-xs text-danger">{error}</p>}
 
-        <div className="flex gap-2 pt-2 border-t border-slate-800">
-          <button
-            onClick={recheck}
-            disabled={checking}
-            className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} />
+ <div className="flex gap-2 pt-2 border-t border-default">
+ <button
+ onClick={recheck}
+ disabled={checking}
+ className="flex-1 py-2 bg-surface-subtle hover:bg-surface-subtle text-fg text-xs rounded-control flex items-center justify-center gap-1.5 disabled:opacity-50"
+ >
+ <RefreshCw className={`w-3.5 h-3.5 ${checking ?'animate-spin' : ''}`} />
             Ya pagué, verificar de nuevo
           </button>
           <button
             onClick={onLogout}
-            className="px-3 py-2 bg-slate-800 hover:bg-rose-900/60 text-slate-300 text-xs rounded-lg flex items-center gap-1.5"
+            className="px-3 py-2 bg-surface-subtle hover:bg-danger-subtle text-fg text-xs rounded-control flex items-center gap-1.5"
           >
             <LogOut className="w-3.5 h-3.5" />
             Salir

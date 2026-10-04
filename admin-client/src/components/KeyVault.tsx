@@ -37,54 +37,54 @@ export const KeyVault: React.FC<{ onKeyChanged?: () => void }> = ({ onKeyChanged
   const backup = status?.server_backup;
   const ready = status?.key_state === 'OK';
   const button = (active: boolean) =>
-    `px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
-      active ? 'bg-indigo-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-    } disabled:opacity-40`;
+    `px-3 py-1.5 rounded-control text-xs font-medium flex items-center gap-1.5 transition ${
+ active ? 'bg-accent text-accent-fg' : 'bg-surface-subtle hover:bg-strong text-fg'
+ } disabled:opacity-40`;
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-lg space-y-4">
+    <div className="bg-surface-subtle border border-default rounded-card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Key className="w-5 h-5 text-indigo-400" /> Bóveda: llave maestra y respaldos
+          <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
+            <Key className="w-5 h-5 text-accent" /> Bóveda: llave maestra y respaldos
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-muted">
             Argon2id + AES-256-GCM en este equipo. El servidor nunca ve tu Master Password ni la llave en claro.
           </p>
         </div>
-        <button onClick={refresh} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg" title="Actualizar">
-          <RefreshCw className="w-4 h-4 text-slate-300" />
+        <button onClick={refresh} className="p-2 bg-surface-subtle hover:bg-strong rounded-control" title="Actualizar">
+          <RefreshCw className="w-4 h-4 text-fg" />
         </button>
       </div>
 
-      {error && <p className="text-xs text-rose-300">{error}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
       {notice && (
-        <p className="text-xs text-emerald-300 flex items-center gap-1.5">
+        <p className="text-xs text-success flex items-center gap-1.5">
           <CheckCircle2 className="w-4 h-4" /> {notice}
         </p>
       )}
 
       {status && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-700/60">
-            <p className="text-slate-400 mb-1">Llave en este equipo</p>
-            <p className="font-mono text-indigo-300">{shortFingerprint(status.local_fingerprint)}</p>
-            <p className={ready ? 'text-emerald-400 mt-1' : 'text-amber-300 mt-1'}>
+          <div className="p-3 bg-surface rounded-control border border-default">
+            <p className="text-muted mb-1">Llave en este equipo</p>
+            <p className="font-mono text-accent">{shortFingerprint(status.local_fingerprint)}</p>
+            <p className={ready ? 'text-success mt-1' : 'text-warning mt-1'}>
               {ready ? 'Coincide con la registrada' : status.key_state === 'MISMATCH' ? 'Distinta a la registrada' : 'Sin llave válida'}
             </p>
           </div>
-          <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-700/60">
-            <p className="text-slate-400 mb-1">Llave registrada en el servidor</p>
-            <p className="font-mono text-indigo-300">{shortFingerprint(status.registered_fingerprint)}</p>
+          <div className="p-3 bg-surface rounded-control border border-default">
+            <p className="text-muted mb-1">Llave registrada en el servidor</p>
+            <p className="font-mono text-accent">{shortFingerprint(status.registered_fingerprint)}</p>
           </div>
-          <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-700/60">
-            <p className="text-slate-400 mb-1">Respaldo en el servidor</p>
+          <div className="p-3 bg-surface rounded-control border border-default">
+            <p className="text-muted mb-1">Respaldo en el servidor</p>
             {backup?.key_backup_enabled ? (
-              <p className="text-emerald-400">
+              <p className="text-success">
                 Activo{backup.updated_at ? ` · ${new Date(backup.updated_at).toLocaleDateString()}` : ''}
               </p>
             ) : (
-              <p className="text-amber-300 flex items-center gap-1">
+              <p className="text-warning flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5" /> No configurado
               </p>
             )}
@@ -93,7 +93,7 @@ export const KeyVault: React.FC<{ onKeyChanged?: () => void }> = ({ onKeyChanged
       )}
 
       {status && !backup?.key_backup_enabled && ready && (
-        <p className="text-xs text-rose-300 bg-rose-950/40 border border-rose-800/60 rounded-lg p-2.5">
+        <p className="text-xs text-danger bg-danger-subtle border border-danger rounded-control p-2.5">
           Sin respaldo en el servidor: si pierdes este equipo y no tienes tu archivo .tkb, los datos históricos serán
           irrecuperables. Configura al menos un respaldo.
         </p>
@@ -137,7 +137,7 @@ export const KeyVault: React.FC<{ onKeyChanged?: () => void }> = ({ onKeyChanged
       )}
       {panel === 'import' &&
         (ready ? (
-          <p className="text-xs text-slate-400">Este equipo ya tiene la llave registrada; no necesitas importar un respaldo.</p>
+          <p className="text-xs text-muted">Este equipo ya tiene la llave registrada; no necesitas importar un respaldo.</p>
         ) : (
           <ImportBackupPanel
             replaceLocal={status?.key_state === 'MISMATCH'}

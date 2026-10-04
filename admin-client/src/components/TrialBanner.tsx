@@ -15,13 +15,13 @@ export const TrialBanner: React.FC<{ daysLeft: number }> = ({ daysLeft }) => {
     }
   };
   return (
-    <div className="px-6 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-200 flex items-center gap-3">
+    <div className="px-6 py-2 bg-warning-subtle border-b border-default text-xs text-warning flex items-center gap-3">
       <Clock className="w-3.5 h-3.5" />
       <span>{trialBannerText(daysLeft)}</span>
-      <button onClick={open} className="underline font-semibold hover:text-white">
+      <button onClick={open} className="underline font-semibold hover:text-fg">
         Suscribirse
       </button>
-      {error && <span className="text-rose-300">{error}</span>}
+      {error && <span className="text-danger">{error}</span>}
     </div>
   );
 };

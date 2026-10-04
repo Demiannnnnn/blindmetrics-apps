@@ -176,7 +176,7 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
 
   const barOption = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: '' } },
     grid: { left: '3%', right: '5%', bottom: '3%', top: '5%', containLabel: true },
     xAxis: {
       type: 'value',
@@ -204,29 +204,29 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
   };
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-lg space-y-5">
+    <div className="bg-surface-subtle border border-default rounded-card p-5 space-y-5">
       {/* Header and Compliance Verification Banner */}
       <div className="flex flex-wrap justify-between items-start gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Globe className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
+            <Globe className="w-5 h-5 text-accent" />
             Navegación de Red (Solo Dominios FQDN)
           </h2>
-          <p className="text-xs text-slate-400">
-            Inspección de dominios para: <span className="text-indigo-400 font-medium">{workerName}</span>
+          <p className="text-xs text-muted">
+            Inspección de dominios para: <span className="text-accent font-medium">{workerName}</span>
           </p>
         </div>
 
         {/* RF-ADMIN-05-4 & DoD 4: Visual Confirmation of Network Minimization */}
         <div className="flex items-center gap-2">
           {allCompliant ? (
-            <div className="bg-emerald-950/70 border border-emerald-800/60 text-emerald-300 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium shadow-sm">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <div className="bg-success-subtle border border-success text-success text-xs px-3 py-1.5 rounded-control flex items-center gap-1.5 font-medium ">
+              <ShieldCheck className="w-4 h-4 text-success" />
               <span>Validación DP-02: 100% FQDN (Sin rutas ni parámetros GET)</span>
             </div>
           ) : (
-            <div className="bg-amber-950/70 border border-amber-800/60 text-amber-300 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium shadow-sm">
-              <AlertCircle className="w-4 h-4 text-amber-400" />
+            <div className="bg-warning-subtle border border-warning text-warning text-xs px-3 py-1.5 rounded-control flex items-center gap-1.5 font-medium ">
+              <AlertCircle className="w-4 h-4 text-warning" />
               <span>Alerta: Se detectaron entradas no conformes que fueron sanitizadas</span>
             </div>
           )}
@@ -234,18 +234,18 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
       </div>
 
       {loading ? (
-        <div className="h-72 w-full flex flex-col items-center justify-center bg-slate-900/40 rounded-xl border border-slate-700/50">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-xs text-slate-400 mt-3 font-mono">Descargando y descifrando tráfico de red...</p>
+        <div className="h-72 w-full flex flex-col items-center justify-center bg-surface rounded-card border border-default">
+          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs text-muted mt-3 font-mono">Descargando y descifrando tráfico de red...</p>
         </div>
       ) : domains.length === 0 ? (
-        <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-12 text-center space-y-3">
-          <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
-            <AlertCircle className="w-6 h-6 text-indigo-400" />
+        <div className="bg-surface border border-default rounded-card p-12 text-center space-y-3">
+          <div className="w-12 h-12 rounded-full bg-surface-subtle text-muted flex items-center justify-center mx-auto">
+            <AlertCircle className="w-6 h-6 text-accent" />
           </div>
-          <h3 className="text-base font-semibold text-white">Sin Registros de Red en el Período</h3>
-          <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-            No se registraron dominios FQDN para <strong className="text-slate-200">{workerName}</strong> en el rango temporal seleccionado.
+          <h3 className="text-base font-semibold text-fg">Sin Registros de Red en el Período</h3>
+          <p className="text-xs text-muted max-w-md mx-auto leading-relaxed">
+            No se registraron dominios FQDN para <strong className="text-fg">{workerName}</strong> en el rango temporal seleccionado.
           </p>
         </div>
       ) : (
@@ -253,9 +253,9 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-center">
             {/* Pie Chart */}
-            <div className="bg-slate-900/40 p-4 rounded-xl border border-slate-700/50">
-              <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-slate-300">
-                <PieChart className="w-4 h-4 text-indigo-400" />
+            <div className="bg-surface p-4 rounded-card border border-default">
+              <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-fg">
+                <PieChart className="w-4 h-4 text-accent" />
                 <span>Distribución de Dominios Principales</span>
               </div>
               <div className="h-64 w-full">
@@ -264,9 +264,9 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
             </div>
 
             {/* Bar Chart */}
-            <div className="bg-slate-900/40 p-4 rounded-xl border border-slate-700/50">
-              <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-slate-300">
-                <BarChart3 className="w-4 h-4 text-emerald-400" />
+            <div className="bg-surface p-4 rounded-card border border-default">
+              <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-fg">
+                <BarChart3 className="w-4 h-4 text-success" />
                 <span>Top Dominios por Frecuencia de Consultas</span>
               </div>
               <div className="h-64 w-full">
@@ -276,12 +276,12 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
           </div>
 
           {/* Detailed FQDN Frequency Table */}
-          <div className="border-t border-slate-700/80 pt-4">
+          <div className="border-t border-default pt-4">
             <div className="flex justify-between items-center mb-3">
-              <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              <h4 className="text-xs font-semibold text-fg uppercase tracking-wider">
                 Frecuencia y Categorización de Dominios Auditados
               </h4>
-              <span className="text-[11px] text-slate-400 font-mono">
+              <span className="text-[11px] text-muted font-mono">
                 {domains.length} dominios canónicos identificados
               </span>
             </div>
@@ -290,19 +290,19 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
               {domains.map((item, idx) => (
                 <div
                   key={idx}
-                  className="flex justify-between items-center text-xs bg-slate-900/40 p-2.5 rounded-lg border border-slate-700/50 hover:border-slate-600 transition"
+                  className="flex justify-between items-center text-xs bg-surface p-2.5 rounded-control border border-default hover:border-strong transition"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-slate-200 font-medium">{item.fqdn}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                    <span className="font-mono text-fg font-medium">{item.fqdn}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-surface-subtle text-muted border border-default">
                       RFC 1035
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 font-medium">
+                    <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-accent-subtle border border-accent text-accent font-medium">
                       {item.category}
                     </span>
-                    <span className="font-semibold text-slate-100 font-mono">
+                    <span className="font-semibold text-fg font-mono">
                       {item.hits} consultas
                     </span>
                   </div>

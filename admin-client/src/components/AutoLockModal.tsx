@@ -82,20 +82,20 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-8 text-center space-y-6 shadow-2xl">
-        <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto border border-indigo-500/30">
+    <div className="fixed inset-0 z-50 bg-bg flex items-center justify-center p-4">
+      <div className="bg-surface border border-default rounded-card max-w-md w-full p-8 text-center space-y-6 shadow-md">
+        <div className="w-16 h-16 rounded-card bg-accent-subtle text-accent flex items-center justify-center mx-auto border border-default">
           <Lock className="w-8 h-8" />
         </div>
 
         <div>
-          <h2 className="text-xl font-bold text-white">Consola Administrativa Bloqueada</h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <h2 className="text-xl font-bold text-fg">Consola Administrativa Bloqueada</h2>
+          <p className="text-xs text-muted mt-1">
             Por inactividad, los datos descifrados en RAM han sido purgados para proteger la privacidad de los trabajadores (SEC-11).
           </p>
         </div>
 
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-center gap-2.5 text-xs text-amber-300 text-left">
+        <div className="bg-warning-subtle border border-default rounded-card p-3 flex items-center gap-2.5 text-xs text-warning text-left">
           <ShieldAlert className="w-5 h-5 flex-shrink-0" />
           <span>Reingrese su contraseña o use biometría para regenerar credenciales de sesión en RAM.</span>
         </div>
@@ -105,9 +105,9 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
             type="button"
             onClick={handleGoogleUnlock}
             disabled={loading}
-            className="w-full py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-medium rounded-xl text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
+            className="w-full py-2.5 bg-surface hover:bg-surface-subtle text-muted font-medium rounded-card text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
           >
-            <span className="font-bold text-indigo-600">G</span>
+            <span className="font-bold text-accent">G</span>
             Continuar con Google
           </button>
         )}
@@ -115,13 +115,13 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
         <form onSubmit={handleUnlock} className="space-y-4">
           {hasPassword && (
           <div className="relative">
-            <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <KeyRound className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="password"
               placeholder="Contraseña de administrador..."
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-surface-subtle border border-default text-fg text-sm rounded-card pl-10 pr-4 py-2.5 focus:outline-none focus:border-accent"
               autoFocus
               disabled={loading}
             />
@@ -129,8 +129,8 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
           )}
 
           {errorMessage && (
-            <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center gap-2 text-left">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <div className="p-2.5 bg-danger-subtle border border-default rounded-control text-xs text-danger flex items-center gap-2 text-left">
+              <AlertCircle className="w-4 h-4 shrink-0 text-danger" />
               <span>{errorMessage}</span>
             </div>
           )}
@@ -140,10 +140,10 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
             <button
               type="submit"
               disabled={loading || !password}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+              className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 text-accent-fg font-semibold py-2.5 rounded-card text-sm transition flex items-center justify-center gap-2"
             >
               {loading ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-4 h-4 border-2 border-default border-t-transparent rounded-full animate-spin"></div>
               ) : (
                 <span>Desbloquear y Restaurar Sesión</span>
               )}
@@ -155,19 +155,19 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
               type="button"
               onClick={handleBiometricUnlock}
               disabled={loading}
-              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl text-xs transition border border-slate-700 flex items-center justify-center gap-2"
+              className="w-full bg-surface-subtle hover:bg-surface-subtle text-fg font-medium py-2 rounded-card text-xs transition border border-default flex items-center justify-center gap-2"
             >
-              <Fingerprint className="w-4 h-4 text-indigo-400" />
+              <Fingerprint className="w-4 h-4 text-accent" />
               <span>Desbloquear con Biometría (Touch ID / Windows Hello)</span>
             </button>
           </div>
         </form>
 
-        <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+        <div className="pt-2 border-t border-default flex justify-between items-center text-xs text-muted">
           <span className="font-mono">Intentos: {attempts}/5</span>
           <button
             onClick={onForcedLogout}
-            className="text-rose-400 hover:text-rose-300 flex items-center gap-1 transition"
+            className="text-danger hover:text-danger flex items-center gap-1 transition"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Cerrar sesión completamente</span>

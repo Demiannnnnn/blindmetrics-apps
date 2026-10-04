@@ -99,20 +99,20 @@ export const FieldMap: React.FC<FieldMapProps> = ({
   // RF-ADMIN-06-1 & DoD 1: Block view completely for OFFICE workers
   if (workerRole === 'OFFICE') {
     return (
-      <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-8 shadow-lg text-center space-y-4">
-        <div className="w-14 h-14 rounded-full bg-slate-700/60 text-amber-400 flex items-center justify-center mx-auto ring-8 ring-amber-500/10">
+      <div className="bg-surface-subtle border border-default rounded-card p-8 text-center space-y-4">
+        <div className="w-14 h-14 rounded-full bg-surface-subtle text-warning flex items-center justify-center mx-auto ring-8 ring-warning">
           <ShieldAlert className="w-7 h-7" />
         </div>
-        <h3 className="text-base font-semibold text-white">
+        <h3 className="text-base font-semibold text-fg">
           Monitoreo de Ubicación No Disponible para Trabajadores de Oficina
         </h3>
-        <p className="text-xs text-slate-400 max-w-lg mx-auto leading-relaxed">
+        <p className="text-xs text-muted max-w-lg mx-auto leading-relaxed">
           En cumplimiento estricto con la <strong>Ley de Protección de Datos Personales (Ley 19.628 / 21.719)</strong> y{' '}
-          <strong>GDPR</strong>, los empleados con rol <span className="font-mono text-indigo-400 font-semibold">OFFICE</span>{' '}
+          <strong>GDPR</strong>, los empleados con rol <span className="font-mono text-accent font-semibold">OFFICE</span>{' '}
           tienen permanentemente deshabilitada la recolección de geolocalización tanto en el agente como en el servidor.
         </p>
-        <div className="inline-flex items-center gap-2 text-xs bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-400">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+        <div className="inline-flex items-center gap-2 text-xs bg-surface px-3 py-1.5 rounded-control border border-default text-muted">
+          <ShieldCheck className="w-4 h-4 text-success" />
           <span>Privacidad por Diseño (DP-04): Hardware GPS y servicios de ubicación suspendidos</span>
         </div>
       </div>
@@ -331,32 +331,32 @@ export const FieldMap: React.FC<FieldMapProps> = ({
   );
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-lg space-y-5">
+    <div className="bg-surface-subtle border border-default rounded-card p-5 space-y-5">
       {/* Header and Shift Audit Confirmation */}
       <div className="flex flex-wrap justify-between items-center gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Navigation className="w-5 h-5 text-amber-400" />
+          <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
+            <Navigation className="w-5 h-5 text-warning" />
             Trazado de Rutas en Terreno (Trabajador FIELD)
           </h2>
-          <p className="text-xs text-slate-400">
-            Ruta laboral auditada para: <span className="text-amber-400 font-medium">{workerName}</span> ({timezone})
+          <p className="text-xs text-muted">
+            Ruta laboral auditada para: <span className="text-warning font-medium">{workerName}</span> ({timezone})
           </p>
         </div>
 
         {/* Work Hours and Geofence Badges */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-mono">
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
+          <div className="bg-warning-subtle border border-default text-warning px-3 py-1.5 rounded-control flex items-center gap-1.5 font-mono">
+            <Clock className="w-3.5 h-3.5 text-warning" />
             <span>Jornada: <strong>{workHours.start} - {workHours.end}</strong></span>
           </div>
 
           <div
-            className={`px-3 py-1.5 rounded-lg border flex items-center gap-1.5 font-medium ${
-              geofencePct >= 80
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800/60'
-                : 'bg-amber-950/70 text-amber-300 border-amber-800/60'
-            }`}
+            className={`px-3 py-1.5 rounded-control border flex items-center gap-1.5 font-medium ${
+ geofencePct >= 80
+ ? 'bg-success-subtle text-success border-success'
+ : 'bg-warning-subtle text-warning border-warning'
+ }`}
           >
             <Compass className="w-3.5 h-3.5" />
             <span>Geocerca: <strong>{geofencePct}% en Rango</strong></span>
@@ -365,12 +365,12 @@ export const FieldMap: React.FC<FieldMapProps> = ({
       </div>
 
       {/* Confirmation of Non-Monitoring Outside Work Hours (RF-ADMIN-06-4 & DoD 4) */}
-      <div className="bg-slate-900/60 border border-slate-700/60 rounded-lg p-3 text-xs flex items-center justify-between flex-wrap gap-2 text-slate-300">
+      <div className="bg-surface border border-default rounded-control p-3 text-xs flex items-center justify-between flex-wrap gap-2 text-fg">
         <div className="flex items-center gap-2">
           {allWithinWorkHours ? (
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <ShieldCheck className="w-4 h-4 text-success shrink-0" />
           ) : (
-            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            <AlertCircle className="w-4 h-4 text-warning shrink-0" />
           )}
           <span>
             {allWithinWorkHours
@@ -378,44 +378,44 @@ export const FieldMap: React.FC<FieldMapProps> = ({
               : `Atención: Se detectaron registros fuera del horario pactado (${workHours.start} a ${workHours.end}).`}
           </span>
         </div>
-        <span className="text-[11px] font-mono text-slate-400">
+        <span className="text-[11px] font-mono text-muted">
           {waypoints.length} puntos cronológicos auditados
         </span>
       </div>
 
       {/* Leaflet Map Canvas Container */}
-      <div className="relative rounded-xl border border-slate-700/80 overflow-hidden shadow-inner">
+      <div className="relative rounded-card border border-default overflow-hidden ">
         {loading && (
-          <div className="absolute inset-0 z-20 bg-slate-950/70 backdrop-blur-sm flex flex-col items-center justify-center">
-            <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-xs text-slate-300 mt-3 font-mono">Descargando y descifrando coordenadas GPS...</p>
+          <div className="absolute inset-0 z-20 bg-bg flex flex-col items-center justify-center">
+            <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-xs text-fg mt-3 font-mono">Descargando y descifrando coordenadas GPS...</p>
           </div>
         )}
 
-        <div ref={mapContainerRef} className="h-96 w-full bg-slate-950" style={{ zIndex: 1 }} />
+        <div ref={mapContainerRef} className="h-96 w-full bg-bg" style={{ zIndex: 1 }} />
       </div>
 
       {/* Route Legend */}
-      <div className="flex flex-wrap items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-700/60 gap-3">
+      <div className="flex flex-wrap items-center justify-between text-xs text-muted pt-1 border-t border-default gap-3">
         <div className="flex items-center gap-4 flex-wrap">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+            <span className="w-3 h-3 rounded-full bg-success inline-block"></span>
             Inicio de jornada
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
+            <span className="w-3 h-3 rounded-full bg-danger inline-block"></span>
             Fin de jornada
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
+            <span className="w-3 h-3 rounded-full bg-warning inline-block"></span>
             Parada prolongada (&gt;15 min)
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3.5 h-0.5 bg-indigo-500 inline-block"></span>
+            <span className="w-3.5 h-0.5 bg-accent inline-block"></span>
             Polilínea cronológica
           </span>
         </div>
-        <div className="font-mono text-[11px] text-slate-500">
+        <div className="font-mono text-[11px] text-muted">
           Motor Leaflet + OpenStreetMap (Cero telemetría a servidores terceros)
         </div>
       </div>

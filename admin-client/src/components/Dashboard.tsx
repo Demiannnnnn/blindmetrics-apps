@@ -74,29 +74,29 @@ const RevokeFirstDialog: React.FC<{
   };
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-3 shadow-2xl">
-        <h3 className="text-base font-semibold text-white">Vincular un equipo nuevo</h3>
-        <p className="text-xs text-slate-300">
+      <div className="bg-surface border border-default rounded-card max-w-md w-full p-6 space-y-3 ">
+        <h3 className="text-base font-semibold text-fg">Vincular un equipo nuevo</h3>
+        <p className="text-xs text-fg">
           {worker.name} ya aceptó el consentimiento en un equipo ({worker.deviceHostname ?? 'equipo actual'}). Para vincular un
           equipo nuevo, primero revoca el actual: dejará de enviar datos y el agente borrará sus credenciales.
         </p>
-        <p className="text-xs text-slate-400">
-          Escribe <span className="font-semibold text-white">{worker.name}</span> para confirmar.
+        <p className="text-xs text-muted">
+          Escribe <span className="font-semibold text-fg">{worker.name}</span> para confirmar.
         </p>
         <input
           value={typed}
           onChange={e => setTyped(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+          className="w-full bg-bg border border-default rounded-control px-3 py-2 text-xs text-fg focus:outline-none focus:border-danger"
         />
-        {error && <p className="text-xs text-rose-300">{error}</p>}
+        {error && <p className="text-xs text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg">
+          <button onClick={onClose} className="px-3 py-2 bg-surface-subtle hover:bg-surface-subtle text-fg text-xs rounded-control">
             Cancelar
           </button>
           <button
             disabled={busy || typed.trim() !== worker.name.trim()}
             onClick={confirmAndRegenerate}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg disabled:opacity-40"
+            className="px-4 py-2 bg-danger hover:bg-danger-hover text-accent-fg text-xs font-semibold rounded-control disabled:opacity-40"
           >
             {busy ? 'Procesando…' : 'Revocar equipo actual y generar código'}
           </button>
@@ -245,33 +245,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       )}
 
       {/* Zero-Knowledge Master Crypto Vault Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950/60 to-slate-900 border border-indigo-900/60 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+      <div className="bg-surface border border-default rounded-card p-5 relative overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="p-1.5 bg-indigo-500/20 text-indigo-400 rounded-lg">
+              <span className="p-1.5 bg-accent-subtle text-accent rounded-control">
                 <Key className="w-4 h-4" />
               </span>
-              <h2 className="text-sm font-bold text-white tracking-wide">
+              <h2 className="text-sm font-bold text-fg tracking-wide">
                 Bóveda Criptográfica Zero-Knowledge (OS Keystore)
               </h2>
-              <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-400 text-[10px] font-mono font-semibold rounded border border-emerald-500/30">
+              <span className="px-2 py-0.5 bg-success-subtle text-success text-[10px] font-mono font-semibold rounded border border-default">
                 HPKE X25519 / AES-256-GCM
               </span>
             </div>
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-fg">
               Clave Pública Master activa para el cifrado asimétrico de los agentes en estaciones de trabajo:
             </p>
             <div className="flex items-center gap-2 pt-1 font-mono text-xs">
-              <code className="bg-slate-950/90 text-indigo-300 px-3 py-1.5 rounded-lg border border-slate-800 text-[11px] truncate max-w-md select-all">
+              <code className="bg-bg text-accent px-3 py-1.5 rounded-control border border-default text-[11px] truncate max-w-md select-all">
                 {masterPubKey}
               </code>
               <button
                 onClick={copyPublicKey}
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition"
+                className="p-1.5 bg-surface-subtle hover:bg-surface-subtle text-fg rounded-control border border-default transition"
                 title="Copiar Clave Pública"
               >
-                {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedKey ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>
@@ -280,7 +280,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <button
               onClick={handleRunDecryptionTest}
               disabled={testingDecryption}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 transition disabled:opacity-50"
+              className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-accent-fg rounded-card text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
             >
               <Cpu className="w-3.5 h-3.5" />
               <span>{testingDecryption ? 'Descifrando…' : 'Autoprueba de descifrado'}</span>
@@ -288,7 +288,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
 
             <button
               onClick={onOpenVault}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium border border-slate-700 transition flex items-center gap-1.5"
+              className="px-3 py-2 bg-surface-subtle hover:bg-surface-subtle text-fg rounded-card text-xs font-medium border border-default transition flex items-center gap-1.5"
             >
               <Key className="w-3.5 h-3.5" />
               <span>Respaldos y llave</span>
@@ -300,30 +300,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       {/* Decryption Test Result Modal */}
       {decryptionTestResult && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+          <div className="bg-surface border border-default rounded-card max-w-lg w-full p-6 relative">
             <button
               onClick={() => setDecryptionTestResult(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white"
+              className="absolute top-4 right-4 text-muted hover:text-fg"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-card bg-success-subtle text-success flex items-center justify-center">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Resultado de Descifrado Paralelo (Rayon)</h3>
-                <p className="text-xs text-emerald-400 font-mono">100% Verificado con Clave Privada de Keystore</p>
+                <h3 className="text-base font-bold text-fg">Resultado de Descifrado Paralelo (Rayon)</h3>
+                <p className="text-xs text-success font-mono">100% Verificado con Clave Privada de Keystore</p>
               </div>
             </div>
 
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 max-h-64 overflow-y-auto mb-4 select-all">
+            <div className="bg-bg p-4 rounded-card border border-default font-mono text-xs text-fg max-h-64 overflow-y-auto mb-4 select-all">
               <pre>{JSON.stringify(decryptionTestResult.payload, null, 2)}</pre>
             </div>
 
-            <div className="p-3 bg-indigo-950/40 border border-indigo-900/60 rounded-xl text-xs text-slate-300 space-y-1 mb-4">
-              <p className="font-semibold text-indigo-300">Detalles del Pipeline Ejecutado:</p>
+            <div className="p-3 bg-surface-subtle border border-default rounded-card text-xs text-fg space-y-1 mb-4">
+              <p className="font-semibold text-accent">Detalles del Pipeline Ejecutado:</p>
               <p>• Clave Efímera X25519 recibida y validada.</p>
               <p>• Derivación de clave simétrica mediante HKDF-SHA256.</p>
               <p>• Descifrado y autenticación de tag Poly1305 / AES-GCM sin exponer claves.</p>
@@ -332,7 +332,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <div className="flex justify-end">
               <button
                 onClick={() => setDecryptionTestResult(null)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition"
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-accent-fg rounded-control text-xs font-semibold transition"
               >
                 Cerrar Prueba
               </button>
@@ -343,62 +343,62 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
 
       {/* KPI Cards (RF-ADMIN-08-9) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+        <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center">
             <Users className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 font-medium">Trabajadores Activos</p>
-            <h3 className="text-2xl font-bold text-white">
-              {kpis?.activeWorkers ?? 0} <span className="text-xs font-normal text-slate-400">/ {kpis?.totalWorkers ?? 0}</span>
+            <p className="text-xs text-muted font-medium">Trabajadores Activos</p>
+            <h3 className="text-2xl font-bold text-fg">
+              {kpis?.activeWorkers ?? 0} <span className="text-xs font-normal text-muted">/ {kpis?.totalWorkers ?? 0}</span>
             </h3>
           </div>
         </div>
 
-        <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg">
-          <p className="text-xs text-slate-400 font-medium mb-1.5 flex items-center gap-1.5">
+        <div className="bg-surface-subtle border border-default rounded-card p-4 ">
+          <p className="text-xs text-muted font-medium mb-1.5 flex items-center gap-1.5">
             <HardDrive className="w-3.5 h-3.5" /> Por estado
           </p>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-            <span className="text-sky-300">Esperando consentimiento</span>
-            <span className="text-right text-white font-semibold">{kpis?.byStatus.PENDING_CONSENT ?? 0}</span>
-            <span className="text-slate-300">Invitados</span>
-            <span className="text-right text-white font-semibold">{kpis?.byStatus.PENDING_ENROLLMENT ?? 0}</span>
-            <span className="text-amber-300">Pausados</span>
-            <span className="text-right text-white font-semibold">{kpis?.byStatus.PAUSED ?? 0}</span>
-            <span className="text-rose-300">Revocados</span>
-            <span className="text-right text-white font-semibold">{kpis?.byStatus.REVOKED ?? 0}</span>
+            <span className="text-info">Esperando consentimiento</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byStatus.PENDING_CONSENT ?? 0}</span>
+            <span className="text-fg">Invitados</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byStatus.PENDING_ENROLLMENT ?? 0}</span>
+            <span className="text-warning">Pausados</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byStatus.PAUSED ?? 0}</span>
+            <span className="text-danger">Revocados</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byStatus.REVOKED ?? 0}</span>
           </div>
         </div>
 
-        <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
+        <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-card bg-info-subtle text-info flex items-center justify-center">
             <Key className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 font-medium">Bóveda OS Keystore</p>
+            <p className="text-xs text-muted font-medium">Bóveda OS Keystore</p>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className={`w-2.5 h-2.5 rounded-full ${kpis?.keystoreProtected ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
-              <span className={`text-sm font-semibold ${kpis?.keystoreProtected ? 'text-emerald-300' : 'text-rose-300'}`}>
+              <span className={`w-2.5 h-2.5 rounded-full ${kpis?.keystoreProtected ? 'bg-success' : 'bg-danger'}`}></span>
+              <span className={`text-sm font-semibold ${kpis?.keystoreProtected ? 'text-success' : 'text-danger'}`}>
                 {kpis?.keystoreProtected ? 'Llave local cargada' : 'Sin llave local'}
               </span>
             </div>
             {kpis && kpis.keystoreProtected && !kpis.backupConfigured && (
-              <button onClick={onOpenVault} className="text-[11px] text-amber-300 underline mt-0.5">
+              <button onClick={onOpenVault} className="text-[11px] text-warning underline mt-0.5">
                 Sin respaldo en el servidor
               </button>
             )}
           </div>
         </div>
 
-        <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center">
+        <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center">
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div className="text-xs space-y-0.5">
-            <p className="text-slate-400 font-medium">Alertas</p>
-            {kpis?.keyMismatch && <p className="text-rose-300 font-semibold">Llave del servidor distinta a la local (K2)</p>}
-            <p className={kpis?.expiringCodes ? 'text-amber-300 font-semibold' : 'text-slate-300'}>
+            <p className="text-muted font-medium">Alertas</p>
+            {kpis?.keyMismatch && <p className="text-danger font-semibold">Llave del servidor distinta a la local (K2)</p>}
+            <p className={kpis?.expiringCodes ? 'text-warning font-semibold' : 'text-fg'}>
               {kpis?.expiringCodes ?? 0} código(s) por vencer (&lt; 2 h)
             </p>
           </div>
@@ -406,23 +406,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       </div>
 
       {/* Deep Filtering & Action Bar */}
-      <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 shadow-lg flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-surface-subtle border border-default rounded-card p-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[320px]">
           {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Buscar por nombre o correo corporativo..."
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-surface border border-default text-fg text-xs rounded-control pl-9 pr-3 py-2 focus:outline-none focus:border-accent"
             />
           </div>
 
           {/* Role Filter */}
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
+          <div className="flex items-center gap-1.5 bg-surface border border-default rounded-control px-2.5 py-1.5 text-xs text-fg">
+            <Filter className="w-3.5 h-3.5 text-muted" />
             <select
               value={roleFilter}
               onChange={e => setRoleFilter(e.target.value as 'ALL' | 'OFFICE' | 'FIELD')}
@@ -435,7 +435,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
           </div>
 
           {/* Status Filter */}
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
+          <div className="flex items-center gap-1.5 bg-surface border border-default rounded-control px-2.5 py-1.5 text-xs text-fg">
             <select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as 'ALL' | WorkerStatus)}
@@ -454,14 +454,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
         <div className="flex items-center gap-2">
           <button
             onClick={loadData}
-            className="p-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs transition"
+            className="p-2 bg-surface-subtle hover:bg-strong text-fg rounded-control text-xs transition"
             title="Recargar datos"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg transition"
+            className="bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold px-4 py-2 rounded-control flex items-center gap-2 transition"
           >
             <UserPlus className="w-4 h-4" />
             Nuevo Trabajador
@@ -470,15 +470,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       </div>
 
       {listError && (
-        <div className="p-3 bg-rose-950/50 border border-rose-800/60 rounded-xl text-xs text-rose-300">{listError}</div>
+        <div className="p-3 bg-danger-subtle border border-danger rounded-card text-xs text-danger">{listError}</div>
       )}
 
       {/* Workers Grid */}
       {loading ? (
-        <div className="py-20 text-center text-slate-400 text-sm">Descargando y actualizando lista de trabajadores...</div>
+        <div className="py-20 text-center text-muted text-sm">Descargando y actualizando lista de trabajadores...</div>
       ) : workers.length === 0 ? (
-        <div className="py-16 text-center bg-slate-800/40 rounded-xl border border-slate-700/60">
-          <p className="text-slate-400 text-sm">No se encontraron trabajadores que coincidan con los filtros.</p>
+        <div className="py-16 text-center bg-surface-subtle rounded-card border border-default">
+          <p className="text-muted text-sm">No se encontraron trabajadores que coincidan con los filtros.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -498,7 +498,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       )}
 
       {pagination && pagination.total_pages > 1 && (
-        <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="flex items-center justify-between text-xs text-muted">
           <span>
             {pagination.total} trabajadores · página {pagination.page} de {pagination.total_pages}
           </span>
@@ -506,7 +506,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page <= 1 || loading}
-              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 disabled:opacity-40"
+              className="p-2 bg-surface-subtle hover:bg-surface-subtle rounded-control border border-default disabled:opacity-40"
               title="Página anterior"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -514,7 +514,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <button
               onClick={() => setPage(p => Math.min(pagination.total_pages, p + 1))}
               disabled={page >= pagination.total_pages || loading}
-              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 disabled:opacity-40"
+              className="p-2 bg-surface-subtle hover:bg-surface-subtle rounded-control border border-default disabled:opacity-40"
               title="Página siguiente"
             >
               <ChevronRight className="w-4 h-4" />
