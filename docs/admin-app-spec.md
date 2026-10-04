@@ -50,7 +50,7 @@ flowchart TD
 ## 2. Screens
 
 ### A1 — Server & login
-Server URL (persisted in app config, not `localStorage`; default from `ADMIN_API_URL`), email, password → `POST /auth/login { role: "ADMIN", device }`. **Continuar con Google** (ADMIN-10) opens the system browser; disabled with an explanation when the build has no Google client id. On failure show the API error — **never** a fake/offline profile. Session-expired reasons are shown here (`DEVICE_REVOKED`: "Este equipo fue revocado desde otra sesión").
+Email, password (no server field: the server is fixed at build time by `TELEMETRY_API_URL` in `admin-client/.env`) → `POST /auth/login { role: "ADMIN", device }`. **Continuar con Google** (ADMIN-10) opens the system browser; disabled with an explanation when the build has no Google client id. On failure show the API error — **never** a fake/offline profile. Session-expired reasons are shown here (`DEVICE_REVOKED`: "Este equipo fue revocado desde otra sesión").
 
 ### A2 — Register
 Name, organization, email, password (hint matches the API rule: 8–128 with upper, lower, digit and symbol). `POST /auth/register` → logged in, 14-day trial.
@@ -106,7 +106,7 @@ Unchanged from ADMIN-04/05/06: two-phase progress, integrity panel, "No recolect
 - **Llave:** local and registered fingerprints, state, **Exportar respaldo (.tkb)**, **Respaldo en el servidor** (enable/replace/delete), **Importar respaldo**, **Generar nueva llave (rotación)** (C).
 - **Dispositivos autorizados** (ADMIN-10): list, rename, revoke (not the last active one; revoking this one logs out).
 - **Suscripción** (ADMIN-12): effective status, expiry, trial days, **Gestionar suscripción** (portal).
-- Auto-lock minutes, server URL, logout, version. Privacy principles cards.
+- Auto-lock minutes, logout, version. Privacy principles cards.
 
 ### L — Auto-lock
 After inactivity: clear decrypted data from React state and Rust caches, drop the access token (keep the refresh token), show unlock (password or, for Google-only accounts, sign in again with Google). Five wrong passwords revoke the session. The "Biometría" button must only unlock after a real OS prompt (Touch ID / Windows Hello); today it does not verify anything (known gap).

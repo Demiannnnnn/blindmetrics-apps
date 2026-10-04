@@ -33,7 +33,7 @@ flowchart TD
 ### E1 — Enrollment
 - Title: "Link this computer to your employer".
 - Two options: **Paste QR** (the QR content: the base64 `qr_payload` shown by the admin app, or the raw JSON of older admin versions; camera/image decoding is a later enhancement) and **Enter code** (`XXXX-XXXX-XXXX`; lowercase, spaces and dashes accepted; `I`/`L` → `1` and `O` → `0` for compatibility with v1 codes — v2 codes never contain `0 O 1 I L`).
-- Manual code also needs the **server address** (prefilled from `TELEMETRY_API_URL` in dev; required field in production). The QR carries it.
+- The worker never types a **server address**: the agent is built for one server (`TELEMETRY_API_URL`, read at compile time from `agent/.env`; `https://` required in release). The QR still carries `api_url`; a QR whose `api_url` is not the built-in server is rejected.
 - Button **Link** → `POST /workers/enroll` with `device_identifier` and `device_info`.
 - Errors by `details.reason` (AGENT-09):
 
@@ -157,7 +157,7 @@ There is **no** worker-side "pause 15 min" (old docs): pausing is an admin actio
 
 | Key | Source | Default |
 |:----|:-------|:--------|
-| API URL | QR / enrollment form; `TELEMETRY_API_URL` env in debug builds only | — |
+| API URL | Compile time only: `TELEMETRY_API_URL` (`agent/.env` or environment), never persisted in the config file | — |
 | Flush interval | `WORKER_FLUSH_INTERVAL` env / config | 30 s |
 | Role, work hours, timezone, flags | **Server** (`/workers/me`) — never env or local edit | — |
 

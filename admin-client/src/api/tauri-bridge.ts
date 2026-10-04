@@ -220,24 +220,14 @@ function demoPage(query: WorkerListQuery): CollectionResponse<WorkerResponse> {
 
 let currentSession: AdminProfile | null = null;
 
-export function getApiBaseUrl(): string {
-  return localStorage.getItem('TELEMETRY_API_URL') || (import.meta.env.VITE_API_URL as string) || 'http://localhost:8080/api/v1';
-}
-
-export function setApiBaseUrl(url: string): void {
-  localStorage.setItem('TELEMETRY_API_URL', url.trim());
-}
-
-export async function adminLogin(email: string, pass: string, apiUrl?: string): Promise<AdminProfile> {
-  const url = apiUrl || getApiBaseUrl();
-  setApiBaseUrl(url);
-
+// The server URL is compiled into the Rust side (TELEMETRY_API_URL, src-tauri/build.rs): the
+// WebView never chooses or stores which server the app talks to.
+export async function adminLogin(email: string, pass: string): Promise<AdminProfile> {
   if (isTauri()) {
     try {
       const profile = await invoke<AdminProfile>('admin_login', {
         email,
         password: pass,
-        apiUrl: url,
       });
       currentSession = profile;
       return profile;
@@ -277,10 +267,7 @@ export async function adminRegister(
   email: string,
   pass: string,
   organization: string,
-  apiUrl?: string
 ): Promise<AdminProfile> {
-  const url = apiUrl || getApiBaseUrl();
-  setApiBaseUrl(url);
 
   if (isTauri()) {
     try {
@@ -289,7 +276,6 @@ export async function adminRegister(
         email,
         password: pass,
         organization,
-        apiUrl: url,
       });
       currentSession = profile;
       return profile;
@@ -759,11 +745,9 @@ export async function googleSignInAvailable(): Promise<boolean> {
   return false;
 }
 
-export async function adminLoginGoogle(apiUrl?: string): Promise<AdminProfile> {
-  const url = apiUrl || getApiBaseUrl();
-  setApiBaseUrl(url);
+export async function adminLoginGoogle(): Promise<AdminProfile> {
   if (isTauri()) {
-    const profile = await invoke<AdminProfile>('admin_login_google', { apiUrl: url });
+    const profile = await invoke<AdminProfile>('admin_login_google');
     currentSession = profile;
     return profile;
   }

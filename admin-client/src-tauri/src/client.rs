@@ -378,13 +378,12 @@ pub struct AdminApiClient {
 
 static API_CLIENT: std::sync::OnceLock<AdminApiClient> = std::sync::OnceLock::new();
 
+/// Server the admin app is built for, fixed at compile time by `build.rs` from
+/// `TELEMETRY_API_URL` (`admin-client/.env` or the environment). Never changed at runtime.
+pub const API_BASE_URL: &str = env!("TELEMETRY_API_URL");
+
 pub fn get_api_client() -> &'static AdminApiClient {
-    API_CLIENT.get_or_init(|| {
-        let default_url = std::env::var("ADMIN_API_URL")
-            .or_else(|_| std::env::var("VITE_API_URL"))
-            .unwrap_or_else(|_| "http://localhost:8080/api/v1".to_string());
-        AdminApiClient::new(default_url)
-    })
+    API_CLIENT.get_or_init(|| AdminApiClient::new(API_BASE_URL.to_string()))
 }
 
 fn user_agent() -> String {
@@ -418,11 +417,6 @@ impl AdminApiClient {
 
     pub fn set_event_sink(&self, sink: Arc<dyn ClientEvents>) {
         *self.events.write().unwrap_or_else(|p| p.into_inner()) = Some(sink);
-    }
-
-    pub fn set_base_url(&self, url: String) {
-        *self.base_url.write().unwrap_or_else(|p| p.into_inner()) =
-            url.trim().trim_end_matches('/').to_string();
     }
 
     pub fn get_base_url(&self) -> String {

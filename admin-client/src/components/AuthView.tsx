@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, KeyRound, Server, User, Building, ArrowRight, AlertTriangle, Sparkles } from 'lucide-react';
+import { ShieldCheck, KeyRound, User, Building, ArrowRight, AlertTriangle, Sparkles } from 'lucide-react';
 import {
   adminLogin,
   adminLoginGoogle,
   adminRegister,
   AdminProfile,
-  getApiBaseUrl,
   googleSignInAvailable,
   isDemoMode,
 } from '../api/tauri-bridge';
@@ -25,7 +24,6 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [organization, setOrganization] = useState('');
-  const [apiUrl, setApiUrl] = useState(getApiBaseUrl());
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(
     expiredReason ? ERROR_MESSAGES[expiredReason] ?? ERROR_MESSAGES.SESSION_EXPIRED : null,
@@ -40,7 +38,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
     setLoading(true);
     setErrorMessage(null);
     try {
-      onLoginSuccess(await adminLoginGoogle(apiUrl));
+      onLoginSuccess(await adminLoginGoogle());
     } catch (err) {
       setErrorMessage(describeError(err, 'No se pudo iniciar sesión con Google.'));
     } finally {
@@ -61,10 +59,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
 
     try {
       if (tab === 'login') {
-        const profile = await adminLogin(email, password, apiUrl);
+        const profile = await adminLogin(email, password);
         onLoginSuccess(profile);
       } else {
-        const profile = await adminRegister(name, email, password, organization, apiUrl);
+        const profile = await adminRegister(name, email, password, organization);
         onLoginSuccess(profile);
       }
     } catch (err: any) {
@@ -80,7 +78,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
     setLoading(true);
     setErrorMessage(null);
     try {
-      const profile = await adminLogin('demo@telemetry.local', 'demo-pass', apiUrl);
+      const profile = await adminLogin('demo@telemetry.local', 'demo-pass');
       onLoginSuccess(profile);
     } catch (err: any) {
       setErrorMessage(describeError(err));
@@ -200,23 +198,6 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <Server className="w-3.5 h-3.5 text-slate-500" />
-                URL del Servidor API
-              </span>
-              <span className="text-[10px] text-emerald-400 font-mono">Configurable (.env)</span>
-            </label>
-            <input
-              type="text"
-              required
-              value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="http://localhost:8080/api/v1"
-              className="w-full px-3 py-2 bg-slate-950/70 border border-slate-800 rounded-lg text-xs font-mono text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
 
           <button
             type="submit"

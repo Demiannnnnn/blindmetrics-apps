@@ -105,7 +105,7 @@ Details: [`.ai-context/architecture.md`](.ai-context/architecture.md).
 
 | Area | What it does | Task |
 |:---|:---|:---|
-| Enrollment | Paste the QR payload (v2 base64 or JSON) or type the code + server URL (https required in release); commitment verification or safety code; pinned key; tamper alert; errors by reason including `ENROLLMENT_LOCKED` countdown. | AGENT-08, AGENT-09 |
+| Enrollment | Paste the QR payload (v2 base64 or JSON) or type the code (the server is fixed at build time; a QR for another server is rejected); commitment verification or safety code; pinned key; tamper alert; errors by reason including `ENROLLMENT_LOCKED` countdown. | AGENT-08, AGENT-09 |
 | Consent | One **unchecked** checkbox per category the admin requested, "Mantener mi selección anterior", "Cambiar mi selección", reject all, withdraw (purges buffer and queue first). | AGENT-09 |
 | Collection | Only in `ACTIVE`, only accepted categories, time-bound categories only in work hours; keystroke/click **counts**, active window, idle, CPU/RAM, FQDN-only network, file metadata in designated folders, notified screenshots, FIELD-only location. | AGENT-02/03 |
 | Delivery | One encrypted envelope per category, SQLite WAL queue (7 days, 100 MB, 5 MB/payload), backoff with jitter, single-flight refresh. | AGENT-04/05 |
@@ -155,10 +155,9 @@ cp .env.example admin-client/.env
 
 | Variable | Used by | Default | Notes |
 |:---------|:--------|:--------|:------|
-| `TELEMETRY_API_URL` | agent | `http://localhost:8080/api/v1` | Dev only; in production the URL comes from the enrollment QR (must be `https`, SEC-10). |
+| `TELEMETRY_API_URL` | agent (build) | `http://localhost:8080/api/v1` in debug | Server the agent is **built for**: read at compile time from `agent/.env` or the environment and embedded in the binary. Required and `https://` in release builds. The worker never types it; a QR for another server is rejected. |
 | `WORKER_FLUSH_INTERVAL` | agent | `30` | Seconds between flushes; values below 5 are ignored. |
-| `ADMIN_API_URL` | admin (Rust) | `http://localhost:8080/api/v1` | Release builds accept only `https://` URLs. |
-| `VITE_API_URL` | admin (UI) | `http://localhost:8080/api/v1` | Default shown in the login form; the UI never calls the API directly. |
+| `TELEMETRY_API_URL` | admin (build) | `http://localhost:8080/api/v1` in debug | Same for the admin app: read at compile time from `admin-client/.env` or the environment (not exposed to the WebView). Required and `https://` in release builds; the sign-in screen has no server field. |
 | `VITE_DEMO_MODE` | admin (UI) | unset | `true` enables the demo data store for UI work only; never set it in a release build (SEC-06). |
 | `ADMIN_GOOGLE_CLIENT_ID` | admin (Rust) | empty | Google OAuth client of type **Desktop app**. Empty ⇒ the "Continuar con Google" button is hidden. Must also be listed in the API's `GOOGLE_CLIENT_ID`. |
 | `ADMIN_GOOGLE_CLIENT_SECRET` | admin (Rust) | empty | Secret of that desktop client (Google does not treat it as confidential, but its token endpoint requires it). |

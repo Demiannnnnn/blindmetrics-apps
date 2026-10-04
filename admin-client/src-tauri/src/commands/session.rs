@@ -8,24 +8,6 @@ use serde::Deserialize;
 const MIN_PROFILE_FIELD_CHARS: usize = 2;
 const MAX_PROFILE_FIELD_CHARS: usize = 255;
 
-fn apply_api_url(client: &AdminApiClient, api_url: Option<String>) -> Result<(), CommandError> {
-    if let Some(url) = api_url
-        .map(|u| u.trim().to_string())
-        .filter(|u| !u.is_empty())
-    {
-        let allowed =
-            url.starts_with("https://") || (cfg!(debug_assertions) && url.starts_with("http://"));
-        if !allowed {
-            // SEC-10: release builds only talk to https:// servers.
-            return Err(CommandError::validation(
-                "La dirección del servidor debe comenzar con https://",
-            ));
-        }
-        client.set_base_url(url);
-    }
-    Ok(())
-}
-
 /// After any sign-in: register the local key if the server has none (RF-ADMIN-08-1). A
 /// failure is logged; the key screens (ADMIN-11) handle every other state.
 async fn after_sign_in(client: &AdminApiClient) -> Result<AdminProfile, CommandError> {
@@ -41,13 +23,8 @@ async fn after_sign_in(client: &AdminApiClient) -> Result<AdminProfile, CommandE
 }
 
 #[tauri::command]
-pub async fn admin_login(
-    email: String,
-    password: String,
-    api_url: Option<String>,
-) -> Result<AdminProfile, CommandError> {
+pub async fn admin_login(email: String, password: String) -> Result<AdminProfile, CommandError> {
     let client = get_api_client();
-    apply_api_url(client, api_url)?;
     let password = zeroize::Zeroizing::new(password);
     client.login(&email, &password).await?;
     after_sign_in(client).await
@@ -59,10 +36,8 @@ pub async fn admin_register(
     email: String,
     password: String,
     organization: String,
-    api_url: Option<String>,
 ) -> Result<AdminProfile, CommandError> {
     let client = get_api_client();
-    apply_api_url(client, api_url)?;
     let password = zeroize::Zeroizing::new(password);
     client
         .register(&name, &email, &password, &organization)
@@ -78,9 +53,8 @@ pub fn google_sign_in_available() -> bool {
 
 /// Google sign-in through the system browser (loopback + PKCE + nonce, RF-ADMIN-10-2).
 #[tauri::command]
-pub async fn admin_login_google(api_url: Option<String>) -> Result<AdminProfile, CommandError> {
+pub async fn admin_login_google() -> Result<AdminProfile, CommandError> {
     let client = get_api_client();
-    apply_api_url(client, api_url)?;
     let cfg = GoogleConfig::from_env().ok_or(GoogleError::NotConfigured)?;
     let id_token = google_oauth::sign_in(
         client.http(),

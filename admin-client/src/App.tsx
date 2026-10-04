@@ -9,7 +9,6 @@ import {
   Lock,
   ChevronDown,
   LogOut,
-  Server,
   User,
   FileText,
   Calendar,
@@ -23,7 +22,6 @@ import {
   getWorkersList,
   getAdminSession,
   adminLogout,
-  getApiBaseUrl,
   onSessionExpired,
   onSubscriptionBlocked,
   subscriptionStatus,
@@ -439,10 +437,6 @@ export const App: React.FC = () => {
             </select>
           </div>
 
-          <div className="text-[10px] text-slate-500 font-mono text-center flex items-center justify-center gap-1">
-            <Server className="w-3 h-3 text-slate-600" />
-            <span className="truncate max-w-[200px]">{getApiBaseUrl()}</span>
-          </div>
         </div>
       </aside>
 
