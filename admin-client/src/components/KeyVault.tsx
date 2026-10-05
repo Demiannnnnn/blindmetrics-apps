@@ -68,14 +68,14 @@ export const KeyVault: React.FC<{ onKeyChanged?: () => void }> = ({ onKeyChanged
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           <div className="p-3 bg-surface rounded-control border border-default">
             <p className="text-muted mb-1">Llave en este equipo</p>
-            <p className="font-mono text-accent">{shortFingerprint(status.local_fingerprint)}</p>
+            <p className="font-mono text-fg">{shortFingerprint(status.local_fingerprint)}</p>
             <p className={ready ? 'text-success mt-1' : 'text-warning mt-1'}>
               {ready ? 'Coincide con la registrada' : status.key_state === 'MISMATCH' ? 'Distinta a la registrada' : 'Sin llave válida'}
             </p>
           </div>
           <div className="p-3 bg-surface rounded-control border border-default">
             <p className="text-muted mb-1">Llave registrada en el servidor</p>
-            <p className="font-mono text-accent">{shortFingerprint(status.registered_fingerprint)}</p>
+            <p className="font-mono text-fg">{shortFingerprint(status.registered_fingerprint)}</p>
           </div>
           <div className="p-3 bg-surface rounded-control border border-default">
             <p className="text-muted mb-1">Respaldo en el servidor</p>

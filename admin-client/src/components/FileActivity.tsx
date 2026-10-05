@@ -297,7 +297,7 @@ export const FileActivity: React.FC<FileActivityProps> = ({
               <tbody className="divide-y divide-default bg-surface">
                 {filteredOps.map(op => (
                   <tr key={op.id} className="hover:bg-surface-subtle transition">
-                    <td className="px-4 py-3 font-mono text-accent whitespace-nowrap">
+                    <td className="px-4 py-3 font-mono text-fg tabular-nums whitespace-nowrap">
                       {op.time}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">

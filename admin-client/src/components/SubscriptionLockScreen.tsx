@@ -70,7 +70,7 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({ 
  <p className="text-sm text-fg">Para reactivar tu cuenta, accede al portal web:</p>
  {portalOk ? (
  <>
- <p className="font-mono text-sm text-accent break-all">{displayUrl(status.portal_url)}</p>
+ <p className="font-mono text-sm text-fg break-all">{displayUrl(status.portal_url)}</p>
  <button
  onClick={openPortal}
  className="w-full py-2.5 bg-accent hover:bg-accent-hover text-accent-fg text-sm font-semibold rounded-control flex items-center justify-center gap-2 transition"

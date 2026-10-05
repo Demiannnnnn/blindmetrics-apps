@@ -99,7 +99,7 @@ export const ConsentPreview: React.FC<ConsentPreviewProps> = ({ organization, fl
  <p className="text-muted">Tu empleador solicita poder recolectar estos datos. Elige cuáles aceptas:</p>
  {enabled.map(c => (
  <div key={c.key}>
- <p className="text-fg">☐ {c.label}</p>
+ <p className="text-fg">{c.label}</p>
  <p className="pl-5 text-muted italic">“{(descriptions[c.key] ||'').trim()}”</p>
             </div>
           ))}

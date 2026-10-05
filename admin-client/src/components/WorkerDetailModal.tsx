@@ -294,8 +294,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 {CONSENT_CATEGORIES.map(c => (
                   <tr key={c.key} className="border-t border-default align-top">
                     <td className="py-1.5 pr-2">{c.label}</td>
-                    <td className="py-1.5">{worker.requested_consent_flags[c.key] ? '✅' : '—'}</td>
-                    <td className="py-1.5">{worker.consent_flags[c.key] ? '✅' : '—'}</td>
+                    <td className="py-1.5">{worker.requested_consent_flags[c.key] ? 'Sí' : '—'}</td>
+                    <td className="py-1.5">{worker.consent_flags[c.key] ? 'Sí' : '—'}</td>
                     <td className="py-1.5 text-muted italic">{worker.consent_descriptions[c.key] || ''}</td>
                   </tr>
                 ))}

@@ -46,10 +46,10 @@ test('errors: failed password login does not reveal which part was wrong', () =>
 });
 
 test('subscription: lock screen copy by status and reason (TASK-APP-01)', () => {
-  assert.equal(lockScreenCopy('SUSPENDED', 'TRIAL_EXPIRED').title, '⚠️ Período de prueba terminado');
+  assert.equal(lockScreenCopy('SUSPENDED', 'TRIAL_EXPIRED').title, 'Período de prueba terminado');
   assert.equal(lockScreenCopy('SUSPENDED', 'SUBSCRIPTION_EXPIRED').body, 'Tu suscripción ha sido suspendida por falta de pago.');
-  assert.equal(lockScreenCopy('SUSPENDED', 'SUBSCRIPTION_SUSPENDED').title, '⚠️ Suscripción suspendida');
-  assert.equal(lockScreenCopy('CANCELLED', 'SUBSCRIPTION_CANCELLED').title, '⛔ Suscripción cancelada');
+  assert.equal(lockScreenCopy('SUSPENDED', 'SUBSCRIPTION_SUSPENDED').title, 'Suscripción suspendida');
+  assert.equal(lockScreenCopy('CANCELLED', 'SUBSCRIPTION_CANCELLED').title, 'Suscripción cancelada');
   assert.equal(isBlocked({ effective_status: 'SUSPENDED' }), true);
   assert.equal(isBlocked({ effective_status: 'CANCELLED' }), true);
   assert.equal(isBlocked({ effective_status: 'TRIAL' }), false);

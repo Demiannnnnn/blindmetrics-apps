@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { useThemeColors } from '../hooks/useThemeColors';
 import { Globe, ShieldCheck, AlertCircle, BarChart3, PieChart } from 'lucide-react';
 import {
   TimeRangeFilter,
@@ -60,6 +61,7 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
   workerName,
   timeRange,
 }) => {
+  const c = useThemeColors();
   const [loading, setLoading] = useState<boolean>(false);
   const [domains, setDomains] = useState<DomainStats[]>([]);
   const [allCompliant, setAllCompliant] = useState<boolean>(true);
@@ -167,8 +169,8 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
         type: 'pie',
         radius: ['42%', '70%'],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 6, borderColor: '#1e293b', borderWidth: 2 },
-        label: { show: true, color: '#cbd5e1', formatter: '{b}' },
+        itemStyle: { borderRadius: 6, borderColor: c.surface, borderWidth: 2 },
+        label: { show: true, color: c.text, formatter: '{b}' },
         data: top10.map(d => ({ value: d.hits, name: d.fqdn })),
       },
     ],
@@ -180,15 +182,15 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
     grid: { left: '3%', right: '5%', bottom: '3%', top: '5%', containLabel: true },
     xAxis: {
       type: 'value',
-      axisLine: { lineStyle: { color: '#475569' } },
-      axisLabel: { color: '#94a3b8' },
-      splitLine: { lineStyle: { color: '#334155' } },
+      axisLine: { lineStyle: { color: c.borderStrong } },
+      axisLabel: { color: c.textMuted },
+      splitLine: { lineStyle: { color: c.border } },
     },
     yAxis: {
       type: 'category',
       data: top10.slice(0, 6).map(d => d.fqdn).reverse(),
-      axisLine: { lineStyle: { color: '#475569' } },
-      axisLabel: { color: '#94a3b8' },
+      axisLine: { lineStyle: { color: c.borderStrong } },
+      axisLabel: { color: c.textMuted },
     },
     series: [
       {
@@ -196,7 +198,7 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
         type: 'bar',
         data: top10.slice(0, 6).map(d => d.hits).reverse(),
         itemStyle: {
-          color: '#6366f1',
+          color: c.accent,
           borderRadius: [0, 4, 4, 0],
         },
       },

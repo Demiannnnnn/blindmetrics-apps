@@ -159,11 +159,11 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
 
       // Draw watermark bar at the bottom
       const bannerHeight = 40;
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillStyle = 'rgba(10, 10, 10, 0.85)';
       ctx.fillRect(0, canvas.height - bannerHeight, canvas.width, bannerHeight);
 
       // Watermark text
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = '#fafafa';
       ctx.font = '14px monospace';
       ctx.textBaseline = 'middle';
 
@@ -213,7 +213,7 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
  }`}
           >
             {privacyBlur ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            <span>{privacyBlur ? '🔒 Modo Blur Activo (Texto Oculto)' : '🔓 Texto Visible'}</span>
+            <span>{privacyBlur ? 'Difuminado activo (texto oculto)' : 'Texto visible'}</span>
           </button>
         </div>
       </div>
@@ -242,13 +242,13 @@ export const ScreenshotGallery: React.FC<ScreenshotGalleryProps> = ({
                       className={`w-full h-full p-4 flex flex-col justify-between transition-all duration-300 ${
                         privacyBlur ? 'blur-md select-none' : ''
                       }`}
-                      style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)' }}
+                      style={{ background: '#141414' }}
                     >
                       <div className="flex justify-between items-center text-[10px] text-muted border-b border-default pb-2">
                         <span>{shot.appContext}</span>
                         <span>{shot.time}</span>
                       </div>
-                      <div className="text-center py-6 text-xs text-accent font-mono">
+                      <div className="text-center py-6 text-xs text-muted font-mono">
                         [Simulación de captura protegida]
                       </div>
                       <div className="text-[9px] text-muted font-mono text-right">

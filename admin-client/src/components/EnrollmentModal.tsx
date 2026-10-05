@@ -141,7 +141,7 @@ export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enroll
  Código de Enrolamiento
  </span>
  <div className="flex items-center justify-between mt-1">
- <span className="font-mono text-sm font-bold text-accent tracking-wider">
+ <span className="font-mono text-sm font-semibold text-fg tracking-wider">
  {formattedCode}
  </span>
  <button

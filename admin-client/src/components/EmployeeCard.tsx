@@ -121,7 +121,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
       <div className="flex gap-2 pt-2 border-t border-default">
         <button
           onClick={() => onSelect(worker)}
-          className="flex-1 bg-accent hover:bg-accent-hover text-accent-fg text-xs font-medium py-2 px-3 rounded-control flex items-center justify-center gap-1.5 transition"
+          className="flex-1 bg-surface hover:bg-surface-subtle text-fg border border-default text-xs font-medium py-2 px-3 rounded-control flex items-center justify-center gap-1.5 transition"
         >
           <Eye className="w-3.5 h-3.5" />
           Ver Telemetría

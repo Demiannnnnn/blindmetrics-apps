@@ -15,6 +15,10 @@ import {
   fetchAndDecryptTelemetry,
   isDemoMode,
 } from '../api/tauri-bridge';
+import { LIGHT_THEME_COLORS } from '../hooks/useThemeColors';
+
+/** Map tiles and Leaflet popups are always light: fixed light-theme palette for contrast. */
+const MAP = LIGHT_THEME_COLORS;
 
 export interface Waypoint {
   time: string;
@@ -108,7 +112,7 @@ export const FieldMap: React.FC<FieldMapProps> = ({
         </h3>
         <p className="text-xs text-muted max-w-lg mx-auto leading-relaxed">
           En cumplimiento estricto con la <strong>Ley de Protección de Datos Personales (Ley 19.628 / 21.719)</strong> y{' '}
-          <strong>GDPR</strong>, los empleados con rol <span className="font-mono text-accent font-semibold">OFFICE</span>{' '}
+          <strong>GDPR</strong>, los empleados con rol <span className="font-mono text-fg font-semibold">OFFICE</span>{' '}
           tienen permanentemente deshabilitada la recolección de geolocalización tanto en el agente como en el servidor.
         </p>
         <div className="inline-flex items-center gap-2 text-xs bg-surface px-3 py-1.5 rounded-control border border-default text-muted">
@@ -237,8 +241,8 @@ export const FieldMap: React.FC<FieldMapProps> = ({
     // Geofence Circle (RF-ADMIN-06-3)
     L.circle([CORPORATE_CENTER.lat, CORPORATE_CENTER.lng], {
       radius: CORPORATE_CENTER.radiusMeters,
-      color: '#10b981',
-      fillColor: '#10b981',
+      color: MAP.success,
+      fillColor: MAP.success,
       fillOpacity: 0.12,
       dashArray: '6, 6',
       weight: 2,
@@ -252,7 +256,7 @@ export const FieldMap: React.FC<FieldMapProps> = ({
       // Route Polyline (RF-ADMIN-06-2 & DoD 2)
       if (latLngs.length > 1) {
         L.polyline(latLngs, {
-          color: '#6366f1',
+          color: MAP.accent,
           weight: 4,
           opacity: 0.85,
           lineJoin: 'round',
@@ -264,17 +268,17 @@ export const FieldMap: React.FC<FieldMapProps> = ({
         const isStart = idx === 0;
         const isEnd = idx === waypoints.length - 1 && waypoints.length > 1;
 
-        let iconHtml = `<div style="background-color: #6366f1; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`;
+        let iconHtml = `<div style="background-color: ${MAP.accent}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`;
 
         if (isStart) {
           // Green start marker (RF-ADMIN-06-2)
-          iconHtml = `<div style="background-color: #10b981; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">▶</div>`;
+          iconHtml = `<div style="background-color: ${MAP.success}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">▶</div>`;
         } else if (isEnd) {
           // Red end marker (RF-ADMIN-06-2)
-          iconHtml = `<div style="background-color: #f43f5e; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">■</div>`;
+          iconHtml = `<div style="background-color: ${MAP.danger}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">■</div>`;
         } else if (wp.isStop) {
           // Amber stop marker
-          iconHtml = `<div style="background-color: #f59e0b; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 9px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">⏸</div>`;
+          iconHtml = `<div style="background-color: ${MAP.warning}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 9px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">⏸</div>`;
         }
 
         const customIcon = L.divIcon({
@@ -288,14 +292,14 @@ export const FieldMap: React.FC<FieldMapProps> = ({
 
         // Popup with time and estimated accuracy (RF-ADMIN-06-2 & DoD 3)
         marker.bindPopup(`
-          <div style="font-family: sans-serif; font-size: 12px; color: #0f172a; min-width: 160px;">
-            <div style="font-weight: bold; color: #4338ca; margin-bottom: 4px;">
+          <div style="font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; color: ${MAP.text}; min-width: 160px;">
+            <div style="font-weight: bold; color: ${MAP.accent}; margin-bottom: 4px;">
               ${isStart ? 'Inicio de Ruta' : isEnd ? 'Fin de Ruta' : wp.isStop ? 'Parada Detectada' : 'Punto de Registro'}
             </div>
             <div><strong>Hora:</strong> ${wp.time}</div>
             <div><strong>Precisión GPS:</strong> ±${wp.accuracy.toFixed(1)} m</div>
             <div><strong>Coordenadas:</strong> ${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}</div>
-            ${wp.isStop ? '<div style="color: #d97706; font-weight: 600; margin-top: 4px;">Parada prolongada</div>' : ''}
+            ${wp.isStop ? '<div style="color: ${MAP.warning}; font-weight: 600; margin-top: 4px;">Parada prolongada</div>' : ''}
           </div>
         `);
       });

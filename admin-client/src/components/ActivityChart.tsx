@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { useThemeColors, withAlpha } from '../hooks/useThemeColors';
 import { Cpu, HardDrive, Keyboard, Usb, AlertCircle } from 'lucide-react';
 import {
   TimeRangeFilter,
@@ -48,6 +49,7 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
   workerName,
   timeRange,
 }) => {
+  const c = useThemeColors();
   const [loading, setLoading] = useState<boolean>(false);
   const [dataPoints, setDataPoints] = useState<MetricTimelinePoint[]>([]);
   const [usbEvents, setUsbEvents] = useState<UsbEventItem[]>([]);
@@ -185,14 +187,14 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
-      backgroundColor: '#1e293b',
-      borderColor: '#334155',
-      textStyle: { color: '#f8fafc' },
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      textStyle: { color: c.text },
       axisPointer: { type: 'cross' },
     },
     legend: {
       data: ['Uso CPU (%)', 'Pulsaciones KPM', 'Memoria RAM (MB)'],
-      textStyle: { color: '#94a3b8' },
+      textStyle: { color: c.textMuted },
       top: 0,
     },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
@@ -200,24 +202,24 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
       type: 'category',
       boundaryGap: false,
       data: dataPoints.map(d => d.time),
-      axisLine: { lineStyle: { color: '#475569' } },
-      axisLabel: { color: '#94a3b8' },
+      axisLine: { lineStyle: { color: c.borderStrong } },
+      axisLabel: { color: c.textMuted },
     },
     yAxis: [
       {
         type: 'value',
         name: 'CPU / KPM',
         position: 'left',
-        axisLine: { lineStyle: { color: '#6366f1' } },
-        axisLabel: { color: '#94a3b8' },
-        splitLine: { lineStyle: { color: '#334155' } },
+        axisLine: { lineStyle: { color: c.accent } },
+        axisLabel: { color: c.textMuted },
+        splitLine: { lineStyle: { color: c.border } },
       },
       {
         type: 'value',
         name: 'RAM (MB)',
         position: 'right',
-        axisLine: { lineStyle: { color: '#10b981' } },
-        axisLabel: { color: '#94a3b8' },
+        axisLine: { lineStyle: { color: c.success } },
+        axisLabel: { color: c.textMuted },
         splitLine: { show: false },
       },
     ],
@@ -228,7 +230,7 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
         smooth: true,
         sampling: 'lttb', // RF-ADMIN-05-2: LTTB sampling for smooth rendering
         data: dataPoints.map(d => d.cpu),
-        itemStyle: { color: '#6366f1' },
+        itemStyle: { color: c.accent },
         areaStyle: {
           color: {
             type: 'linear',
@@ -237,8 +239,8 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(99, 102, 241, 0.4)' },
-              { offset: 1, color: 'rgba(99, 102, 241, 0.0)' },
+              { offset: 0, color: withAlpha(c.accent, 0.25) },
+              { offset: 1, color: withAlpha(c.accent, 0) },
             ],
           },
         },
@@ -249,7 +251,7 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
         smooth: true,
         sampling: 'lttb', // RF-ADMIN-05-2: LTTB sampling
         data: dataPoints.map(d => d.kpm),
-        itemStyle: { color: '#38bdf8' },
+        itemStyle: { color: c.info },
       },
       {
         name: 'Memoria RAM (MB)',
@@ -258,7 +260,7 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
         smooth: true,
         sampling: 'lttb', // RF-ADMIN-05-2: LTTB sampling
         data: dataPoints.map(d => d.memoryMb),
-        itemStyle: { color: '#10b981' },
+        itemStyle: { color: c.success },
       },
     ],
   };
@@ -332,7 +334,7 @@ export const ActivityChart: React.FC<ActivityChartProps> = ({
                 key={idx}
                 className="flex justify-between items-center text-xs bg-surface p-2.5 rounded-control border border-default hover:border-strong transition"
               >
-                <span className="font-mono text-accent font-semibold shrink-0">{pt.time}</span>
+                <span className="font-mono text-fg font-medium tabular-nums shrink-0">{pt.time}</span>
                 <span
                   className="text-fg truncate mx-3 flex-1"
                   title={pt.windowTitle}

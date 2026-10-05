@@ -263,12 +263,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
               Clave Pública Master activa para el cifrado asimétrico de los agentes en estaciones de trabajo:
             </p>
             <div className="flex items-center gap-2 pt-1 font-mono text-xs">
-              <code className="bg-bg text-accent px-3 py-1.5 rounded-control border border-default text-[11px] truncate max-w-md select-all">
+              <code className="bg-surface-subtle text-fg px-3 py-1.5 rounded-control border border-default text-[11px] truncate max-w-md select-all">
                 {masterPubKey}
               </code>
               <button
                 onClick={copyPublicKey}
-                className="p-1.5 bg-surface-subtle hover:bg-surface-subtle text-fg rounded-control border border-default transition"
+                className="p-1.5 bg-surface hover:bg-surface-subtle text-fg rounded-control border border-default transition"
                 title="Copiar Clave Pública"
               >
                 {copiedKey ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
@@ -280,7 +280,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <button
               onClick={handleRunDecryptionTest}
               disabled={testingDecryption}
-              className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-accent-fg rounded-card text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+              className="px-3.5 py-2 bg-surface hover:bg-surface-subtle text-fg border border-default rounded-control text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-50"
             >
               <Cpu className="w-3.5 h-3.5" />
               <span>{testingDecryption ? 'Descifrando…' : 'Autoprueba de descifrado'}</span>

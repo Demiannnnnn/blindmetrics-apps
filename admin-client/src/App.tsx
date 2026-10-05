@@ -462,7 +462,7 @@ export const App: React.FC = () => {
                 >
                   {allWorkers.map(w => (
                     <option key={w.id} value={w.id}>
-                      {w.name} ({w.role}) {w.isActive ? '🟢' : '🔴'}
+                      {w.name} ({w.role}){w.isActive ? '' : ' · inactivo'}
                     </option>
                   ))}
                 </select>

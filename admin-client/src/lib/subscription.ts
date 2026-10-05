@@ -13,12 +13,12 @@ export function isBlocked(status: Pick<SubscriptionStatus, 'effective_status'> |
 /** Title and body of the lock screen by effective status and reason (RF-ADMIN-12-2). */
 export function lockScreenCopy(effectiveStatus: string, reason: string | null | undefined): { title: string; body: string } {
   if (effectiveStatus === 'CANCELLED' || reason === 'SUBSCRIPTION_CANCELLED') {
-    return { title: '⛔ Suscripción cancelada', body: 'Tu suscripción fue cancelada.' };
+    return { title: 'Suscripción cancelada', body: 'Tu suscripción fue cancelada.' };
   }
   if (reason === 'TRIAL_EXPIRED') {
-    return { title: '⚠️ Período de prueba terminado', body: 'Tu período de prueba de 14 días terminó.' };
+    return { title: 'Período de prueba terminado', body: 'Tu período de prueba de 14 días terminó.' };
   }
-  return { title: '⚠️ Suscripción suspendida', body: 'Tu suscripción ha sido suspendida por falta de pago.' };
+  return { title: 'Suscripción suspendida', body: 'Tu suscripción ha sido suspendida por falta de pago.' };
 }
 
 /** `https://app.tudominio.cl/dashboard/facturacion/` → `app.tudominio.cl/dashboard/facturacion`. */

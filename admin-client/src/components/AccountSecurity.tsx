@@ -146,9 +146,9 @@ export const AccountSecurity: React.FC<{
                     {!d.public_key_fingerprint ? (
                       <span className="text-muted">—</span>
                     ) : sameFingerprint(d.public_key_fingerprint, registeredFingerprint) ? (
-                      <span className="text-success" title={d.public_key_fingerprint}>✅ {shortFingerprint(d.public_key_fingerprint).slice(0, 9)}</span>
+                      <span className="text-success" title={d.public_key_fingerprint}>{shortFingerprint(d.public_key_fingerprint).slice(0, 9)}</span>
                     ) : (
-                      <span className="text-warning" title="Llave distinta a la registrada">⚠️ otra</span>
+                      <span className="text-warning" title="Llave distinta a la registrada">Llave distinta</span>
                     )}
                   </td>
                   <td className="py-1.5">{relative(d.last_seen_at)}</td>
