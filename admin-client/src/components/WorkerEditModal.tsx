@@ -56,7 +56,7 @@ export const WorkerEditModal: React.FC<WorkerEditModalProps> = ({ worker, onClos
   };
 
   const input =
-    'w-full mt-1 bg-surface border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-none focus:border-accent';
+    'w-full mt-1 bg-surface border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-hidden focus:border-accent';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">

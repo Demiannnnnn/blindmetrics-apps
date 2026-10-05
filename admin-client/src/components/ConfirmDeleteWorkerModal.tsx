@@ -48,7 +48,7 @@ export const ConfirmDeleteWorkerModal: React.FC<ConfirmDeleteWorkerModalProps> =
           value={typed}
           onChange={e => setTyped(e.target.value)}
           placeholder={worker.name}
-          className="w-full bg-surface border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-none focus:border-danger"
+          className="w-full bg-surface border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-hidden focus:border-danger"
         />
         {error && <div className="p-2.5 bg-danger-subtle border border-danger rounded-control text-xs text-danger">{error}</div>}
         <div className="flex justify-end gap-2">

@@ -37,7 +37,7 @@ export const MasterPasswordFields: React.FC<MasterPasswordFieldsProps> = ({
   const issue = isNew && password ? masterPasswordIssue(password, confirmation || undefined) : null;
   const strength = password ? passwordStrength(password) : null;
   const input =
-    'w-full bg-bg border border-default rounded-control px-3 py-2 text-xs text-fg placeholder-muted focus:outline-none focus:border-accent';
+    'w-full bg-bg border border-default rounded-control px-3 py-2 text-xs text-fg placeholder:text-muted focus:outline-hidden focus:border-accent';
 
   return (
     <div className="space-y-2">

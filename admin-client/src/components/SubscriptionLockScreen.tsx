@@ -87,7 +87,7 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({ 
  {status.support_email && status.support_email.includes('@') && (
  <p className="text-xs text-muted flex items-center gap-2">
  ¿Preguntas? <span className="font-mono text-fg select-all">{status.support_email}</span>
- <button onClick={copyEmail} className="p-1 rounded hover:bg-surface-subtle" title="Copiar correo">
+ <button onClick={copyEmail} className="p-1 rounded-sm hover:bg-surface-subtle" title="Copiar correo">
  {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
  </button>
  </p>

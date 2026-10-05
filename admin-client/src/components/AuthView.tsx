@@ -156,7 +156,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Tu nombre completo"
-                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
                 />
               </div>
 
@@ -171,7 +171,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
                   value={organization}
                   onChange={(e) => setOrganization(e.target.value)}
                   placeholder="Nombre de tu empresa"
-                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
                 />
               </div>
             </>
@@ -185,7 +185,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@empresa.com"
-              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
             />
           </div>
 
@@ -200,7 +200,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
             />
           </div>
 

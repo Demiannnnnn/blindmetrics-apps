@@ -148,31 +148,31 @@ export const FileActivity: React.FC<FileActivityProps> = ({
     switch (action) {
       case 'CREATED':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-success-subtle text-success border border-default flex items-center gap-1">
+          <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-success-subtle text-success border border-default flex items-center gap-1">
             <FilePlus className="w-3 h-3" /> Creado
           </span>
         );
       case 'MODIFIED':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-info-subtle text-info border border-default flex items-center gap-1">
+          <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-info-subtle text-info border border-default flex items-center gap-1">
             <FileEdit className="w-3 h-3" /> Modificado
           </span>
         );
       case 'DELETED':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-danger-subtle text-danger border border-default flex items-center gap-1">
+          <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-danger-subtle text-danger border border-default flex items-center gap-1">
             <FileX className="w-3 h-3" /> Eliminado
           </span>
         );
       case 'RENAMED':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-warning-subtle text-warning border border-default flex items-center gap-1">
+          <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-warning-subtle text-warning border border-default flex items-center gap-1">
             <FileCode className="w-3 h-3" /> Renombrado
           </span>
         );
       default:
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-surface-subtle text-fg">
+          <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-surface-subtle text-fg">
             {action}
           </span>
         );
@@ -212,7 +212,7 @@ export const FileActivity: React.FC<FileActivityProps> = ({
             <select
               value={actionFilter}
               onChange={e => setActionFilter(e.target.value)}
-              className="bg-surface-subtle border border-default text-fg rounded-control px-2.5 py-1 focus:outline-none focus:border-accent"
+              className="bg-surface-subtle border border-default text-fg rounded-control px-2.5 py-1 focus:outline-hidden focus:border-accent"
             >
               <option value="ALL">Todas las acciones</option>
               <option value="CREATED">Creado</option>
@@ -228,7 +228,7 @@ export const FileActivity: React.FC<FileActivityProps> = ({
             <select
               value={extFilter}
               onChange={e => setExtFilter(e.target.value)}
-              className="bg-surface-subtle border border-default text-fg rounded-control px-2.5 py-1 focus:outline-none focus:border-accent"
+              className="bg-surface-subtle border border-default text-fg rounded-control px-2.5 py-1 focus:outline-hidden focus:border-accent"
             >
               <option value="ALL">Todas (.docx, .xlsx, .rs, etc.)</option>
               <option value="docx">.docx</option>
@@ -253,7 +253,7 @@ export const FileActivity: React.FC<FileActivityProps> = ({
             placeholder="Buscar ruta o archivo..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="bg-surface-subtle border border-default text-fg rounded-control pl-8 pr-3 py-1 text-xs placeholder-muted focus:outline-none focus:border-accent w-48 sm:w-64"
+            className="bg-surface-subtle border border-default text-fg rounded-control pl-8 pr-3 py-1 text-xs placeholder:text-muted focus:outline-hidden focus:border-accent w-48 sm:w-64"
           />
           <Search className="w-3.5 h-3.5 text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
         </div>
@@ -304,7 +304,7 @@ export const FileActivity: React.FC<FileActivityProps> = ({
                       {getActionBadge(op.action)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="px-2 py-0.5 rounded bg-surface-subtle text-fg font-mono text-[11px] border border-default inline-flex items-center gap-1">
+                      <span className="px-2 py-0.5 rounded-sm bg-surface-subtle text-fg font-mono text-[11px] border border-default inline-flex items-center gap-1">
                         <FolderOpen className="w-3 h-3 text-warning" />
                         {op.watchedRoot}
                       </span>
@@ -325,7 +325,7 @@ export const FileActivity: React.FC<FileActivityProps> = ({
                       )}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap font-mono text-muted">
-                      <span className="bg-surface-subtle px-2 py-0.5 rounded border border-default text-[10px] uppercase">
+                      <span className="bg-surface-subtle px-2 py-0.5 rounded-sm border border-default text-[10px] uppercase">
                         .{op.extension}
                       </span>
                     </td>

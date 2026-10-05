@@ -296,7 +296,7 @@ export const NetworkExplorer: React.FC<NetworkExplorerProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-mono text-fg font-medium">{item.fqdn}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-surface-subtle text-muted border border-default">
+                    <span className="text-[10px] px-2 py-0.5 rounded-sm bg-surface-subtle text-muted border border-default">
                       RFC 1035
                     </span>
                   </div>

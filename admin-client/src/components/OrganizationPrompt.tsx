@@ -49,7 +49,7 @@ export const OrganizationPrompt: React.FC<OrganizationPromptProps> = ({ initial 
           maxLength={255}
           onChange={e => setOrganization(e.target.value)}
           placeholder="Ej. Constructora Los Andes SpA"
-          className="w-full bg-bg border border-default rounded-control px-3 py-2 text-sm text-fg focus:outline-none focus:border-accent"
+          className="w-full bg-bg border border-default rounded-control px-3 py-2 text-sm text-fg focus:outline-hidden focus:border-accent"
         />
         {!valid && trimmed.length > 0 && <p className="text-[11px] text-danger">Debe tener entre 2 y 255 caracteres.</p>}
         {error && <p className="text-xs text-danger">{error}</p>}

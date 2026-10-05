@@ -125,12 +125,12 @@ export const AccountSecurity: React.FC<{
                           value={draftName}
                           maxLength={255}
                           onChange={e => setDraftName(e.target.value)}
-                          className="bg-surface border border-default rounded px-2 py-1 text-xs text-fg w-40"
+                          className="bg-surface border border-default rounded-sm px-2 py-1 text-xs text-fg w-40"
                         />
-                        <button onClick={() => rename(d)} className="p-1 hover:bg-surface-subtle rounded" title="Guardar">
+                        <button onClick={() => rename(d)} className="p-1 hover:bg-surface-subtle rounded-sm" title="Guardar">
                           <Check className="w-3.5 h-3.5 text-success" />
                         </button>
-                        <button onClick={() => setEditing(null)} className="p-1 hover:bg-surface-subtle rounded" title="Cancelar">
+                        <button onClick={() => setEditing(null)} className="p-1 hover:bg-surface-subtle rounded-sm" title="Cancelar">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </span>
@@ -163,12 +163,12 @@ export const AccountSecurity: React.FC<{
                             setEditing(d.id);
                             setDraftName(d.device_name);
                           }}
-                          className="p-1.5 hover:bg-surface-subtle rounded"
+                          className="p-1.5 hover:bg-surface-subtle rounded-sm"
                           title="Renombrar"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => revoke(d)} className="p-1.5 hover:bg-danger-subtle rounded text-danger" title="Revocar">
+                        <button onClick={() => revoke(d)} className="p-1.5 hover:bg-danger-subtle rounded-sm text-danger" title="Revocar">
                           <Ban className="w-3.5 h-3.5" />
                         </button>
                       </>

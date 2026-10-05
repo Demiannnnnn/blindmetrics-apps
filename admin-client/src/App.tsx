@@ -284,7 +284,7 @@ export const App: React.FC = () => {
       />
 
       {/* Sidebar Navigation */}
-      <aside className="w-64 bg-ink border-r border-ink-line flex flex-col justify-between flex-shrink-0">
+      <aside className="w-64 bg-ink border-r border-ink-line flex flex-col justify-between shrink-0">
         <div>
           {/* Logo / Header */}
           <div className="p-5 border-b border-ink-line flex items-center gap-3">
@@ -428,7 +428,7 @@ export const App: React.FC = () => {
             <select
               value={timeoutMinutes}
               onChange={e => setTimeoutMinutes(parseInt(e.target.value, 10))}
-              className="bg-ink-raised border border-ink-line text-ink-fg rounded-control px-1.5 py-0.5 text-[11px] focus:outline-none focus:border-brand cursor-pointer"
+              className="bg-ink-raised border border-ink-line text-ink-fg rounded-control px-1.5 py-0.5 text-[11px] focus:outline-hidden focus:border-brand cursor-pointer"
             >
               <option value={5}>5 min</option>
               <option value={10}>10 min</option>
@@ -446,7 +446,7 @@ export const App: React.FC = () => {
           <TrialBanner daysLeft={trialDays} />
         )}
         {/* RF-ADMIN-05-1: Global Context Header with Worker and Time Range Selectors */}
-        <header className="h-16 border-b border-default px-6 flex items-center justify-between flex-shrink-0 bg-surface">
+        <header className="h-16 border-b border-default px-6 flex items-center justify-between shrink-0 bg-surface">
           <div className="flex items-center gap-4 flex-wrap">
             {/* Worker Selector Dropdown */}
             <div className="flex items-center gap-2">
@@ -458,7 +458,7 @@ export const App: React.FC = () => {
                     const w = allWorkers.find(item => item.id === e.target.value);
                     if (w) setSelectedWorker(w);
                   }}
-                  className="bg-surface-subtle border border-default text-fg text-xs font-semibold rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-accent cursor-pointer"
+                  className="bg-surface-subtle border border-default text-fg text-xs font-semibold rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-hidden focus:border-accent cursor-pointer"
                 >
                   {allWorkers.map(w => (
                     <option key={w.id} value={w.id}>
@@ -478,7 +478,7 @@ export const App: React.FC = () => {
                 <select
                   value={timeRange.preset}
                   onChange={e => handlePresetChange(e.target.value as TimeRangePreset)}
-                  className="bg-surface-subtle border border-default text-fg text-xs font-medium rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-none focus:border-accent cursor-pointer"
+                  className="bg-surface-subtle border border-default text-fg text-xs font-medium rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-hidden focus:border-accent cursor-pointer"
                 >
                   <option value="today">Hoy</option>
                   <option value="yesterday">Ayer</option>
@@ -495,14 +495,14 @@ export const App: React.FC = () => {
                     type="date"
                     value={customFrom}
                     onChange={e => handleCustomDateChange(e.target.value, customTo)}
-                    className="bg-surface-subtle border border-default text-fg rounded px-2 py-1 text-xs focus:outline-none focus:border-accent"
+                    className="bg-surface-subtle border border-default text-fg rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-accent"
                   />
                   <span className="text-muted">-</span>
                   <input
                     type="date"
                     value={customTo}
                     onChange={e => handleCustomDateChange(customFrom, e.target.value)}
-                    className="bg-surface-subtle border border-default text-fg rounded px-2 py-1 text-xs focus:outline-none focus:border-accent"
+                    className="bg-surface-subtle border border-default text-fg rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-accent"
                   />
                 </div>
               )}

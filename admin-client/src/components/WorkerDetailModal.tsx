@@ -183,7 +183,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 value={reason}
                 onChange={e => setReason(e.target.value)}
                 placeholder="Motivo (opcional)"
-                className="bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 w-44 focus:outline-none focus:border-accent"
+                className="bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 w-44 focus:outline-hidden focus:border-accent"
               />
             )}
             {worker.status === 'ACTIVE' && (
@@ -220,7 +220,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 <input
                   value={revokeTyped}
                   onChange={e => setRevokeTyped(e.target.value)}
-                  className="flex-1 bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 focus:outline-none focus:border-danger"
+                  className="flex-1 bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 focus:outline-hidden focus:border-danger"
                 />
                 <button
                   disabled={busy || revokeTyped.trim() !== worker.name.trim()}

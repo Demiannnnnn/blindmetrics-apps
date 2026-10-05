@@ -97,7 +97,7 @@ export const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ worker, enroll
 
  {/* Security Ephemeral Notice */}
  <div className="bg-warning-subtle border border-default rounded-card p-3 mb-4 flex items-start gap-2.5 text-xs text-warning">
- <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-warning" />
+ <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
  <div>
  <p className="font-semibold text-warning">Código de un solo uso (SEC-05)</p>
  <p className="text-warning mt-0.5">

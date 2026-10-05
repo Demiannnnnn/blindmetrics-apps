@@ -59,7 +59,7 @@ export const ConsentEditor: React.FC<ConsentEditorProps> = ({ role, flags, descr
                   maxLength={DESCRIPTION_MAX}
                   rows={2}
                   onChange={e => onChange(flags, { ...descriptions, [cat.key]: e.target.value })}
-                  className={`w-full bg-bg border text-fg text-xs rounded-control px-2.5 py-1.5 focus:outline-none ${
+                  className={`w-full bg-bg border text-fg text-xs rounded-control px-2.5 py-1.5 focus:outline-hidden ${
  errors[cat.key] ? 'border-danger' : 'border-default focus:border-accent'
  }`}
                 />

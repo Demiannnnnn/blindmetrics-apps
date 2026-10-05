@@ -86,7 +86,7 @@ const RevokeFirstDialog: React.FC<{
         <input
           value={typed}
           onChange={e => setTyped(e.target.value)}
-          className="w-full bg-bg border border-default rounded-control px-3 py-2 text-xs text-fg focus:outline-none focus:border-danger"
+          className="w-full bg-bg border border-default rounded-control px-3 py-2 text-xs text-fg focus:outline-hidden focus:border-danger"
         />
         {error && <p className="text-xs text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
@@ -255,7 +255,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
               <h2 className="text-sm font-bold text-fg tracking-wide">
                 Bóveda Criptográfica Zero-Knowledge (OS Keystore)
               </h2>
-              <span className="px-2 py-0.5 bg-success-subtle text-success text-[10px] font-mono font-semibold rounded border border-default">
+              <span className="px-2 py-0.5 bg-success-subtle text-success text-[10px] font-mono font-semibold rounded-sm border border-default">
                 HPKE X25519 / AES-256-GCM
               </span>
             </div>
@@ -416,7 +416,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
               placeholder="Buscar por nombre o correo corporativo..."
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              className="w-full bg-surface border border-default text-fg text-xs rounded-control pl-9 pr-3 py-2 focus:outline-none focus:border-accent"
+              className="w-full bg-surface border border-default text-fg text-xs rounded-control pl-9 pr-3 py-2 focus:outline-hidden focus:border-accent"
             />
           </div>
 
@@ -426,7 +426,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <select
               value={roleFilter}
               onChange={e => setRoleFilter(e.target.value as 'ALL' | 'OFFICE' | 'FIELD')}
-              className="bg-transparent focus:outline-none cursor-pointer"
+              className="bg-transparent focus:outline-hidden cursor-pointer"
             >
               <option value="ALL">Todos los Roles</option>
               <option value="OFFICE">Oficina (OFFICE)</option>
@@ -439,7 +439,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
             <select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as 'ALL' | WorkerStatus)}
-              className="bg-transparent focus:outline-none cursor-pointer"
+              className="bg-transparent focus:outline-hidden cursor-pointer"
             >
               <option value="ALL">Todos los Estados</option>
               <option value="ACTIVE">Activos</option>

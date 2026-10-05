@@ -77,7 +77,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
             {worker.role === 'FIELD' ? <MapPin className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
             {worker.role}
           </span>
-          <span className="bg-surface-subtle text-fg px-2 py-0.5 rounded flex items-center gap-1">
+          <span className="bg-surface-subtle text-fg px-2 py-0.5 rounded-sm flex items-center gap-1">
             <Clock className="w-3 h-3 text-muted" />
             {worker.workHoursStart} - {worker.workHoursEnd}
           </span>

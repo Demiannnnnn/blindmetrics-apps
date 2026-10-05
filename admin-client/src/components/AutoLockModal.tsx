@@ -96,7 +96,7 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
         </div>
 
         <div className="bg-warning-subtle border border-default rounded-card p-3 flex items-center gap-2.5 text-xs text-warning text-left">
-          <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+          <ShieldAlert className="w-5 h-5 shrink-0" />
           <span>Reingrese su contraseña o use biometría para regenerar credenciales de sesión en RAM.</span>
         </div>
 
@@ -121,7 +121,7 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
               placeholder="Contraseña de administrador..."
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full bg-surface-subtle border border-default text-fg text-sm rounded-card pl-10 pr-4 py-2.5 focus:outline-none focus:border-accent"
+              className="w-full bg-surface-subtle border border-default text-fg text-sm rounded-card pl-10 pr-4 py-2.5 focus:outline-hidden focus:border-accent"
               autoFocus
               disabled={loading}
             />

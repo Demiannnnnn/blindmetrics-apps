@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
 /*
  * Design tokens — same system as telemetry-web (app/globals.css) and the rest of the ecosystem:
@@ -66,6 +64,62 @@
     --ink: #050505;
     --ink-raised: #111111;
     --ink-line: #262626;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+
+  --color-default: var(--border);
+  --color-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--text-muted);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-subtle: var(--accent-subtle);
+
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-subtle: var(--danger-subtle);
+
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+
+  --color-ink: var(--ink);
+  --color-ink-raised: var(--ink-raised);
+  --color-ink-line: var(--ink-line);
+  --color-ink-fg: var(--ink-fg);
+  --color-ink-muted: var(--ink-muted);
+
+  --color-brand: #dc2626;
+  --color-brand-hover: #b91c1c;
+
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --radius-control: 4px;
+  --radius-card: 6px;
+  --radius-badge: 3px;
+}
+/* Tailwind v4 defaults borders to currentColor; keep the design system's default border color. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
   }
 }
 

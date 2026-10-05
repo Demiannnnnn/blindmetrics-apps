@@ -373,7 +373,7 @@ export const GenerateNewKeyPanel: React.FC<{
         <input
           value={phrase}
           onChange={e => setPhrase(e.target.value)}
-          className="mt-1 w-full bg-bg border border-danger rounded-control px-3 py-2 text-xs text-fg font-mono focus:outline-none focus:border-danger"
+          className="mt-1 w-full bg-bg border border-danger rounded-control px-3 py-2 text-xs text-fg font-mono focus:outline-hidden focus:border-danger"
         />
       </label>
       <ErrorLine message={error} />

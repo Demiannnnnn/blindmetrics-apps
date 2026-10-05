@@ -106,7 +106,7 @@ export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organizati
   };
 
   const input =
-    'w-full mt-1 bg-surface border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-none focus:border-accent';
+    'w-full mt-1 bg-surface border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-hidden focus:border-accent';
 
   if (pendingForm) {
     return (
