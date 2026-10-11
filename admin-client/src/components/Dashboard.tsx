@@ -15,6 +15,7 @@ import {
   workersRegenerateToken,
   workersSetStatus,
   AdminProfile,
+  employerGet,
 } from '../api/tauri-bridge';
 import { describeError, errorIs } from '../lib/errors';
 import { EmployeeCard } from './EmployeeCard';
@@ -39,6 +40,7 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronRight,
+  Building2,
 } from 'lucide-react';
 
 const PER_PAGE = 12;
@@ -49,6 +51,7 @@ interface DashboardProps {
   /** Opens "Bóveda & Cumplimiento" (key backups, rotation, devices). */
   onOpenVault: () => void;
   onProfileChanged: (profile: AdminProfile) => void;
+  onNavigateToEmployer?: () => void;
 }
 
 /** RF-ADMIN-09-4: the worker accepted consent on a device; revoke it before a new code. */
@@ -106,7 +109,13 @@ const RevokeFirstDialog: React.FC<{
   );
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWorker, onOpenVault, onProfileChanged }) => {
+export const Dashboard: React.FC<DashboardProps> = ({
+  organization,
+  onSelectWorker,
+  onOpenVault,
+  onProfileChanged,
+  onNavigateToEmployer,
+}) => {
   const [kpis, setKpis] = useState<KpiSummary | null>(null);
   const [workers, setWorkers] = useState<WorkerItem[]>([]);
   const [searchInput, setSearchInput] = useState<string>('');
@@ -120,6 +129,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
   const [statusFilter, setStatusFilter] = useState<'ALL' | WorkerStatus>('ALL');
   const [loading, setLoading] = useState<boolean>(true);
   const [listError, setListError] = useState<string | null>(null);
+  const [hasEmployerProfile, setHasEmployerProfile] = useState<boolean>(true);
 
   // Master Crypto Key State (read-only here; managed in Bóveda, TASK-ADMIN-11)
   const [masterPubKey, setMasterPubKey] = useState<string>('Cargando clave...');
@@ -144,6 +154,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
       getAdminPublicKey()
         .then(setMasterPubKey)
         .catch(() => setMasterPubKey('Sin llave en este equipo'));
+      employerGet()
+        .then(p => setHasEmployerProfile(p !== null))
+        .catch(() => setHasEmployerProfile(true));
       const [k, result] = await Promise.all([
         fetchKpiSummary(),
         getWorkersPage({
@@ -235,6 +248,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
 
   return (
     <div className="space-y-6">
+      {/* Onboarding Banner: Employer Profile Missing (RF-ADMIN-13-6) */}
+      {!hasEmployerProfile && (
+        <div className="p-4 bg-accent-subtle border border-default rounded-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-accent/20 rounded-control text-accent shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-fg">Completa los datos de tu empresa para crear trabajadores</h3>
+              <p className="text-xs text-muted">
+                La legislación laboral (R38) exige identificar la razón social, RUT y lugares de trabajo antes de enrolar trabajadores.
+              </p>
+            </div>
+          </div>
+          {onNavigateToEmployer && (
+            <button
+              type="button"
+              onClick={onNavigateToEmployer}
+              className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold rounded-control transition-colors cursor-pointer shrink-0"
+            >
+              Ir a Empresa
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Active Enrollment Modal */}
       {activeEnrollment && (
         <EnrollmentModal
@@ -585,6 +624,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ organization, onSelectWork
         <CreateWorkerModal
           organization={organization}
           onProfileChanged={onProfileChanged}
+          onMissingEmployerProfile={onNavigateToEmployer}
           onClose={() => setShowCreateModal(false)}
           onCreated={created => {
             setShowCreateModal(false);

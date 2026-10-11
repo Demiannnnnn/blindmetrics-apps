@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-13` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `admin-client/src-tauri/src/commands/{legal,employer}.rs` (nuevos), `commands/mod.rs`, `main.rs`, `client.rs`, `src-tauri/build.rs`, `admin-client/src/components/{TermsGate,EmployerProfile,LegalDocumentsPanel,MarkdownView}.tsx` (nuevos), `App.tsx`, `AutoLockModal.tsx`, `KeyVault.tsx` o `AccountSecurity.tsx` (sección legal), `src/api/{tauri-bridge,types}.ts`, `src/lib/rut.ts` (nuevo), `test/*.test.mjs` |
 | **Dependencias** | `TASK-INT-03`, `TASK-CRYPTO-04` |
 | **Paralela con** | `TASK-AGENT-10` |
@@ -74,4 +74,48 @@ componentes nuevos usan los mismos tokens, cards, tablas y botones.
 
 ## Reporte
 
-_(pendiente)_
+- **Resumen:** Se implementó completamente la Tarea 13 y se aplicaron los ajustes del review feedback:
+  - Embebido de documentos legales (`terminos-empleador.md`, `politica-privacidad.md`) con verificación de placeholders en `build.rs` llamando directamente a `telemetry_crypto_core::legal::find_placeholders` (vía `build-dependencies`) y abortando con `panic!` en builds de release ante archivos faltantes o con marcadores sin rellenar (LEG-06).
+  - Nuevo comando Tauri `open_external_url` que valida estrictamente que la URL sea absoluta, use esquema `https://`, sin credenciales, sin espacios ni caracteres de control, con longitud ≤ 2048 caracteres, abriendo el navegador con el crate `open`. En `MarkdownView`, los enlaces llaman a este comando previniendo la navegación interna (`preventDefault`) y mostrando la URL en el tooltip `title`; enlaces no https se presentan como texto plano.
+  - Tipado estricto en `EmployerProfile.tsx` con type guard `isEmployerKind` ('LEGAL_ENTITY' | 'NATURAL_PERSON') eliminando cualquier casteo `any`.
+  - Comandos Tauri `legal_*` y `employer_*` con validación de RUT (`telemetry_crypto_core::rut`), lista cerrada de 16 regiones oficiales de Chile y mitigación de llamadas a la API; compuerta T1 `TermsGate` con layout de autenticación, `MarkdownView` seguro, aviso legal DT (LEG-07) y requisito de scroll completo; pantalla "Empresa" con tarjetas de datos legales, lugares de trabajo (CRUD y protección contra borrado si tiene trabajadores asignados), alertas de marcación y bitácora de incidentes técnicos; panel de documentos legales en Bóveda & cumplimiento con modal de lectura; banner onboarding en Tablero y navegación ante `409 EMPLOYER_PROFILE_MISSING`; y cierre de brecha ADMIN-07 eliminando el botón de biometría y su comando IPC.
+- **Archivos:**
+  - `admin-client/src-tauri/Cargo.toml`: Adición de `telemetry-crypto-core` en `[build-dependencies]`.
+  - `admin-client/src-tauri/build.rs`: Uso de `telemetry_crypto_core::legal::find_placeholders`, remoción de copia local y fallo con pánico si algún archivo legal falta o no puede leerse en release.
+  - `admin-client/src-tauri/src/client.rs`: Campos `terms_accepted_version` y `terms_required_version` en `AdminMeResponse` y `AdminProfile`.
+  - `admin-client/src-tauri/src/commands/legal.rs` (nuevo): Comandos `legal_documents`, `legal_status`, `legal_accept_terms`, función `validate_external_url` y comando `open_external_url`.
+  - `admin-client/src-tauri/src/commands/employer.rs` (nuevo): Comandos `employer_get/update`, `workplaces_*`, `attendance_settings_*`, `incidents_*`.
+  - `admin-client/src-tauri/src/commands/session.rs`: Remoción de `admin_unlock_with_biometric`.
+  - `admin-client/src-tauri/src/commands/mod.rs`: Exposición de módulos `legal` y `employer`.
+  - `admin-client/src-tauri/src/main.rs`: Registro de comandos legales (incluyendo `open_external_url`) y del empleador en el invoke handler; test que verifica omisión de biometría.
+  - `admin-client/src/api/types.ts`: Tipos DTOs legales y del empleador.
+  - `admin-client/src/api/tauri-bridge.ts`: Eliminación de `adminUnlockWithBiometric` y adición de wrappers de comandos legales (`openExternalUrl`, `legal_*`) y del empleador con soporte para modo demo.
+  - `admin-client/src/lib/rut.ts` (nuevo): Módulo TypeScript para cálculo de DV (módulo 11), parsing, validación y formateo canónico de RUT chileno.
+  - `admin-client/src/lib/employer.ts` (nuevo): Lista de 16 regiones oficiales y formateo canónico de direcciones.
+  - `admin-client/src/lib/errors.ts`: Mapeo de errores `EMPLOYER_PROFILE_MISSING` y `TERMS_VERSION_MISMATCH`.
+  - `admin-client/src/components/MarkdownView.tsx` (nuevo): Renderizador seguro de Markdown con apertura externa de URLs https vía Tauri y texto plano para otros esquemas.
+  - `admin-client/src/components/TermsGate.tsx` (nuevo): Pantalla T1 con aviso LEG-07, scroll tracking de ambos documentos y manejo de 409 mismatch.
+  - `admin-client/src/components/EmployerProfile.tsx` (nuevo): Pantalla "Empresa" con tarjetas de datos (con guard de tipo `isEmployerKind`), lugares de trabajo, alertas e incidentes técnicos.
+  - `admin-client/src/components/LegalDocumentsPanel.tsx` (nuevo): Tarjeta de documentos legales y modal de lectura en Bóveda & cumplimiento.
+  - `admin-client/src/components/ConsentSettings.tsx`: Inclusión de `LegalDocumentsPanel`.
+  - `admin-client/src/components/AutoLockModal.tsx`: Remoción de botón y referencias a biometría.
+  - `admin-client/src/components/Dashboard.tsx`: Banner de onboarding y paso de redirección `onMissingEmployerProfile`.
+  - `admin-client/src/components/CreateWorkerModal.tsx`: Manejo de error `EMPLOYER_PROFILE_MISSING`.
+  - `admin-client/src/App.tsx`: Riel de navegación con ítem "Empresa", secuenciación de compuertas (T1 antes de suscripción) y renderizado de pantalla Empresa.
+  - `admin-client/test/rut.test.mjs` (nuevo): Pruebas de vectores de algoritmo módulo 11 y parseo de RUT.
+  - `admin-client/test/employer.test.mjs` (nuevo): Pruebas de formateo de dirección, regiones oficiales, threshold de scroll, guard `isEmployerKind` y enlaces https.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ limpio.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ sin advertencias ni errores.
+  - `cargo test --workspace`: ✅ 107 tests en admin-client-core, 86 tests en agent, 51 tests en telemetry_crypto_core (244 tests en total), todos verdes.
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ build completado (tsc + vite) y 39/39 tests unitarios en verde.
+- **Decisiones:**
+  - Verificación en `build.rs`: se vinculó `telemetry-crypto-core` bajo `[build-dependencies]` para eliminar duplicación de `find_placeholders`. En perfil release, tanto marcadores pendientes como la imposibilidad de leer los archivos legales provocan aborto inmediato por pánico.
+  - Validación de enlaces en `MarkdownView`: las URLs deben comenzar por `https://` para ser clicables. Al hacer clic, se previene la navegación por defecto del WebView y se invoca el comando Tauri `open_external_url`, el cual corrobora esquema, ausencia de credenciales/espacios y largo máximo (2048) antes de invocar `open::that_detached`.
+  - Validación de regiones en Rust y TS: se aceptan los nombres oficiales cerrados de las 16 regiones, permitiendo la normalización de alias comunes de la Región Metropolitana ("RM", "Metropolitana", "Región Metropolitana").
+  - En `TermsGate`, la validación de scroll considera completado el desplazamiento tanto cuando se llega a menos de 25px del fondo como cuando el documento cabe en el contenedor sin requerir scrollbar.
+  - En `EmployerProfile`, se implementó un type guard `isEmployerKind` para validar el selector de tipo de persona sin recurrir a ningún casteo `any`.
+  - Para cerrar la brecha ADMIN-07, se removió el botón y la función IPC `admin_unlock_with_biometric`, ajustando el mensaje de la pantalla de bloqueo para solicitar contraseña (o Google) y documentando la necesidad de actualizar la especificación protegida.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.
+

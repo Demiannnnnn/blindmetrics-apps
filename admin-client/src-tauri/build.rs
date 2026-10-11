@@ -34,6 +34,33 @@ fn main() {
     }
     println!("cargo:rustc-env={API_URL_KEY}={url}");
 
+    // LEG-06: A release build fails if any legal document still contains unpopulated placeholders.
+    let legal_dir = Path::new(&manifest_dir).join("../../docs/legal");
+    let employer_terms = legal_dir.join("terminos-empleador.md");
+    let privacy_policy = legal_dir.join("politica-privacidad.md");
+    println!("cargo:rerun-if-changed={}", employer_terms.display());
+    println!("cargo:rerun-if-changed={}", privacy_policy.display());
+
+    if release {
+        for file in [&employer_terms, &privacy_policy] {
+            let content = match std::fs::read_to_string(file) {
+                Ok(content) => content,
+                Err(err) => panic!(
+                    "Release build blocked: failed to read required legal file {}: {err}",
+                    file.display()
+                ),
+            };
+            let placeholders = telemetry_crypto_core::legal::find_placeholders(&content);
+            if !placeholders.is_empty() {
+                panic!(
+                    "Release build blocked by unpopulated legal placeholders in {}: {:?}",
+                    file.display(),
+                    placeholders
+                );
+            }
+        }
+    }
+
     tauri_build::build()
 }
 

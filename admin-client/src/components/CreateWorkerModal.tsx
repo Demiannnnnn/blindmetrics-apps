@@ -27,10 +27,18 @@ interface CreateWorkerModalProps {
   onCreated: (created: CreatedWorker) => void;
   /** Called after the organization prompt saved a new name (RF-ADMIN-09-5). */
   onProfileChanged?: (profile: AdminProfile) => void;
+  /** Called when creating a worker fails because the employer profile is missing (RF-ADMIN-13-6). */
+  onMissingEmployerProfile?: () => void;
 }
 
 /** W2 — New worker with admin-defined consent package (RF-ADMIN-08-2, RF-ADMIN-09-5/6). */
-export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organization, onClose, onCreated, onProfileChanged }) => {
+export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({
+  organization,
+  onClose,
+  onCreated,
+  onProfileChanged,
+  onMissingEmployerProfile,
+}) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'OFFICE' | 'FIELD'>('OFFICE');
@@ -97,6 +105,14 @@ export const CreateWorkerModal: React.FC<CreateWorkerModalProps> = ({ organizati
       if (errorIs(err, 'ORGANIZATION_NAME_MISSING')) {
         // RF-ADMIN-09-5: ask for the organization, then retry with the same form.
         setPendingForm(form);
+        return;
+      }
+      if (
+        (errorIs(err, 'EMPLOYER_PROFILE_MISSING') || String(err).includes('EMPLOYER_PROFILE_MISSING')) &&
+        onMissingEmployerProfile
+      ) {
+        onClose();
+        onMissingEmployerProfile();
         return;
       }
       setError(describeError(err));

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Lock, KeyRound, ShieldAlert, Fingerprint, LogOut, AlertCircle } from 'lucide-react';
-import { adminLoginGoogle, adminUnlock, adminUnlockWithBiometric, AdminProfile } from '../api/tauri-bridge';
+import { Lock, KeyRound, ShieldAlert, LogOut, AlertCircle } from 'lucide-react';
+import { adminLoginGoogle, adminUnlock, AdminProfile } from '../api/tauri-bridge';
 import { describeError, errorIs } from '../lib/errors';
 
 interface AutoLockModalProps {
@@ -65,21 +65,6 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
     }
   };
 
-  const handleBiometricUnlock = async () => {
-    setLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const profile = await adminUnlockWithBiometric();
-      setPassword('');
-      setAttempts(0);
-      onUnlock(profile);
-    } catch (err: any) {
-      setErrorMessage(describeError(err, 'Biometría no disponible o rechazada'));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-bg flex items-center justify-center p-4">
@@ -97,7 +82,7 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
 
         <div className="bg-warning-subtle border border-default rounded-card p-3 flex items-center gap-2.5 text-xs text-warning text-left">
           <ShieldAlert className="w-5 h-5 shrink-0" />
-          <span>Reingrese su contraseña o use biometría para regenerar credenciales de sesión en RAM.</span>
+          <span>Reingrese su contraseña para regenerar credenciales de sesión en RAM.</span>
         </div>
 
         {!hasPassword && (
@@ -149,17 +134,6 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
               )}
             </button>
             )}
-
-            {/* Biometric Quick Unlock (RF-ADMIN-07-3) */}
-            <button
-              type="button"
-              onClick={handleBiometricUnlock}
-              disabled={loading}
-              className="w-full bg-surface-subtle hover:bg-surface-subtle text-fg font-medium py-2 rounded-card text-xs transition border border-default flex items-center justify-center gap-2"
-            >
-              <Fingerprint className="w-4 h-4 text-accent" />
-              <span>Desbloquear con Biometría (Touch ID / Windows Hello)</span>
-            </button>
           </div>
         </form>
 

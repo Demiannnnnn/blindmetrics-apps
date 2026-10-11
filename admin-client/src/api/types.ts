@@ -35,6 +35,8 @@ export interface AdminProfile {
   onboarding_completed?: boolean;
   is_new_user?: boolean;
   trial_days_left?: number | null;
+  terms_accepted_version?: string | null;
+  terms_required_version?: string | null;
 }
 
 /** Verified enrollment package shown by W3 (RF-ADMIN-09-2). */
@@ -240,3 +242,82 @@ export interface SubscriptionBlock {
   portal_url: string | null;
   support_email: string | null;
 }
+
+// ---------------------------------------------------------------- legal (TASK-ADMIN-13)
+
+export interface LegalDocumentInfo {
+  document: string;
+  title: string;
+  version: string;
+  hash: string;
+  content: string;
+}
+
+export interface LegalDocumentsBundle {
+  employer_terms: LegalDocumentInfo;
+  privacy_policy: LegalDocumentInfo;
+}
+
+export interface LegalStatus {
+  terms_accepted_version: string | null;
+  terms_required_version: string | null;
+  current_embedded_version: string;
+  needs_acceptance: boolean;
+}
+
+export interface TermsAcceptanceResponse {
+  status: string;
+  terms_accepted_version: string;
+}
+
+// ---------------------------------------------------------------- employer (TASK-ADMIN-13)
+
+export type EmployerKind = 'LEGAL_ENTITY' | 'NATURAL_PERSON';
+
+export interface Address {
+  street: string;
+  number: string;
+  floor?: string | null;
+  office?: string | null;
+  commune: string;
+  city: string;
+  region: string;
+}
+
+export interface EmployerProfile {
+  kind: EmployerKind;
+  legal_name: string;
+  rut: string;
+  address: Address;
+}
+
+export interface Workplace {
+  id: string;
+  name: string;
+  address: Address;
+  assigned_workers_count?: number | null;
+}
+
+export interface WorkplaceForm {
+  name: string;
+  address: Address;
+}
+
+export interface AttendanceSettings {
+  missing_mark_alerts: boolean;
+}
+
+export interface TechnicalIncident {
+  id: string;
+  started_at: string;
+  ended_at?: string | null;
+  description: string;
+  created_at?: string | null;
+}
+
+export interface CreateIncidentForm {
+  started_at: string;
+  ended_at?: string | null;
+  description: string;
+}
+

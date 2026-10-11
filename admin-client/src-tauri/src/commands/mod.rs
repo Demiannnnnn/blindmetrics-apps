@@ -1,5 +1,7 @@
 pub mod devices;
+pub mod employer;
 pub mod keys;
+pub mod legal;
 pub mod session;
 pub mod subscription;
 pub mod telemetry;
