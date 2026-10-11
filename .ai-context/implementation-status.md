@@ -110,7 +110,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Capability | State | Task |
 |:--|:--:|:--|
 | Green clippy baseline | ✅ | INT-03 |
-| Attendance mark hash + vector, legal hash/placeholders, PIN verifier, RUT | ❌ | CRYPTO-04 |
+| Attendance mark hash + vector, legal hash/placeholders, PIN verifier, RUT | ✅ | CRYPTO-04 |
 | Worker app split: `agent` service + `agent-ipc` + tray-only, no egui | ❌ | AGENT-10 |
 | Worker window `agent-ui` (Tauri) with parity | ❌ | AGENT-11 |
 | Service: contract v3 lifecycle, terms, PIN, marks + offline queue, corrections, local alerts | ❌ | AGENT-12 |
