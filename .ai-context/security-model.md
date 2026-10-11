@@ -165,3 +165,65 @@ old key before replacing it.
 - Multi-admin organizations sharing one key.
 - Non-destructive key rotation (re-encrypting history or keeping several active keys).
 - Code signing / notarization pipelines (tracked in release tasks, not here).
+
+## 9. Attendance data (contract v3, AGENT-10..13, ADMIN-13..16)
+
+### 9.1 Why it is not zero-knowledge
+
+R38 requires the server to email a receipt per mark, verify marks by hash on a public page, compute
+reports and give labour inspectors permanent read access (`docs/legal/marco-legal-cl.md` §1). The
+server therefore stores attendance **in plaintext**. Mitigations: attendance contains no telemetry and
+no secrets (SEC-21); minimal fields (R38 art. 13); access by role with audit (admin, worker, inspector,
+read-only third parties); 5-year retention then destruction; extra personal data destroyed 90–120
+days after the employment ends.
+
+The admin's X25519 key is **not** used for attendance. Losing it does not affect attendance.
+
+### 9.2 Identification: PIN on the enrolled device
+
+```
+set/change:  pin (Zeroizing) ── policy check (SEC-20) ── Argon2id(m=19 MiB, t=2, p=1, salt 16B) ──> verifier
+             verifier → OS keystore TelemetryWorker/pin_verifier ; POST /workers/me/credential-events {PIN_SET|PIN_CHANGED}
+mark:        UI ──(IPC, Zeroizing)──> service ── verify (constant time) ── ok ⇒ mark ; fail ⇒ delay 2^n s (max 60 s)
+reset:       POST /workers/me/pin-reset/request → code to personal email (10 min, 5 tries)
+             POST /workers/me/pin-reset/verify { code } → 204 ⇒ UI asks new PIN ⇒ set
+```
+
+- The PIN never reaches the server. The server learns only the events (for the R38 art. 7 f email).
+- Lighter Argon2 parameters than the key backup: the PIN is entered several times a day; the verifier
+  lives in the OS keystore (not on disk), so offline guessing needs the OS account first.
+- The worker JWT authenticates the device; the PIN proves the person at the device. Together they are
+  the **primary** identification. The **secondary** one (R38 art. 7 g) is the worker login of the web
+  portal (future).
+
+### 9.3 Mark integrity
+
+```
+canonical_mark = serde_json compact of, in this order:
+  { v: 1, mark_id, worker_id, worker_run, employer_rut, type, server_ts, device_ts, offline,
+    source, workplace_id, location: {lat, lon, accuracy_m} | null, prev_hash }
+mark_hash     = hex(SHA-256(b"telemetry-mark-v1\0" ‖ canonical_mark))
+prev_hash     = hash of the previous mark of the same worker, or 64 × "0" for the first one
+```
+
+- `server_ts` and `device_ts` are RFC 3339 UTC with second precision (`2026-10-11T12:00:05Z`).
+- A correction never edits a mark: it is a new `correction` row that references the original and, once
+  `ACCEPTED`/`CONSOLIDATED`, produces a new mark (source `CORRECTION`) in the chain. Reports show the
+  effective value with the alteration marker (ATT-05).
+- The agent recomputes the hash of every confirmed mark from the fields the server returned. A
+  mismatch is shown, logged at `warn` (without personal data) and kept as evidence.
+- The chain makes silent deletion or reordering detectable by anyone holding two receipts.
+
+### 9.4 Worker app IPC
+
+| Threat | Mitigation |
+|:--|:--|
+| Another local user's process talks to the service | Socket in a `0700` per-user dir; Windows pipe ACL for the current user only; per-start token file `0600` (SEC-18). |
+| A process of the same user impersonates the UI | Same trust boundary as the user's session (it could also read the keystore while unlocked). The PIN still gates each mark. |
+| UI compromised (XSS in WebView) | The UI holds no tokens or keys (PROC-03); CSP `default-src 'self'` with no `unsafe-eval`; the worst case is triggering actions the user could trigger, still PIN-gated for marks. |
+| Malformed/huge frames | Length-prefixed frames ≤ 1 MiB, strict serde (`deny_unknown_fields`), version check (PROC-05). |
+
+### 9.5 Logging (attendance)
+
+Never at `info` or above: PIN (never anywhere), RUN, personal email, location, names. `info` may log
+`mark queued type=WORKDAY_START offline=false` and counts.

@@ -1,5 +1,11 @@
 # Implementation Status
 
+> **2026-10-11 — v3 started.** Baseline on `develop-AGENTS` (= `dev-ecosystem/style-and-fixed-url`
+> `e6b80d1`): `cargo fmt` ✅, `cargo test` ✅ (33 + 86 + 91), admin `npm run build` + `npm test` ✅ (28),
+> but **`cargo clippy --workspace --all-targets -- -D warnings` ❌** with Rust 1.98: 22 ×
+> `clippy::result_large_err` in `admin-client-core` (TASK-INT-03). Everything in §6 below is ❌ until its
+> task lands. The audit below (2026-09-30, contract v2) remains accurate for what it covers.
+
 Audited against the code on **2026-09-30** (branch `claude/kind-planck-1ripey`, on top of `4d86bcd`), after closing the **API contract v2** work (`telemetry-api` TASK-13..17 → apps INT-02, CRYPTO-03, AGENT-09, ADMIN-09..12).
 
 Verification run for this audit:
@@ -97,3 +103,22 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 7. **Privacy:** `agent --headless` runs the engine without a tray icon (`agent/src/main.rs`), contrary to `docs/worker-app-spec.md` §5 ("no invisible monitoring"); do not ship it until it refuses to start without a tray.
 8. Rate limits and lockouts are enforced by the API only; the apps show the `Retry-After` countdown but do not throttle locally.
 9. End-to-end runs against a live API + real desktop sessions are still pending; see "Verification" above.
+
+
+## 6. v3 — attendance, legal, worker app on Tauri (2026-10-11)
+
+| Capability | State | Task |
+|:--|:--:|:--|
+| Green clippy baseline | ❌ | INT-03 |
+| Attendance mark hash + vector, legal hash/placeholders, PIN verifier, RUT | ❌ | CRYPTO-04 |
+| Worker app split: `agent` service + `agent-ipc` + tray-only, no egui | ❌ | AGENT-10 |
+| Worker window `agent-ui` (Tauri) with parity | ❌ | AGENT-11 |
+| Service: contract v3 lifecycle, terms, PIN, marks + offline queue, corrections, local alerts | ❌ | AGENT-12 |
+| Window: terms, PIN, attendance home, receipts, records, corrections | ❌ | AGENT-13 |
+| Admin: employer terms, employer legal profile, workplaces, legal docs; biometric button removed | ❌ | ADMIN-13 |
+| Admin: workers v3 (legal data, agreed schedule, optional telemetry, telemetry pause) | ❌ | ADMIN-14 |
+| Admin: attendance board, days/marks, corrections | ❌ | ADMIN-15 |
+| Admin: R38 reports, exports, read-only reports while blocked | ❌ | ADMIN-16 |
+| `telemetry-api` contract v3 (attendance, legal, employer, emails, reports/exports) | ❌ | API TASK-18..23 (to be written) |
+| `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ❌ | web tasks (to be written) |
+| DT certification and authorization | ❌ | Owner decision (`docs/legal/marco-legal-cl.md` §8) |

@@ -1,5 +1,10 @@
 # Admin App (`admin-client`) — Functional Specification
 
+> **v3 (2026-10-11):** attendance pivot. New screens T1, P1, AS1–AS4 and changes to L2, W1–W4, S, L
+> are in §5. Domain: `.ai-context/domain.md` §10; rules `ATT-*`, `LEG-*`, `BILL-04`. **Keep the current
+> palette, typography and layout** (owner decision): new screens reuse the existing sidebar, header,
+> cards, tables and modals.
+
 The desktop console for the organization's administrator. Its job:
 1. Custody of `K_admin_pub`/`K_admin_priv` (the only place data can be decrypted) and of its encrypted backups.
 2. Define what may be collected per worker, in plain language, and bind devices via verified enrollment codes.
@@ -136,3 +141,147 @@ All return `Result<T, CommandError { code, message, reason?, details? }>`. None 
 8. Lost laptop: from another device, revoke it → its next request fails with `DEVICE_REVOKED`.
 9. Trial expired → L2 at start; pay in the portal → "Ya pagué" → dashboard.
 10. API down at login → error message, no fake session. 5 min idle → lock; decrypted data gone.
+
+
+## 5. v3 — Attendance, legal and employer data
+
+### 5.1 Navigation
+
+The ink sidebar keeps its look. Items are grouped under two small uppercase labels (the existing
+kicker style, `text-ink-muted`):
+
+```
+Tablero principal & enrolamiento
+ASISTENCIA
+  Asistencia en vivo            (AS1)
+  Marcas y correcciones         (AS2)
+  Reportes legales              (AS3)
+TELEMETRÍA
+  Actividad del sistema · Navegación de red (FQDN) · Productividad & capturas ·
+  Actividad de archivos · Ubicación en terreno (FIELD)
+Empresa                          (P1, AS4)
+Bóveda & cumplimiento
+```
+
+The global header (worker + range selectors) is shown only on telemetry views; attendance views have
+their own filters. After login the default view is **Asistencia en vivo** once the employer profile
+exists; otherwise the Tablero with the onboarding banner.
+
+### 5.2 Gates (order after sign-in)
+
+`T1 terms` → subscription (`L2`) → organization (`O1`) → `P1 employer profile` (only blocks worker
+creation, not navigation) → key state (K*) → console.
+
+### T1 — Employer terms (LEG-04, LEG-05)
+Full-screen card (auth layout: ink top bar + centered column `max-w-2xl`) with `terminos-empleador.md`
+and `politica-privacidad.md` rendered from embedded Markdown, version + short hash, the fixed notice of
+`marco-legal-cl.md` §7 in a warning box, **He leído y acepto** (enabled after scrolling both) and
+**Cerrar sesión**. → `legal_accept_terms` → `POST /admins/me/terms-acceptance`. Shown again when
+`terms_required_version` > accepted. Also readable any time from S → "Documentos legales".
+
+### P1 — Employer legal profile (screen "Empresa")
+- Card **Datos del empleador**: tipo (persona jurídica / natural), razón social o nombre completo, RUT
+  (validated mod 11, formatted `76.123.456-7` on blur), dirección de casa matriz (calle, número, piso,
+  oficina, comuna, ciudad, región — select of the 16 regions).
+- Card **Lugares de trabajo**: table (nombre, dirección, trabajadores asignados), *Agregar lugar*,
+  edit, delete (disabled with tooltip when in use).
+- Card **Alertas de marcación**: toggle "Enviar alertas por marcas faltantes (30 minutos)" — on by
+  default (R38 art. 45.1).
+- Card **Incidentes técnicos**: list + *Registrar incidente* (inicio, término, descripción).
+- Until the profile exists: a banner on Tablero and W2 "Completa los datos de tu empresa para crear
+  trabajadores" + button to P1. `409 EMPLOYER_PROFILE_MISSING` from the API opens P1.
+
+### AS1 — Asistencia en vivo
+Table from `GET /attendance/board` (auto-refresh 60 s): trabajador, lugar, estado (En jornada · En
+colación · Fuera de jornada · Sin marcar — badge with text), última marca (hora), marcas de hoy,
+alertas ("Entrada no registrada"). Filters: lugar, estado, search. Row click → AS2 filtered on that
+worker. Empty state: "Aún no hay trabajadores con asistencia. Crea uno desde el Tablero."
+
+### AS2 — Marcas y correcciones
+- Worker selector + date range (≤ 62 days). Day table from `GET /attendance/days`: fecha, jornada
+  pactada, marcas (with `offline` and "Corregida" markers), faltante, extra, observaciones.
+- Mark detail drawer: all fields incl. hash (mono groups of 4), source, workplace, location.
+- **Proponer corrección** (secondary button; never deletes): kind (Modificar / Agregar), mark type,
+  original mark (for Modificar), new date-time (to the second), motivo (5–500, required, e.g.
+  "Elimina atraso"), checkbox "Confirmo que esta corrección no perjudica al trabajador". Inline
+  errors by `details.reason`: `CORRECTION_TOO_EARLY` ("Solo puedes corregir desde el día hábil
+  siguiente"), `CORRECTION_HARMS_WORKER`, etc. Copy: "El trabajador recibirá un correo y tendrá 48
+  horas para oponerse. Si se opone, la marca original se mantiene."
+- Corrections tab: status badges (Pendiente · Aceptada · Opuesta · Consolidada · Retirada), respond
+  deadline, *Retirar* while pending.
+
+### AS3 — Reportes legales (R38 arts. 25, 27, 28)
+- Menu with the six reports in the R38 order and names: Reporte de asistencia · Reporte de jornada
+  diaria · Reporte de domingos y/o días festivos · Reporte de modificaciones y/o alteraciones de
+  turnos · Reporte diario (info: se envía por correo cada día) · Reporte de incidentes técnicos.
+- Filters visible at once, usable in any order: trabajador(es) (search by name or RUN), período
+  (última semana, quincena, mes anterior) or rango (≤ 5 años; 24 meses for domingos/festivos), tipo
+  de jornada, lugar, cargo, hash.
+- Preview = the server JSON rendered as tables per worker, R38 column names, altered cells marked,
+  abbreviations legend; font ≤ 8 pt equivalent in print CSS; no horizontal scroll (columns wrap).
+- **Exportar**: Excel / PDF / Word → `attendance_export_report` downloads the server file to
+  Downloads (never overwrites; path shown with *Abrir carpeta*). **Imprimir** uses the PDF.
+- Reachable **read-only from L2** when the subscription is blocked (BILL-04).
+
+### AS4 — Settings in "Empresa"
+See P1 (alerts toggle, incidents).
+
+### 5.3 Changes to existing screens
+
+- **L2 (subscription lock):** adds the secondary button **Ver reportes de asistencia** → AS3 in
+  read-only mode inside the lock layout (no sidebar). Copy: "Tus trabajadores siguen pudiendo marcar
+  asistencia. La telemetría está detenida."
+- **W1 (workers):** columns become name, RUN, lugar, modalidad, **asistencia** (estado de hoy), status
+  badge (`PENDING_TERMS` = "Esperando términos"), **telemetría** (`No solicitada` · `Pendiente` ·
+  `2/3 aceptadas` · `Rechazada` · `Pausada`), device. Filters add lugar and modalidad.
+- **W2 (new worker):** sections in order:
+  1. *Identificación*: nombre completo, RUN, correo personal (unique; help: "Aquí llegan los
+     comprobantes de cada marca. Debe ser un correo que controle el trabajador."), cargo.
+  2. *Lugar y modalidad*: lugar de trabajo (select from P1; for Teletrabajo also "Domicilio del
+     trabajador" address fields), modalidad (Presencial / Teletrabajo / Mixta), "Excluido de
+     limitación de jornada (art. 22)" checkbox with help.
+  3. *Jornada pactada*: tipo de jornada (+ resolución for Excepcional), week grid (Mon–Sun: works?,
+     entrada, salida, colación inicio/fin), "La colación se imputa a la jornada", desconexión for
+     Teletrabajo/Mixta (≥ 12 h), vigente desde. Live totals per day and week; warnings (not errors)
+     when > 10 h/day or > weekly maximum in force ("Supera el máximo legal de 42 horas semanales").
+     Checkbox "Registrar ubicación al marcar (requiere consentimiento escrito del trabajador en su
+     contrato o anexo)" default off.
+  4. *Telemetría (opcional)*: the existing six toggles, all off by default, with the note "Puedes no
+     solicitar telemetría: el trabajador igual podrá marcar asistencia." Screenshots disabled for
+     Teletrabajo/Mixta; Ubicación requires *Causa de seguridad o legal* (20–500 chars, shown to the
+     worker verbatim) besides `FIELD`.
+  5. Código de vinculación (TTL).
+  The live consent preview stays (only when ≥ 1 category is requested).
+- **W4 (worker detail):** header adds RUN, cargo, lugar, modalidad; tabs **Asistencia** (last 7 days
+  summary + link to AS2), **Jornada** (current schedule, history of versions = shift changes,
+  *Cambiar jornada* creates a new version with "vigente desde" and "solicitado por" Trabajador/Empleador),
+  **Telemetría** (old consent section; *Pausar telemetría* / *Reanudar* replace Pause/Resume of the
+  worker), **Evidencia** (consent records + terms acceptances). Lifecycle: Generar código, Revocar,
+  Eliminar (unchanged rules).
+- **S (Bóveda & cumplimiento):** adds **Documentos legales** (accepted versions, read again) and the
+  authorization notice (LEG-07).
+- **L (auto-lock):** the **Biometría** button is **removed** until a real OS prompt exists (closes the
+  known security gap of ADMIN-07).
+- **D (Tablero):** KPIs add "En jornada ahora", "Sin marcar hoy", "Correcciones pendientes".
+
+### 5.4 New Tauri commands
+
+| Domain | Commands |
+|:--|:--|
+| legal | `legal_documents()` (embedded texts, versions, hashes), `legal_status()`, `legal_accept_terms()` |
+| employer | `employer_get()`, `employer_update(form)`, `workplaces_list()`, `workplaces_create(form)`, `workplaces_update(id, form)`, `workplaces_delete(id)`, `attendance_settings_update(form)`, `incidents_list(query)`, `incidents_create(form)` |
+| attendance | `attendance_board()`, `attendance_days(worker_id, from, to)`, `attendance_marks(query)`, `attendance_propose_correction(form)`, `attendance_corrections(query)`, `attendance_withdraw_correction(id)`, `attendance_report(report, filters)`, `attendance_export_report(report, filters, format) -> saved path` |
+| workers (v3) | `workers_create`/`workers_update` with legal data and schedule, `workers_update_schedule(id, schedule)`, `workers_set_telemetry_status(id, status, reason)`; `workers_set_status` keeps only `REVOKED` |
+
+### 5.5 Acceptance scenarios (v3)
+
+1. New admin: register → T1 → K1 → P1 (company + 1 workplace) → W2 attendance-only worker (no
+   telemetry) → QR → the worker links, accepts terms, marks → AS1 shows "En jornada".
+2. W2 with Teletrabajo: screenshots disabled; disconnection required ≥ 12 h; 11 h/day schedule shows
+   the warning but saves.
+3. AS2: correction on the same day → `CORRECTION_TOO_EARLY` message; next day "Elimina atraso" →
+   pending; worker opposes → "Opuesta", original intact.
+4. AS3: Reporte de jornada diaria for last week → R38 columns and weekly totals with sign; export
+   Excel/PDF/Word saved to Downloads.
+5. Subscription suspended → L2 → *Ver reportes de asistencia* works read-only; workers keep marking.
+6. Auto-lock screen has no biometric button.

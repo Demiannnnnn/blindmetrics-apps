@@ -1,178 +1,257 @@
-# Worker App (`agent`) — Functional Specification
+# Worker App (`agent` + `agent-ui`) — Functional Specification
 
-The app installed on the employee's computer. Its job, in order of importance:
-1. Make it **impossible to be monitored without knowing it**.
-2. Collect **exactly** the categories the employee accepted (a subset of what the employer requested), nothing else, only while `ACTIVE` and while the employer's subscription is active.
-3. Encrypt to the admin's pinned key and deliver reliably without slowing the machine.
+> v3 (2026-10-11). Replaces the egui app. Domain: `.ai-context/domain.md` §1, §4, §5, §10.
+> Legal basis: `docs/legal/marco-legal-cl.md`. Rules: `ATT-*`, `PROC-*`, `DP-*`, `LEG-*`.
 
-Stack: Rust, `eframe`/`egui` (window ≈ 480×680, min 420×520), `tray-icon` (tray), `notify-rust` (notifications), `keyring` (secrets), `rusqlite` (queue), `tokio` (background).
+The app installed on the employee's computer. In order of importance:
+1. Let the worker **mark attendance** reliably, with their PIN, always (ATT-01, ATT-02), and see every
+   mark, receipt and correction (ATT-06).
+2. Make it **impossible to be monitored without knowing it** (telemetry is optional, visible, consented).
+3. Collect **exactly** the telemetry categories the worker accepted, encrypt them to the pinned key,
+   and deliver without slowing the machine.
+
+## 0. Processes (PROC-01..05)
+
+| Process | Binary | Lifetime | Owns |
+|:--|:--|:--|:--|
+| Service | `telemetry-agent` (crate `agent`) | Starts at OS login (autostart entry created by the installer and re-created on first run); one per user | Tray, notifications, API, keystore, local DB, telemetry engine, mark queue, IPC server |
+| Window | `telemetry-worker` (crate `agent-ui`, Tauri 2 + React) | Opened by the worker (app menu, tray *Abrir*, or a notification) and closed at will | Nothing secret; renders `AppSnapshot` and sends requests |
+
+- Closing the window never stops the service; the tray icon stays.
+- Opening the window when the service is not running starts it (the service binary sits next to the
+  UI binary; Tauri `externalBin` sidecar in bundles) and waits ≤ 5 s for the socket.
+- *Salir* in the tray asks: "Si sales, la telemetría se detiene y no podrás marcar asistencia desde
+  este equipo hasta volver a abrir la app." → **Salir** / **Cancelar**. Pending marks stay queued.
+- Window: 480×720, min 420×600, title "Telemetry — Asistencia".
+- Stack (UI): React 18 + TypeScript strict + Tailwind 4 with the **same tokens and fonts as
+  `admin-client`** (design system `.claude/skills/enterprise-design-system`), `lucide-react` icons,
+  es-CL copy, **tú**. No emojis. Colors only through tokens.
 
 ## 1. Screen map
 
 ```mermaid
 flowchart TD
-    Start([App start]) --> HasCreds{Credentials +<br/>pinned key?}
-    HasCreds -- No --> E1[E1 Enrollment]
-    HasCreds -- Yes --> Sync[GET /workers/me]
-    E1 --> E2[E2 Verification]
-    E2 -- mismatch --> E3[E3 Tampering alert]
-    E3 --> E1
-    E2 -- ok --> C1[C1 Consent]
-    Sync -- PENDING_CONSENT / new version --> C1
-    Sync -- ACTIVE / PAUSED / employer suspended --> M[M Main window]
-    Sync -- 401 revoked --> R[R Unlinked notice] --> E1
-    Sync -- fingerprint mismatch --> H[H Halted]
-    C1 -- Accept --> M
-    C1 -- Reject --> I[I Inactive]
-    I -- Review again --> C1
-    M -- Withdraw --> W[W Withdraw confirm] --> I
+    Start([Window opens]) --> Conn{Service reachable?}
+    Conn -- No --> X[X Service unavailable + Retry]
+    Conn -- Yes --> Mode{AttendanceMode}
+    Mode -- Unlinked --> E1[E1 Link this computer]
+    E1 --> E2[E2 Verification] -- mismatch --> E3[E3 Tampering alert] --> E1
+    E2 -- ok --> T1[T1 Terms and privacy]
+    Mode -- NeedsTerms --> T1
+    T1 -- accept --> P1[P1 Create PIN]
+    Mode -- NeedsPin --> P1
+    P1 --> A[A Asistencia - home]
+    Mode -- Ready --> A
+    Mode -- Exempt --> AX[A Asistencia: not applicable notice]
+    A --- R[Registros] --- TL[Telemetría] --- D[Mis datos] --- S[Ajustes]
+    TL -- telemetry requested and undecided --> C1[C1 Telemetry consent]
+    TL -- withdraw --> W[W Withdraw confirm]
+    Any((any)) -- revoked --> U[U Unlinked notice] --> E1
 ```
 
-## 2. Screens
+Navigation after linking: left rail on ink (the admin app's sidebar pattern, compact: icon + label)
+with **Asistencia** (default), **Registros**, **Telemetría**, **Mis datos**, **Ajustes**. A header
+shows the organization and the worker name. Banners (one at a time, by priority): service problem >
+pending marks offline > correction to review > new terms version > telemetry notice.
 
-### E1 — Enrollment
-- Title: "Link this computer to your employer".
-- Two options: **Paste QR** (the QR content: the base64 `qr_payload` shown by the admin app, or the raw JSON of older admin versions; camera/image decoding is a later enhancement) and **Enter code** (`XXXX-XXXX-XXXX`; lowercase, spaces and dashes accepted; `I`/`L` → `1` and `O` → `0` for compatibility with v1 codes — v2 codes never contain `0 O 1 I L`).
-- The worker never types a **server address**: the agent is built for one server (`TELEMETRY_API_URL`, read at compile time from `agent/.env`; `https://` required in release). The QR still carries `api_url`; a QR whose `api_url` is not the built-in server is rejected.
-- Button **Link** → `POST /workers/enroll` with `device_identifier` and `device_info`.
-- Errors by `details.reason` (AGENT-09):
+## 2. Linking and terms
 
-  | Answer | Message |
-  |:---|:---|
-  | `400 INVALID_ENROLLMENT_TOKEN` | "Este código es inválido o expiró. Pide uno nuevo a tu administrador." |
-  | `409 ENROLLMENT_ALREADY_COMPLETED` | "Este código ya fue utilizado. Si no fuiste tú, avisa a tu administrador de inmediato." |
-  | `409 DEVICE_ALREADY_ENROLLED` | "Este equipo ya está vinculado a otro trabajador de la organización. Pide a tu administrador que lo desvincule." |
-  | `429 ENROLLMENT_LOCKED` | "Demasiados intentos fallidos. Podrás intentarlo de nuevo en N minutos." — the **Link** button stays disabled until `Retry-After` passes. |
-  | Network | "No se pudo contactar al servidor. Verifica la dirección y tu conexión." |
+### E1 — Link this computer
+Unchanged logic from AGENT-08/09 (QR payload paste or code `XXXX-XXXX-XXXX`; server fixed at build
+time; errors by `details.reason`; `Retry-After` countdown). Title: "Vincula este computador con tu
+empleador". Help text: "Tu empleador te entregó un código o un QR. Si no lo tienes, pídeselo."
 
-### E2 — Verification
-- QR path: automatic. Recompute commitment; match → go to C1 (show "Verified ✓" for 1 s).
-- Manual path: show **safety code** `4821 9930 1157` large, with: "Ask your administrator to read the code on their screen. Do they match?" → **They match** / **They don't match**.
+### E2 / E3 — Verification / tampering alert
+Unchanged (safety code `dddd dddd dddd`, "Coinciden" / "No coinciden"; mismatch wipes everything).
 
-### E3 — Tampering alert
-"The information received does not match what your administrator generated. For your protection this computer was **not** linked." Credentials from the redeem are wiped. Button: back to E1.
+### T1 — Terms and privacy (LEG-04, LEG-05)
+- Shows `terminos-trabajador.md` then `politica-privacidad.md`, rendered from the embedded Markdown
+  (headings, lists, tables), full text, scrollable, with version and hash (first 16 hex) at the top.
+- **He leído y acepto** is enabled only after scrolling to the end of both documents. **No acepto**
+  shows: "Sin aceptar los términos no puedes usar esta app. Habla con tu empleador." and keeps the
+  device linked so the worker can come back.
+- On accept → `Request::AcceptTerms { version, hash, privacy_version, privacy_hash }` → API.
+  `409 TERMS_VERSION_MISMATCH` → "Hay una versión más nueva de esta app. Actualízala para continuar."
+- New version later (worker already accepted once): non-blocking banner "Hay una nueva versión de los
+  términos. Léela." → T1 in "update" mode; marking keeps working (ATT-02); telemetry decisions wait.
 
-### C1 — Consent (granular, AGENT-09)
-Shown on first enrollment, whenever `consent_version > accepted_consent_version`, and from **Cambiar mi selección**.
+### P1 — Create PIN (SEC-19, SEC-20)
+"Crea tu PIN de asistencia. Lo usarás para confirmar cada marca. Es personal: no lo compartas."
+Two fields (6–8 digits, masked, numeric keypad-friendly), inline policy errors ("No uses números
+repetidos ni seguidos como 123456"). → `Request::SetPin`. Success → A.
+
+## 3. A — Asistencia (home)
 
 ```
-┌──────────────────────────────────────────────┐
-│  Acme SpA — Telemetría del equipo            │
-├──────────────────────────────────────────────┤
-│  Tu empleador solicita poder recolectar      │
-│  estos datos. Elige cuáles aceptas:          │
-│                                              │
-│  ☐ Aplicaciones en uso                       │
-│     "<descripción del admin, textual>"       │
-│  ☐ Navegación web (solo dominios)            │
-│     "<descripción del admin, textual>"       │
-│  ☐ Actividad de teclado y mouse (conteo)     │
-│     "<descripción del admin, textual>"       │
-│                                              │
-│  — Capturas de pantalla: no solicitado       │
-│  — Archivos: no solicitado                   │
-│  — Ubicación: no solicitado                  │
-│                                              │
-│  Horario: 09:00–18:00 America/Santiago       │
-│  Los datos se cifran en este equipo; el      │
-│  servidor no puede leerlos.                  │
-│  Puedes aceptar solo algunas categorías y    │
-│  cambiar o retirar tu elección cuando        │
-│  quieras. También puedes pedir una copia o   │
-│  la eliminación de tus datos.                │
-│                                              │
-│  [Mantener mi selección anterior]  (si aplica)│
-│  [ RECHAZAR TODO ]   [ ACEPTAR SELECCIÓN (2) ]│
-└──────────────────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│ Acme SpA · Juan Pérez                       │
+├────────────────────────────────────────────┤
+│  Sábado 11/10/26                            │
+│  12:00:05         (hora del servidor)       │
+│  Estado: En jornada desde 09:02:11          │
+│  Jornada de hoy: 09:00 – 18:00              │
+│  Colación: 13:00 – 14:00                    │
+│                                             │
+│  [  Iniciar colación  ]   (primary)         │
+│  Otras marcas ▾                             │
+│                                             │
+│  Marcas de hoy                              │
+│  09:02:11  Entrada   Enviada · 3f9a 21c0 …  │
+│                                             │
+│  Ubicación: no se registra al marcar        │
+└────────────────────────────────────────────┘
 ```
 
-Rules:
-- Category labels are fixed by the app (the six categories in `domain.md`); the quoted text is the admin's description, **verbatim** (LEG-01). Only requested categories have a checkbox; all start **unchecked** (DP-08).
-- For a version update, a banner lists what changed ("Nuevo: Capturas de pantalla"). Categories already accepted remain active until the worker decides (domain §5). **Mantener mi selección anterior** checks exactly the previously accepted categories that are still requested (explicit action).
-- **Aceptar selección (n)** (disabled with n = 0) → `PATCH /workers/me/consent { accepted: true, consent_version, manifest_hash, consent_flags: selection }` → persist hash + selection → M.
-- **Rechazar todo** → `PATCH … { accepted: false }` → I.
-- `409 CONSENT_VERSION_MISMATCH` / `403 CONSENT_FLAG_NOT_REQUESTED` → refetch `/workers/me`, rebuild the offer with the pinned key, re-render with "La solicitud de tu empleador cambió; revísala nuevamente".
+- The clock shows server time (`server_time` of `/attendance/me/today` + monotonic offset), seconds,
+  `tabular-nums`. If the device clock differs > 60 s: muted note "La hora de tu equipo difiere de la
+  del servidor; se usa la del servidor." (ATT-10).
+- **Primary button = `next_mark`** from the server (or local state when offline): *Marcar entrada*,
+  *Iniciar colación*, *Terminar colación*, *Marcar salida*. "Otras marcas" lists the other three
+  (always allowed, ATT-02).
+- If today has no agreed schedule: "Hoy no tienes jornada pactada. Si trabajas, marca igual."
+- Exempt (art. 22): only the notice "Tu contrato no está sujeto a control de jornada (art. 22 del
+  Código del Trabajo). No necesitas marcar."
+- Location line reflects `location_at_mark` ("Se registra tu ubicación solo en el momento de marcar"
+  / "No se registra").
 
-### I — Inactive
-"Monitoring is **off**. Nothing is being collected." Buttons: **Review request again** (C1), **Unlink this computer** (wipe local state). Status indicator ⚪.
+### M — Mark dialog
+Title = action ("Marcar entrada"). Text: "Se registrará con la hora del servidor al recibirla." PIN
+field + **Confirmar** (primary) + **Cancelar**. Wrong PIN: "PIN incorrecto. Espera N s para
+reintentar." (delay from the service). Link "Olvidé mi PIN" → reset flow (§6).
+On success the dialog turns into the **receipt**: type, `dd/mm/aa`, `hh:mm:ss`, hash in Plex Mono
+groups of 4 with *Copiar*, "Te enviamos el comprobante a j•••@gmail.com". Offline: "Sin conexión: la
+marca quedó guardada con la hora de tu equipo (12:00:04) y se enviará automáticamente."
 
-### M — Main window (tabs)
+### Today's marks list
+Time, type, status (`Enviada` · `Pendiente de envío` · `Hash no coincide` (danger, with "Guarda este
+comprobante y avisa a tu empleador")), short hash. Altered marks (from corrections) carry the
+"Corregida" marker (ATT-05).
 
-**Header (always visible):** status light + text, organization name, worker name.
+## 4. Registros
 
-| Light | Meaning |
-|:------|:--------|
-| 🟢 | Collecting (ACTIVE, in work hours). |
-| 🟡 | ACTIVE but out of work hours (time-bound collectors sleeping) — or PAUSED by employer — or employer subscription suspended ("Recolección detenida: la cuenta de tu empleador no está activa") (text says which). |
-| ⚪ | Not collecting (awaiting consent / rejected / withdrawn). |
-| 🔴 | Problem: offline > 15 min, halted, session ended. |
+- Range picker (this week, last week, this month, last month, custom up to 5 years).
+- Day list from `GET /attendance/me/days`: date, agreed, marks, `Tiempo faltante` / `Tiempo extra`
+  (server values, ATT-09), anomalies in words ("Colación sin término").
+- Mark detail: every field of the receipt incl. full hash, prev hash, offline flag, source,
+  workplace, location (if any); *Copiar comprobante* (plain text, printable).
+- **Correcciones**: pending first, each with original vs proposed, reason, "Puedes oponerte hasta el
+  12/10/26 14:30" countdown, buttons **Aceptar** / **Oponerme** (confirmation: "Si te opones, se
+  mantiene tu marca original."). History below with final state.
+- Works offline from the local journal (sent and pending marks); server summaries when online.
 
-1. **What's collected** — list of the six categories with state: *Active* / *Not accepted by you* (requested, not chosen) / *Not requested* / *Sleeping (off-hours)* / *Unavailable on this computer* (e.g. Wayland without portal) with the admin's descriptions. Buttons **Cambiar mi selección** (→ C1 for the current version) and **Withdraw consent** (red, secondary) → W.
-2. **My schedule** — work hours, timezone, current local time, "location/screenshots are only collected inside this window".
-3. **My rights** — **Request a copy** (`POST /workers/me/data-request`) and **Request deletion** (`POST /workers/me/data-deletion`) with confirmation; show the returned `request_id` and status. Copy: "Your data is encrypted with your employer's key; exported data is delivered encrypted and can only be read with that key." Consent history (`GET /workers/:id/consent-records`).
-4. **Diagnostics** — API reachability (`/health`), last successful send, queue size (items/MB), app version, device id (first 8 chars), key fingerprint (first 16 hex), OS permission status (Accessibility, Screen Recording, Location, portal).
+## 5. Telemetría
+
+Content of the old "What's collected" tab, now its own section and never in the way of attendance:
+- `NOT_REQUESTED`: "Tu empleador no solicita telemetría de este equipo." Nothing else.
+- `PENDING_DECISION`: card "Tu empleador solicita datos de este equipo" + **Revisar solicitud** → C1
+  (unchanged rules: DP-08 unchecked, admin descriptions verbatim LEG-01, *Mantener mi selección
+  anterior*, *Aceptar selección (n)*, *Rechazar todo*). If new terms are pending, C1 first shows
+  "Lee los nuevos términos antes de decidir" (LEG-05).
+- `ACCEPTED`: list of the six categories with state (Activa / No aceptada / No solicitada /
+  Durmiendo / No disponible en este equipo), admin descriptions, **Cambiar mi selección**,
+  **Retirar consentimiento** (danger-secondary, W).
+- `DECLINED`: "Rechazaste la telemetría. No se recolecta nada." + **Revisar solicitud**.
+- `PAUSED`, `EmployerSuspended`, `Halted`: explanatory banner inside this section only.
+- Location shows the employer's declared cause verbatim; screenshots for remote/hybrid workers are
+  shown as "No disponible para trabajo a distancia".
+- Work-hours window and disconnection window shown here ("La telemetría nunca funciona durante tu
+  desconexión").
 
 ### W — Withdraw confirmation
-"If you withdraw, all collection stops immediately and unsent data on this computer is deleted." **Withdraw** → purge queue & buffer (DP-09) → `PATCH /workers/me/consent { accepted: false, consent_version: <current> }` (one retry with the server's current version on `409`) → I. Offline: collectors stop and local data is purged first (always), then the PATCH is sent.
+Unchanged copy and DP-09 behaviour. **Gap closed in v3:** a withdrawal that fails offline is stored
+as `pending_withdrawal` and re-sent on every lifecycle poll until confirmed; collection stays stopped.
 
-> ⚠️ **Implementation gap (2026-09-30):** if the PATCH fails (offline), the agent shows *"Se detuvo la recolección y se borraron los datos locales, pero el servidor no confirmó el retiro"* but does **not** retry automatically, and because the accepted hash was already cleared a second press only purges locally. Target: persist a *pending withdrawal* and resend it on the next successful `/workers/me` poll. Collection stays stopped meanwhile (nothing is collected or sent).
+## 6. Mis datos and Ajustes
 
-### R — Unlinked notice
-"This computer was unlinked by your employer." Credentials, pinned key and queue wiped. → E1.
+**Mis datos:** request a copy / deletion (unchanged), with the note "Los registros de asistencia se
+conservan 5 años por obligación legal y no se eliminan antes." Consent history.
 
-### H — Halted
-"Security check failed: the employer key reported by the server does not match the one verified when linking. Sending has been stopped." Shows both fingerprints. Only actions: **Unlink** or **Retry check**.
+**Ajustes:**
+- *Cambiar PIN* (current + new twice).
+- *Olvidé mi PIN*: "Te enviaremos un código a j•••@gmail.com" → code → new PIN twice.
+- *Términos y privacidad*: accepted versions and dates, read again.
+- *Diagnóstico*: service version and uptime, API reachability, server time offset, pending marks,
+  telemetry queue (items/MB), last successful send, device id (8 chars), key fingerprint (16 hex), tray
+  available, OS permission status.
+- *Desvincular este equipo* (danger zone): "Se borran tus credenciales, tu PIN y los datos de
+  telemetría no enviados. Tus marcas siguen guardadas en el servidor." If pending marks exist:
+  "Tienes N marcas sin enviar. Conéctate antes de desvincular o se perderán." (requires typing
+  `DESVINCULAR`).
 
-## 3. Tray
+## 7. Tray (service)
 
-Icon reflects the light colour. Menu: *Open* · *What's collected* · *Withdraw consent…* · *Quit*. Closing the window hides it to the tray; quitting asks for confirmation ("Collection will stop until you reopen the app") and the app **does** stop collecting — it never keeps running invisibly.
+- Icon colour = telemetry light (🟢 collecting, 🟡 paused/suspended/off-hours, ⚪ not collecting,
+  🔴 problem). Tooltip line 1 = attendance ("En jornada desde 09:02", "Fuera de jornada", "2 marcas
+  pendientes de envío"); line 2 = telemetry state.
+- Menu: **Abrir** · **Marcar asistencia…** (opens the window on A) · **Qué se recolecta** (window on
+  Telemetría) · **Retirar consentimiento…** (only while collecting; window on W) · separator ·
+  **Salir**.
 
-There is **no** worker-side "pause 15 min" (old docs): pausing is an admin action; the worker's control is withdrawal.
-
-## 4. Notifications
+## 8. Notifications (service)
 
 | When | Text |
-|:-----|:-----|
-| Collection starts (after accept, app start while ACTIVE, resume from pause) | "Telemetry active: <n> categories are being collected. Open to see which." |
-| Every hour while collecting | "Reminder: telemetry is active." |
-| Before each screenshot upload | "A work screenshot was taken." |
-| Work hours start/end (if time-bound categories active) | "Work hours ended: location and screenshots paused." |
-| Status change by admin (pause/resume/narrowing) | "Your employer paused monitoring." / "Your employer reduced the data collected." |
-| New consent request | "Your employer requested a change. Review it to continue." |
-| Unlinked / halted | As in R / H. |
+|:--|:--|
+| 30 min after an agreed start/end/break mark without the mark (once per mark) | "No registraste tu entrada de las 09:00. Ábrela para marcar." |
+| Pending offline marks sent | "Se enviaron N marcas guardadas sin conexión." |
+| Correction proposed | "Tu empleador propuso una corrección. Tienes 48 horas para revisarla." |
+| 30 min before a remote worker's disconnection | "En 30 minutos comienza tu desconexión (20:00)." |
+| Telemetry notifications | As before (start, hourly reminder, screenshot, work-hours edges, pause, narrowing, new request, unlinked, halted). |
 
-## 5. Background behaviour
+Notifications never contain the RUN, email, hash or location.
 
-- Lifecycle poll `GET /workers/me` every 5 min, on startup, on resume from sleep, and after any 403/402.
-- Employer subscription blocked (`ingestion_blocked_reason` or ingest `402`/`403 SUBSCRIPTION_*`) → `EmployerSuspended`: no collectors, no ingestion, queue **kept**; resumes on the next poll after reactivation. Notifications on both edges.
-- Token refresh is single-flight (one refresh at a time; a concurrent refresh would revoke the whole session family).
-- Collectors start/stop within 1 s of a RunMode or effective-flag change.
-- Flush every `WORKER_FLUSH_INTERVAL` (default 30 s; values below 5 s are ignored): group by category → encrypt → send; failures → queue.
-- Queue: cap 100 MB or 7 days (oldest dropped first); drain with backoff 2 s ×2 → 300 s ±20 %; drop 403 consent/status envelopes, keep subscription-blocked ones; purge on withdraw/revoke.
-- Token refresh on 401 (persist new refresh token first); refresh 401 → R.
-- `--headless` runs the same engine without a window **only** when a tray icon is available; otherwise refuse to start headless (no invisible monitoring).
-  > ⚠️ **Implementation gap (2026-09-30):** `agent/src/main.rs` currently starts the engine in `--headless` mode without creating a tray icon (only notifications remain visible). Until fixed, do not ship or document `--headless` for end users.
+## 9. IPC (`agent-ipc`, PROTOCOL_VERSION = 1)
 
-## 6. Configuration
+Requests (`Request` enum, `#[serde(tag = "op")]`), all answered with `Response::Ok(payload)` or
+`Response::Err(IpcError { code, message, retry_after_secs? })`:
 
-| Key | Source | Default |
-|:----|:-------|:--------|
-| API URL | Compile time only: `TELEMETRY_API_URL` (`agent/.env` or environment), never persisted in the config file | — |
-| Flush interval | `WORKER_FLUSH_INTERVAL` env / config | 30 s |
-| Role, work hours, timezone, flags | **Server** (`/workers/me`) — never env or local edit | — |
+| Op | Payload | Notes |
+|:--|:--|:--|
+| `Snapshot` | — | Full `AppSnapshot` |
+| `Enroll` | `{ qr_payload? , code? }` | Returns `Verification::{Verified, NeedsSafetyCode{code}}` |
+| `ConfirmSafetyCode` | `{ matches: bool }` | |
+| `LegalDocuments` | — | Embedded texts + versions + hashes |
+| `AcceptTerms` | `{ version, hash, privacy_version, privacy_hash }` | |
+| `SetPin` / `ChangePin` | `{ pin }` / `{ current, new }` | `Zeroizing` on both sides |
+| `RequestPinReset` / `VerifyPinReset` | — / `{ code }` | |
+| `Mark` | `{ type, pin }` | Returns the local mark (with server data if sent) |
+| `Days` / `Marks` | `{ from, to }` | Server when online, local journal otherwise |
+| `Corrections` / `RespondCorrection` | — / `{ id, accept }` | |
+| `ConsentDecision` | `{ accept: Option<ConsentFlags> }` | `None` = reject all |
+| `Withdraw` | — | |
+| `DataRequest` / `DataDeletion` | as before | |
+| `Unlink` | `{ confirm: "DESVINCULAR" }` | |
+| `Diagnostics` | — | |
+| `Subscribe` | — | Then `Event::Snapshot` frames until the connection closes |
 
-`WORKER_ROLE` and `WORKER_ORGANIZATION` env vars are removed.
+`AppSnapshot` = `{ service_version, attendance_mode, attendance_today?, pending_marks, run_mode,
+telemetry_view (offer, accepted, categories with state), worker (name, organization, work_mode,
+schedule summary, location_at_mark), banners, last_error? }`. No secrets ever (PROC-03).
 
-## 7. Acceptance scenarios
+## 10. Background behaviour (service)
 
-1. Fresh install + valid QR (base64 from the admin app) → linked, consent shown with all boxes unchecked, accept 2 of 3 → 🟢, only those 2 categories reach the admin within 2 flushes.
-2. Server returns a different public key at redeem → E3, nothing stored.
-3. Reject → ⚪, no collectors, no network traffic except `/workers/me` polls.
-4. Admin pauses → 🟡 "Paused by your employer" within 5 min, no ingest calls.
-5. Admin widens consent → notification + C1; old categories keep flowing; new one starts only after accept.
-6. Withdraw offline → collectors stop immediately, queue empty, PATCH sent on reconnect.
-7. Admin revokes → next refresh fails → R → E1, local secrets gone.
-8. OFFICE worker: location never appears in "Active", GPS API never called.
-9. Three wrong codes in a row → "Demasiados intentos…" and the button stays disabled for the `Retry-After` time.
-10. Employer trial expires → 🟡 "la cuenta de tu empleador no está activa", no collection, queue intact; after payment the next poll resumes collection and drains the queue.
-11. "Cambiar mi selección" adds a category without re-enrolling; the admin sees a new `ACCEPTED` evidence row with the new subset.
+- Lifecycle poll `GET /workers/me` every 5 min, at start, on resume, after 401/402/403.
+- `/attendance/me/today` at start, every 5 min, after every mark, and at each agreed mark time + 30 min
+  (for the local missing-mark notification).
+- Mark queue: send immediately; on failure backoff 2 s ×2 → 300 s ±20 %; on reconnect drain all in
+  order of `device_ts`. Never dropped except `400` validation (shown) (ATT-04).
+- Telemetry: unchanged (flush 30 s, queue 100 MB / 7 days, backoff, DP-09 purge, BILL-03).
+- Token refresh single-flight (SEC-14).
+
+## 11. Acceptance scenarios
+
+1. Fresh install + valid QR → T1 (accept only after scrolling) → P1 → A shows *Marcar entrada*; mark
+   with PIN → receipt with hash; admin board shows "En jornada".
+2. Close the window → tray stays; open from tray → same state; *Salir* asks confirmation.
+3. Disconnect network, mark *Iniciar colación* → "Pendiente de envío"; reconnect → sent with
+   `offline: true`, notification "Se enviaron 1 marcas…".
+4. Employer subscription suspended → marking works; telemetry shows the suspended banner.
+5. Worker rejects all telemetry → attendance unaffected; admin sees `DECLINED`.
+6. Admin proposes "elimina atraso" → notification + Registros shows it; *Oponerme* → original stays;
+   no answer for 48 h → consolidated, mark shows "Corregida".
+7. Missing start 30 min after 09:00 → local notification (and the server email).
+8. Wrong PIN 3 times → growing delay, never a lock; *Olvidé mi PIN* resets via email code.
+9. New terms version → banner, marking still works, telemetry decisions wait until read.
+10. Remote worker: disconnection notification 30 min before; no telemetry during disconnection;
+    screenshots never offered.
+11. All telemetry scenarios of the previous spec still pass (granular consent, pause, narrowing,
+    revocation, key mismatch ⇒ telemetry `Halted` while attendance keeps working).

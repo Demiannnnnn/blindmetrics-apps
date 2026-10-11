@@ -1,5 +1,8 @@
 # Plan Maestro de Tareas — Telemetry Apps
 
+> **Etapa v3 (desde 2026-10-11): registro de asistencia + app del trabajador en Tauri.** Ver §6. Las
+> secciones 1–5 describen la etapa anterior (contrato v2), ya completada salvo las brechas indicadas.
+
 Guía de implementación de las apps desktop del ecosistema Telemetry: **Admin** (`admin-client`, Tauri 2 + React), **Worker** (`agent`, Rust + egui) y el crate compartido **`telemetry-crypto-core`**. Mismo formato que las tareas de `telemetry-api`: cada tarea tiene contexto, requerimientos (`RF-*`), pseudocódigo, reglas, validaciones, logs, DoD y pruebas.
 
 > **Antes de tomar una tarea** lee [`.ai-context/implementation-status.md`](../.ai-context/implementation-status.md). Varias tareas marcadas "implementadas" en commits anteriores son en realidad stubs o mocks. El estado de esta tabla refleja la auditoría del 2026-09-30 (contrato v2 cerrado en INT-02, CRYPTO-03, AGENT-09 y ADMIN-09..12), no los mensajes de commit.
@@ -172,3 +175,57 @@ Leyenda: 🟢 Completada · 🟡 Parcial (existe con defectos o partes faltantes
 5. Pruebas nombradas `test_<modulo>_<accion>_<resultado_esperado>`; sin acceso al directorio de configuración ni al keystore reales.
 6. Checkboxes del DoD de la tarea marcados, estado en esta tabla y en [`implementation-status.md`](../.ai-context/implementation-status.md) actualizados en el mismo PR.
 7. Si cambia un contrato: `api-contract.md` o `telemetry-payloads.md` actualizados.
+
+
+---
+
+## 6. Etapa v3 — Asistencia legal (Chile), términos y app del trabajador en Tauri
+
+Decisión del dueño (2026-10-11): el uso principal pasa a ser el **registro de inicio y término de
+jornada** según la ley chilena (Código del Trabajo art. 33, Res. Ex. N°38/2024 de la DT); la telemetría
+queda como módulo opcional; términos y condiciones robustos en ambas apps; la app del trabajador se
+porta de egui a **Tauri** con **procesos separados** (servicio en segundo plano + ventana). Base:
+[`docs/legal/marco-legal-cl.md`](../docs/legal/marco-legal-cl.md), [`docs/worker-app-spec.md`](../docs/worker-app-spec.md),
+[`docs/admin-app-spec.md`](../docs/admin-app-spec.md) §5, `.ai-context/*` (ATT-*, PROC-*, LEG-04..07,
+contrato v3 en `api-contract.md` §9–§12).
+
+### 6.1 Tareas
+
+| ID | Archivo | Descripción | Estado |
+|:---|:---|:---|:---:|
+| **INT-03** | [`integration/task-03-green-baseline.md`](integration/task-03-green-baseline.md) | Clippy en verde (22 × `result_large_err` en `admin-client-core` con Rust 1.98) sin `allow`. | 🔴 |
+| **CRYPTO-04** | [`crypto-core/task-04-attendance-legal-pin-rut.md`](crypto-core/task-04-attendance-legal-pin-rut.md) | Hash canónico encadenado de marcas + vector compartido con la API, hash/versión/marcadores de documentos legales, PIN (política + Argon2id), RUT. | 🔴 |
+| **AGENT-10** | [`agent/task-10-service-and-ipc.md`](agent/task-10-service-and-ipc.md) | Crate `agent-ipc`; `agent` como servicio (bandeja, IPC con token, instancia única, sin egui ni `--headless`); retiro offline reenviado. | 🔴 |
+| **AGENT-11** | [`agent/task-11-tauri-window-parity.md`](agent/task-11-tauri-window-parity.md) | Ventana `agent-ui` (Tauri 2 + React, design system del admin) con paridad de la app egui; arranca el servicio si falta. | 🔴 |
+| **AGENT-12** | [`agent/task-12-attendance-terms-pin-service.md`](agent/task-12-attendance-terms-pin-service.md) | Servicio: contrato v3, términos, PIN, marcas con cola offline y verificación de hash, correcciones, avisos locales, bandeja. | 🔴 |
+| **AGENT-13** | [`agent/task-13-attendance-ui.md`](agent/task-13-attendance-ui.md) | Ventana: T1 términos, P1 PIN, A Asistencia + comprobante, Registros, correcciones, banners. | 🔴 |
+| **ADMIN-13** | [`admin-client/task-13-legal-and-employer.md`](admin-client/task-13-legal-and-employer.md) | T1 términos del empleador, Empresa (perfil legal, lugares, alertas, incidentes), documentos legales, se quita la biometría falsa. | 🔴 |
+| **ADMIN-14** | [`admin-client/task-14-workers-v3-schedule.md`](admin-client/task-14-workers-v3-schedule.md) | Trabajadores v3: datos legales, jornada pactada con advertencias legales, modalidad, telemetría opcional y restringida, pausa de telemetría. | 🔴 |
+| **ADMIN-15** | [`admin-client/task-15-attendance-console.md`](admin-client/task-15-attendance-console.md) | Riel agrupado, asistencia en vivo, días y marcas con verificación de hash, correcciones (R38 art. 40), KPIs. | 🔴 |
+| **ADMIN-16** | [`admin-client/task-16-legal-reports.md`](admin-client/task-16-legal-reports.md) | Seis reportes R38 con filtros del art. 25, vista previa fiel, exportar Excel/PDF/Word, acceso de solo lectura con suscripción bloqueada. | 🔴 |
+
+### 6.2 Orden y paralelismo
+
+```mermaid
+flowchart LR
+    INT3[INT-03] --> A10[AGENT-10] --> A11[AGENT-11] --> A13[AGENT-13]
+    C4[CRYPTO-04] --> A12[AGENT-12] --> A13
+    A10 --> A12
+    INT3 --> D13[ADMIN-13] --> D14[ADMIN-14] --> D15[ADMIN-15] --> D16[ADMIN-16]
+    C4 --> D13
+    C4 --> D15
+    A13 & D16 --> API[telemetry-api TASK-18..23<br/>contrato v3] --> E2E[Prueba de punta a punta]
+```
+
+Etapas (dos implementadores en paralelo, cada uno en su worktree): **0** INT-03 ∥ CRYPTO-04 ·
+**1** AGENT-10 ∥ ADMIN-13 · **2** AGENT-11 ∥ ADMIN-14 · **3** AGENT-12 ∥ ADMIN-15 · **4** AGENT-13 ∥ ADMIN-16.
+Después: tareas v3 en `telemetry-api` (y luego `telemetry-web`: verificación de comprobantes, login
+secundario del trabajador, portal de fiscalización).
+
+### 6.3 Brechas conocidas que cierra esta etapa
+
+| Brecha (`implementation-status.md` §5) | Tarea |
+|:--|:--|
+| 4 — biometría sin verificación del SO | ADMIN-13 (se quita el botón) |
+| 6 — retiro offline no reenviado | AGENT-10 |
+| 7 — `--headless` sin bandeja | AGENT-10 (se elimina; sin bandeja no hay telemetría) |

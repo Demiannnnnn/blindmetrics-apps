@@ -13,6 +13,7 @@ Read this directory before touching code. It is the source of truth for *what th
 | 5 | [`api-contract.md`](api-contract.md) | Touching any HTTP call. Exact request/response shapes the apps must use. |
 | 6 | [`conventions.md`](conventions.md) | Writing code, tests, commits. |
 | 7 | [`implementation-status.md`](implementation-status.md) | Planning work. What is real, stubbed, mocked or missing — and which task fixes it. |
+| 8 | [`handoff.md`](handoff.md) | Resuming the work in a new session or machine: state, open decisions, how the orchestrator works. |
 
 ## Related documents
 
@@ -20,6 +21,7 @@ Read this directory before touching code. It is the source of truth for *what th
 |:---------|:---------|
 | Functional spec — Admin app (screens, flows, states) | [`docs/admin-app-spec.md`](../docs/admin-app-spec.md) |
 | Functional spec — Worker app (screens, flows, states) | [`docs/worker-app-spec.md`](../docs/worker-app-spec.md) |
+| **Legal framework (Chile), terms, privacy policy** | [`docs/legal/`](../docs/legal/README.md) — start with `marco-legal-cl.md` |
 | Plaintext telemetry payload schemas (agent ⇄ admin contract) | [`docs/telemetry-payloads.md`](../docs/telemetry-payloads.md) |
 | Task roadmap | [`tasks/README.md`](../tasks/README.md) |
 | Server: enrollment & consent lifecycle design (v1 + v2) | `telemetry-api/ENROLLMENT.md` |
@@ -33,7 +35,9 @@ Read this directory before touching code. It is the source of truth for *what th
 
 | Concept | Directory | Cargo package | Binary / bundle | Old names you may still see |
 |:--------|:----------|:--------------|:----------------|:----------------------------|
-| Worker app | `agent/` | `agent` | `agent` | `telemetry-worker`, "Worker Desktop App" |
+| Worker app — service | `agent/` | `agent` | `telemetry-agent` | "Worker Desktop App" (egui, removed in AGENT-10) |
+| Worker app — window | `agent-ui/` | `agent-ui-core` + npm `telemetry-worker-ui` | `telemetry-worker` (`com.telemetry.worker`) | — |
+| Worker app IPC | `agent-ipc/` | `agent-ipc` | library | — |
 | Admin app (Rust side) | `admin-client/src-tauri/` | `admin-client-core` | `Telemetry Admin` (`com.telemetry.admin`) | `telemetry-admin`, `telemetry-admin-core` |
 | Admin app (UI) | `admin-client/src/` | npm `telemetry-admin` | — | `telemetry-admin-ui` |
 | Shared crypto | `telemetry-crypto-core/` | `telemetry-crypto-core` | library | — |

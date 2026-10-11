@@ -13,19 +13,25 @@ flowchart LR
     end
 
     subgraph WorkerPC["Worker machine"]
-        AG["agent (Rust)<br/>egui UI + background engine"]
-        LS[("Local state<br/>config.json, credentials, pinned key,<br/>offline.db (SQLite)")]
-        AG --> LS
+        WUI["agent-ui<br/>Tauri 2 + React (window, closable)"]
+        SVC["agent (service)<br/>engine + tray + IPC server"]
+        LS[("Local state<br/>config.json, keystore (tokens, pinned key, PIN verifier),<br/>offline.db (telemetry ciphertext + pending marks)")]
+        WUI -- "local socket (agent-ipc)<br/>token-authenticated" --> SVC
+        SVC --> LS
     end
 
-    API["telemetry-api (Axum)<br/>blind relay + PostgreSQL"]
-    WEB["telemetry-web (Next.js)<br/>landing, sign-up, billing, downloads"]
+    API["telemetry-api (Axum)<br/>attendance (readable) + blind telemetry relay<br/>PostgreSQL, email"]
+    WEB["telemetry-web (Next.js)<br/>landing, sign-up, billing,<br/>receipt verification, inspection portal (future)"]
+    DT["Dirección del Trabajo<br/>inspectors"]
     FLOW["Flow (payments)"]
     GOOGLE["Google (OAuth)"]
+    MAIL["Worker personal email"]
 
     ARS -- "HTTPS /api/v1 (admin JWT + device)" --> API
-    AG -- "HTTPS /api/v1 (worker JWT)" --> API
+    SVC -- "HTTPS /api/v1 (worker JWT)" --> API
     WEB -- "HTTPS /api/v1 (server-side BFF)" --> API
+    API -- "receipts, alerts, corrections" --> MAIL
+    DT -. "read-only portal" .-> WEB
     API -- "payment/create, getStatus" --> FLOW
     FLOW -- "confirmation webhook" --> API
     ARS -. "system browser: sign-in (loopback + PKCE)" .-> GOOGLE
@@ -34,23 +40,29 @@ flowchart LR
 ```
 
 Rules that shape everything:
-1. **Only Rust talks to the API.** The WebView never calls `fetch` against the API and never sees a token, key or Master Password after the command that received it. URLs opened in the system browser are chosen by Rust from server data (SEC-17).
-2. **All crypto lives in `telemetry-crypto-core`.** Both apps depend on it; neither re-implements a primitive.
-3. **The server is untrusted for integrity of keys and consent** — the agent verifies the enrollment commitment and pins the key.
+1. **Only Rust talks to the API.** In the admin app, the WebView never calls `fetch` against the API. In the worker app, `agent-ui` never talks to the API at all: only the `agent` service does (PROC-03).
+2. **All crypto lives in `telemetry-crypto-core`** (telemetry envelopes, key backup, enrollment commitment, attendance mark hash, legal document hash, PIN verifier).
+3. **The server is untrusted for telemetry**: the agent verifies the enrollment commitment and pins the key. **For attendance the server is the legal record keeper** (it stamps and hashes); the agent keeps its own copy of what it sent and verifies receipt hashes (`security-model.md` §9).
+4. **Attendance never depends on telemetry** (ATT-07) — separate modules in the service, separate screens, separate API paths.
 
 ## 2. Workspace
 
 ```
 telemetry-apps/
-├── Cargo.toml                 # workspace: telemetry-crypto-core, agent, admin-client/src-tauri
+├── Cargo.toml                 # workspace: telemetry-crypto-core, agent-ipc, agent, agent-ui/src-tauri, admin-client/src-tauri
 ├── .cargo/config.toml         # release profile (LTO, strip, panic=abort), -D warnings
 ├── telemetry-crypto-core/     # library, no I/O, no async
-├── agent/                     # worker app (bin)
+├── agent-ipc/                 # protocol types + framing + client for the worker app IPC (new, AGENT-10)
+├── agent/                     # worker background service (bin `telemetry-agent`): engine, tray, IPC server
+├── agent-ui/                  # worker window (Tauri 2 + Vite/React), package `agent-ui-core` (new, AGENT-11)
+│   ├── src/                   # UI
+│   └── src-tauri/             # thin Rust backend: IPC client only
 ├── admin-client/              # admin app (Tauri 2 + Vite/React)
 │   ├── src/                   # UI
 │   └── src-tauri/             # Rust backend (package admin-client-core)
-├── docs/                      # functional specs + payload schemas
+├── docs/                      # functional specs, payload schemas, legal texts (docs/legal)
 ├── tasks/                     # implementation tasks
+├── tools/orchestration/       # orchestrator scripts (Claude + agy), not part of the product
 └── .ai-context/               # this folder
 ```
 
@@ -67,70 +79,115 @@ telemetry-apps/
 | `payloads.rs` | Plaintext telemetry batch/item types shared by agent and admin. | Done (INT-01) |
 | `backup.rs` | Legacy v1 `.vault` (PBKDF2-HMAC-SHA256 100k + AES-256-GCM). **Import only.** | Done (ADMIN-01) |
 | `backup_v2.rs` | Key backup v2: Argon2id + AES-256-GCM (AAD `telemetry-key-backup-v2`), `.tkb` container, `import_any_backup`, file name. Same format as the server vault and `telemetry-web`. | **TASK-CRYPTO-03** |
+| `attendance.rs` | Canonical attendance mark (`CanonicalMark`, field order fixed) and `mark_hash` (SHA-256 hex, chained via `prev_hash`). Shared test vector with `telemetry-api`. | **TASK-CRYPTO-04** |
+| `legal.rs` | `document_hash(text) -> hex SHA-256`, `parse_version(text)` (line `**Versión:** AAAA-MM-DD`), `find_placeholders(text)`. | **TASK-CRYPTO-04** |
+| `pin.rs` | PIN policy (SEC-20) and Argon2id verifier (`PinVerifier` PHC-free JSON: salt, params, hash; constant-time check). | **TASK-CRYPTO-04** |
+| `rut.rs` | Chilean RUN/RUT parse, check digit (módulo 11), canonical `12.345.678-5` formatting. | **TASK-CRYPTO-04** |
 
 Constraints: pure functions, no filesystem/network, no `unwrap`, every secret in `Zeroizing<…>`.
 
-## 4. `agent` (worker app)
+## 4. Worker app: `agent` (service) + `agent-ui` (window)
 
 ### 4.1 Processes & threads
 
 ```
-main thread ── eframe/egui event loop (UI only; never blocks on I/O)
-   │  shared: Arc<AgentState>  (RwLock<Session>, RwLock<ServerView>, watch::Sender<RunMode>)
-   │
-   └── background thread ── tokio runtime
-         ├── lifecycle task    GET /workers/me every 5 min + on 403 → updates ServerView/RunMode
-         ├── scheduler task    starts/stops collectors when RunMode or effective flags change
-         ├── collectors        one task/thread per enabled category (see table)
-         ├── flush task        every WORKER_FLUSH_INTERVAL: drain buffer → group by category → encrypt → send/queue
-         ├── queue drain task  backoff 2s→300s ±20% jitter; peeks SQLite FIFO
-         └── notifier task     start-of-collection, hourly reminder, screenshot, work-hours edges
-OS input hook thread ── only AtomicU64::fetch_add(Relaxed)
+agent (service, one per OS user, starts at login; bin `telemetry-agent`)
+   main thread ── tray (Linux: GTK thread) + single-instance lock; spawns agent-ui on "Abrir"
+   └── tokio runtime
+         ├── ipc server        local socket (agent-ipc), token auth, request/response + event stream
+         ├── lifecycle task    GET /workers/me every 5 min + on demand → ServerView, AttendanceMode, RunMode
+         ├── attendance task   mark queue drain (immediate + backoff), /attendance/me/today refresh,
+         │                     missing-mark and disconnection local notifications
+         ├── scheduler task    starts/stops telemetry collectors on RunMode / flag changes
+         ├── collectors        one task/thread per effective telemetry category
+         ├── flush task        telemetry: drain buffer → group by category → encrypt → send/queue
+         ├── queue drain task  telemetry backoff 2s→300s ±20% jitter
+         └── notifier task     telemetry transparency notifications
+   OS input hook thread ── only AtomicU64::fetch_add(Relaxed) (only while productivity_basic is collecting)
+
+agent-ui (Tauri window, started on demand, closable at any time)
+   React UI ── invoke ──> src-tauri (IPC client) ── socket ──> agent
 ```
 
-`RunMode` is derived, never set directly by the UI:
+Two derived modes, never set by the UI:
 
-| RunMode | Condition |
+| `AttendanceMode` | Condition |
+|:--|:--|
+| `Unlinked` | No credentials. |
+| `NeedsTerms` | Linked, current worker terms never accepted on this device (first acceptance). |
+| `NeedsPin` | Terms accepted, no PIN verifier in the keystore. |
+| `Ready { terms_update_pending: bool }` | Can mark. A newer terms version only sets the banner flag (ATT-02). |
+| `Exempt` | Worker is art. 22 exempt (ATT-12). |
+
+| Telemetry `RunMode` | Condition |
 |:--------|:----------|
 | `Unenrolled` | No credentials / pinned key. |
-| `AwaitingConsent` | Server status `PENDING_CONSENT`, or `consent_version > accepted_consent_version` with nothing accepted yet. |
-| `Collecting(flags)` | Server status `ACTIVE` and effective flags non-empty. |
-| `Paused` | Server status `PAUSED`. |
-| `EmployerSuspended { reason }` | Would be `Collecting`, but `/workers/me.ingestion_blocked_reason` is set (employer subscription suspended/cancelled) or ingestion answered `402`/`403 SUBSCRIPTION_*`. No collectors, no ingestion, queue kept (AGENT-09). |
-| `Halted(reason)` | Key fingerprint mismatch. |
+| `NotRequested` | `telemetry_status == NOT_REQUESTED`. |
+| `AwaitingConsent { reason }` | `PENDING_DECISION`, or terms acceptance pending (LEG-05). |
+| `Declined` | `DECLINED`. |
+| `Collecting(flags)` | Worker `ACTIVE` ∧ `ACCEPTED` ∧ effective ∩ local non-empty ∧ tray available (PROC-02). |
+| `Paused` | `telemetry_status == PAUSED`. |
+| `EmployerSuspended { reason }` | Would collect, but the employer's subscription is blocked. |
+| `Halted(reason)` | Key fingerprint mismatch (telemetry only; attendance unaffected). |
 
-### 4.2 Target module layout
+### 4.2 Module layout
 
 ```
+agent-ipc/src/
+├── lib.rs        # PROTOCOL_VERSION, Request/Response/Event enums (serde, tagged), IpcError
+├── framing.rs    # length-prefixed JSON frames (u32 BE, max 1 MiB)
+├── transport.rs  # local socket path/pipe name per user, connect/listen (crate `interprocess`)
+└── client.rs     # IpcClient: handshake(token), call(Request) -> Response, subscribe() -> events
+
 agent/src/
-├── main.rs                  # bootstrap: tracing, state load, spawn runtime, run UI or --headless
-├── state.rs                 # AgentState, RunMode, ServerView            (new)
-├── config.rs                # non-secret settings (api_url, flush interval) (exists; to be split)
-├── credentials.rs           # tokens + pinned key in OS keystore           (new, TASK-AGENT-08)
-├── device.rs                # device_identifier + device_info              (exists)
-├── enrollment.rs            # QR/code parsing, redeem, commitment check    (new; replaces ui/onboarding.rs)
-├── errors.rs
-├── notifications.rs
-├── api/                     # typed client for every endpoint in api-contract.md (new; replaces io/transport.rs HTTP half)
-├── core/
-│   ├── buffer.rs            # MetricsBuffer, std::mem::take snapshot
-│   ├── metrics.rs           # plaintext item structs (docs/telemetry-payloads.md)
-│   └── collectors/          # system, keystroke, network, files, location, screenshot
-├── pipeline/                # group-by-category, envelope building, OfflineQueue (SQLite)
-├── background/              # runtime tasks listed above
-└── ui/                      # egui screens: enrollment, consent, status, rights, diagnostics
+├── main.rs                  # service bootstrap: tracing, single instance, runtime, IPC server, tray
+├── ipc_server.rs            # dispatch Request → engine/attendance/telemetry handlers (new)
+├── state.rs                 # AgentState, AttendanceMode, RunMode, ServerView
+├── config.rs · credentials.rs · device.rs · enrollment.rs · consent.rs · session.rs · errors.rs
+├── attendance/              # (new, AGENT-12) marks, local queue, today view, corrections, PIN, alerts
+├── legal.rs                 # embedded docs/legal texts + acceptance (new)
+├── api/                     # typed client (contract v3)
+├── core/ · pipeline/ · io/  # telemetry (unchanged)
+├── background/              # runtime tasks
+└── ui/tray.rs               # tray only (egui removed)
+
+agent-ui/
+├── src/                     # React: screens of docs/worker-app-spec.md
+└── src-tauri/src/           # commands = thin wrappers over agent_ipc::IpcClient; starts the service if absent
 ```
 
 ### 4.3 Local storage
 
 | Data | Where | Why |
 |:-----|:------|:----|
-| `api_url`, flush interval, UI prefs | `<config_dir>/telemetry-worker/config.json` | Non-secret. |
-| access/refresh tokens | OS keystore (`keyring`, service `TelemetryWorker`) | Secret. |
-| Pinned `K_admin_pub` + fingerprint + accepted manifest hash | OS keystore (same service) | Integrity-critical; not user-editable. |
-| Offline queue | `<config_dir>/telemetry-worker/offline.db` | Contains **only ciphertext**. |
+| flush interval, UI prefs, last legal versions seen | `<config_dir>/telemetry-worker/config.json` | Non-secret. |
+| access/refresh tokens, pinned `K_admin_pub` + fingerprint + accepted manifest hash, **PIN verifier** | OS keystore (`keyring`, service `TelemetryWorker`) | Secret / integrity-critical. |
+| Telemetry offline queue | `<config_dir>/telemetry-worker/offline.db` table `queue` | Only ciphertext. |
+| **Pending marks + sent-mark journal** (id, type, device time, server time, hash, status) | same `offline.db`, table `marks` | Plain (not secret); lets the worker see marks offline and verify receipts. Kept 5 years or until unlink. |
+| IPC token | `<runtime_dir>/telemetry-worker/ipc.token` (`0600`, regenerated at each service start) | SEC-18. |
 
-`<config_dir>` = `dirs::config_dir()`: `~/Library/Application Support` (macOS), `%APPDATA%` (Windows), `~/.config` (Linux).
+`<runtime_dir>` = `$XDG_RUNTIME_DIR` (Linux), `$TMPDIR` per user (macOS), `%LOCALAPPDATA%\Temp` (Windows).
+
+### 4.4 IPC (summary, full list in `docs/worker-app-spec.md` §8)
+
+- Connect → `Hello { protocol_version, token }` → `Welcome { service_version }` or error.
+- Request/response with `id`; one subscription channel pushes `Event::Snapshot(AppSnapshot)` on every
+  state change (attendance today, modes, telemetry state, queue sizes, last error).
+- Requests are commands the old egui app ran directly: enrollment, safety-code confirmation, terms
+  acceptance, PIN set/change/reset, mark, correction response, consent decision, withdraw, data
+  rights, unlink, diagnostics.
+
+### 4.5 Attendance flow
+
+1. UI: worker presses *Marcar entrada* → PIN dialog → `Request::Mark { type, pin }`.
+2. Service: verify PIN (Argon2id, SEC-19) → create `PendingMark { client_mark_id: UUIDv7, type, device_ts }`
+   in `marks` (status `PENDING`) → optional single location reading (ATT-08) → `POST /attendance/marks`.
+3. `201`/`200 duplicate_of` → store `server_ts`, `hash`, `prev_hash`, status `CONFIRMED`; verify the
+   hash locally with `telemetry_crypto_core::attendance::mark_hash`; mismatch ⇒ status `HASH_MISMATCH`
+   shown in the UI and diagnostics (the server stays the legal record; the worker keeps evidence).
+4. Network/5xx/429 → stays `PENDING`, retried with backoff and on every reconnect; `offline: true`
+   when the first attempt failed (ATT-04).
+5. Snapshot pushed to the UI.
 
 ## 5. `admin-client`
 
@@ -148,9 +205,11 @@ agent/src/
 
 ### 5.2 Screens (details in `docs/admin-app-spec.md`)
 
-Auth (password or Google) → Subscription check (lock screen if suspended) → Key state (K1 create · K2 mismatch · K3 recover) → Workers (list, create, enrollment modal, detail with lifecycle actions & granular consent history) → Telemetry views (system, network, productivity, files, location) → Bóveda & Cumplimiento (key backups, devices, subscription) → Auto-lock screen.
+Auth (password or Google) → **Employer terms (T1)** → Subscription check (lock screen if suspended, with read-only attendance reports) → **Employer legal profile (P1)** → Key state (K1 create · K2 mismatch · K3 recover) → **Asistencia** (live board, marks, corrections, reports) → Workers (list, create with legal data + agreed schedule + optional telemetry, enrollment modal, detail) → Telemetry views → Bóveda & Cumplimiento (key, devices, subscription, legal documents) → Auto-lock screen.
 
-## 6. End-to-end data flow
+New Rust command files: `commands/legal.rs`, `commands/employer.rs`, `commands/attendance.rs` (reports: JSON for display, server-generated XLSX/PDF/DOCX saved to Downloads).
+
+## 6. End-to-end data flow (telemetry)
 
 1. Collector produces a plaintext item → `MetricsBuffer::push`.
 2. Flush: `drain_for_flush()` → group by category → for each category build `PlaintextBatch { schema_version, category, worker_id, items }` → `encrypt_telemetry_batch(&batch, pinned_key)` → `EncryptedEnvelope`.

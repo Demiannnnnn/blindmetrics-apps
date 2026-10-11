@@ -1,4 +1,9 @@
-# API Contract (client side) — v2
+# API Contract (client side) — v2 + v3 (attendance, proposed)
+
+> **v3 (2026-10-11):** §9–§12 and the changes marked **[v3]** are the contract the apps implement for
+> the attendance pivot. They are **not implemented in `telemetry-api` yet** (planned as its
+> TASK-18..23 after the apps). Until then, app code is tested against `wiremock` servers that reproduce
+> these shapes exactly. Every v2 rule below still applies unless a [v3] note overrides it.
 
 What the apps must send and expect from `telemetry-api` after its TASK-13..17 (commit `8e2171a`,
 `telemetry-api/docs/api-specification.md`). Everything below is implemented server-side; there are
@@ -274,3 +279,144 @@ Order of checks and what the agent does:
 ## 8. Health
 
 `GET /health` → `{ status: "healthy", version, timestamp }`.
+
+
+---
+
+## 9. [v3] Attendance
+
+All paths under `/api/v1`. Worker calls use the worker JWT; admin calls the admin JWT.
+**None of them is blocked by the subscription guard** (BILL-04): worker attendance calls always work;
+admin `GET` attendance calls work while blocked, admin writes (`POST /attendance/corrections`,
+schedule changes) answer `402`/`403 SUBSCRIPTION_*` like the rest of the console.
+
+### 9.1 Types
+
+```jsonc
+// MarkType
+"WORKDAY_START" | "WORKDAY_END" | "BREAK_START" | "BREAK_END"
+// MarkSource
+"AGENT" | "PORTAL" | "CORRECTION"
+// Mark
+{ "id": "uuid", "client_mark_id": "uuid-v7" | null, "worker_id": "uuid", "type": "WORKDAY_START",
+  "server_ts": "2026-10-11T12:00:05Z", "device_ts": "2026-10-11T12:00:04Z", "offline": false,
+  "source": "AGENT", "identification": "DEVICE_PIN",
+  "workplace": { "id": "uuid", "name": "Casa matriz", "address": "Av. Apoquindo 1234, piso 5, of. 501, Las Condes, Santiago, Región Metropolitana" },
+  "location": { "lat": -33.41, "lon": -70.57, "accuracy_m": 25 } | null,
+  "hash": "64hex", "prev_hash": "64hex",
+  "corrected_by": "uuid (correction id)" | null,   // set when this mark was produced by a correction
+  "superseded_by": "uuid (mark id)" | null }       // set on an original replaced by a consolidated correction
+```
+
+### 9.2 Worker side
+
+| Call | Body / query | Response |
+|:--|:--|:--|
+| `POST /attendance/marks` | `{ client_mark_id, type, device_ts, offline, identification: "DEVICE_PIN", location? }` | `201 { mark }` · `200 { mark, duplicate_of: "uuid" }` when it repeats the previous type consecutively (R38 art. 36 c) or `client_mark_id` was already stored (idempotent retry) |
+| `GET /attendance/me/today` | — | `{ date, timezone, schedule_today: { start, end, break_start, break_end } \| null, state: "OFF" \| "WORKING" \| "ON_BREAK", next_mark: MarkType, marks: [Mark], pending_corrections: n, server_time }` |
+| `GET /attendance/me/marks` | `from`, `to` (dates, ≤ 5 years back), `page`, `per_page` | `Collection<Mark>` newest first |
+| `GET /attendance/me/days` | `from`, `to` (≤ 62 days) | `[DaySummary]` (§9.5) |
+| `GET /attendance/me/corrections` | `status?` | `Collection<Correction>` |
+| `POST /attendance/me/corrections/:id/response` | `{ "accept": true \| false }` | `200 Correction` · `409 CORRECTION_NOT_PENDING` |
+| `GET /attendance/me/schedule` | — | `ScheduleVersion` currently in force + next one if scheduled |
+
+Errors: `400 VALIDATION_ERROR` (`details.reason`: `INVALID_MARK_TYPE`, `DEVICE_TS_IN_FUTURE` (> 5 min
+ahead of server time), `OFFLINE_MARK_TOO_OLD` (> 30 days)); `403 ATTENDANCE_EXEMPT` (art. 22);
+`403 TERMS_NOT_ACCEPTED` only before the **first** acceptance (LEG-05). Never `402`.
+
+### 9.3 Hash
+
+As in `security-model.md` §9.3. The response `mark` carries every field of the canonical form; the
+agent recomputes it. Test vector (shared with `telemetry-api`): `telemetry-crypto-core/tests/vectors/attendance-mark-v1.json`.
+
+### 9.4 Admin side
+
+| Call | Notes |
+|:--|:--|
+| `GET /attendance/board` | One row per active worker: `{ worker_id, name, state, last_mark, today_marks, alerts: ["MISSING_START", …] }` |
+| `GET /attendance/marks?worker_id&from&to&page` | `Collection<Mark>` |
+| `GET /attendance/days?worker_id&from&to` | `[DaySummary]` |
+| `POST /attendance/corrections` | `{ worker_ids: [uuid], kind: "MODIFY" \| "ADD" \| "FIX", original_mark_id?, type, proposed_ts, reason (5–500) }` → `201 [Correction]`. Errors (`details.reason`): `CORRECTION_TOO_EARLY` (same day), `CORRECTION_HARMS_WORKER` (start later / end earlier), `ORIGINAL_MARK_REQUIRED`, `AUTOMATED_WORKDAY_MARK_FORBIDDEN`. |
+| `GET /attendance/corrections?worker_id&status&page` | `Collection<Correction>` |
+| `DELETE /attendance/corrections/:id` | Withdraw while `PENDING` → `204`. |
+| `GET /attendance/reports/{report}` | `report` ∈ `attendance`, `daily-hours`, `sundays-holidays`, `shift-changes`, `incidents`. Filters (R38 art. 25): `worker_ids`, `search` (name/RUN), `period` (`last_week`, `last_fortnight`, `last_month`) or `from`/`to`, `journey_type`, `schedule_id`, `workplace_id`, `job_title`, `hash`. → `{ report, generated_at, employer: {legal_name, rut}, sections: [ { worker: {name, run, workplace, job_title}, header_notes: [..], columns: [..], rows: [[..]], totals: [[..]] } ], abbreviations: {..}, empty_message?: "No hay trabajadores que coincidan con la selección" }` — cell values already formatted as R38 requires (`dd/mm/aa`, `hh:mm:ss`, `+`/`-`), altered cells flagged `{ "v": "08:02:00", "altered": true }`. |
+| `GET /attendance/reports/{report}/export?format=xlsx\|pdf\|docx&…same filters` | Binary file, `Content-Disposition` with name. Identical content to the JSON (R38 art. 28 a). |
+| `GET /attendance/incidents`, `POST /attendance/incidents` | Technical incidents `{ started_at, ended_at?, description }`. |
+| `PUT /attendance/settings` | `{ missing_mark_alerts: bool }` (R38 art. 45.1, default true). |
+
+```jsonc
+// Correction
+{ "id", "worker_id", "kind": "MODIFY", "original_mark": Mark | null, "type", "proposed_ts",
+  "reason", "status": "PENDING" | "ACCEPTED" | "OPPOSED" | "CONSOLIDATED" | "WITHDRAWN",
+  "created_at", "notified_at", "respond_before", "responded_at" | null, "resulting_mark_id" | null }
+```
+
+### 9.5 Day summary (server-computed, ATT-09)
+
+```jsonc
+{ "date": "2026-10-09", "agreed": { "start": "09:00:00", "end": "18:00:00", "break": "13:00:00-14:00:00", "break_counts_as_work": false } | null,
+  "marks": [Mark], "attended": true, "absence": null | "JUSTIFIED" | "UNJUSTIFIED", "absence_note": null,
+  "missing": "-00:12:30", "extra": "+00:40:00", "anomalies": ["BREAK_WITHOUT_END"], "altered": false }
+```
+
+## 10. [v3] Legal documents and terms acceptance
+
+| Call | Body | Notes |
+|:--|:--|:--|
+| `GET /legal/current` (public) | — | `{ worker_terms: {version, hash}, employer_terms: {version, hash}, privacy: {version, hash} }` — the versions the server requires. |
+| `POST /workers/me/terms-acceptance` | `{ document: "WORKER_TERMS", version, hash, privacy_version, privacy_hash }` | `200 { status, terms_accepted_version }`. First acceptance: `PENDING_TERMS → ACTIVE`. `409 TERMS_VERSION_MISMATCH` (`details.current_version`) if the app embeds an older version. Stored as evidence (IP, user agent, app version). |
+| `POST /admins/me/terms-acceptance` | `{ document: "EMPLOYER_TERMS", version, hash, privacy_version, privacy_hash }` | Same. Exempt from the subscription guard. |
+
+`GET /workers/me` and `GET /admins/me` add `terms_accepted_version`, `terms_required_version`.
+
+## 11. [v3] Employer profile, workplaces and worker legal data
+
+| Call | Body | Notes |
+|:--|:--|:--|
+| `GET /admins/me/employer` / `PUT` | `{ kind: "LEGAL_ENTITY" \| "NATURAL_PERSON", legal_name, rut, address: Address }` | RUT validated (mod 11), stored as `76.123.456-7`. Required before creating workers: `409 EMPLOYER_PROFILE_MISSING`. |
+| `GET/POST /admins/me/workplaces`, `PUT/DELETE /admins/me/workplaces/:id` | `{ name, address: Address }` | Delete only if no worker uses it. |
+
+`Address = { street, number, floor?, office?, commune, city, region }` (region from the 16 official
+regions).
+
+**[v3] Worker create/update** (`POST /workers`, `PUT /workers/:id`) adds:
+
+```jsonc
+{ "run": "12.345.678-5", "personal_email": "juan.perez@gmail.com",   // unique per employer (R38 art. 12 e)
+  "job_title": "Vendedor", "workplace_id": "uuid",                   // REMOTE: workplace may be the worker's home address
+  "work_mode": "ON_SITE" | "REMOTE" | "HYBRID",
+  "art22_exempt": false,
+  "schedule": ScheduleInput,                                         // required unless art22_exempt
+  "location_cause": "string 20–500" | null }                          // required to request telemetry `location`
+// ScheduleInput
+{ "journey_type": "FIXED", "exceptional_resolution": { "number": "…", "date": "2025-01-10" } | null,
+  "days": [ { "weekday": 1, "start": "09:00", "end": "18:00", "break_start": "13:00", "break_end": "14:00" } ],
+  "break_counts_as_work": false,
+  "disconnection": { "start": "20:00", "end": "08:00" } | null,     // REMOTE/HYBRID: ≥ 12 h
+  "location_at_mark": false,                                         // true only with written consent (R38 art. 57.1)
+  "effective_from": "2026-10-14", "requested_by": "EMPLOYER" | "WORKER", "note"? }
+```
+
+- `consent_flags` may now be **all false** (attendance-only worker). [v3] — v2 answered `400`.
+- `productivity_screenshots` with `work_mode != ON_SITE` → `400 SCREENSHOTS_NOT_ALLOWED_REMOTE`.
+- `location` without `location_cause` → `400 LOCATION_CAUSE_REQUIRED`.
+- Schedule warnings (not errors, ATT-11): response `warnings: ["DAILY_MAX_EXCEEDED", "WEEKLY_MAX_EXCEEDED"]`.
+- `PUT /workers/:id/schedule` (`ScheduleInput`) creates a new schedule version (feeds the shift-changes report).
+- `WorkerResponse` adds `run`, `personal_email`, `job_title`, `workplace`, `work_mode`, `art22_exempt`,
+  `schedule` (current), `telemetry_status`, `terms_accepted_version`.
+- `work_hours_start`/`work_hours_end` stay for compatibility, derived from the schedule (earliest
+  start / latest end of the current day) and used by telemetry DP-04/DP-05.
+
+## 12. [v3] Worker lifecycle and telemetry state
+
+- `status` ∈ `PENDING_ENROLLMENT` | `PENDING_TERMS` | `ACTIVE` | `REVOKED` (v2 `PENDING_CONSENT` →
+  `PENDING_TERMS`; v2 `PAUSED` → `telemetry_status: PAUSED`).
+- `telemetry_status` ∈ `NOT_REQUESTED` | `PENDING_DECISION` | `ACCEPTED` | `DECLINED` | `PAUSED`.
+- `PATCH /workers/me/consent`: unchanged body; `accepted: false` sets `DECLINED` and **does not change
+  `status`**; allowed only when `status == ACTIVE` (`403 TERMS_NOT_ACCEPTED` otherwise).
+- `PATCH /workers/:id/status` keeps only `{ status: "REVOKED" }`; telemetry pause moves to
+  `PATCH /workers/:id/telemetry-status { status: "PAUSED" | "ACTIVE", reason? }`.
+- Telemetry ingestion: `403 WORKER_NOT_ACTIVE` also when `telemetry_status != ACCEPTED`.
+- PIN events and reset (worker): `POST /workers/me/credential-events { type: "PIN_SET" | "PIN_CHANGED" }` → `204` (server emails, R38 art. 7 f);
+  `POST /workers/me/pin-reset/request` → `202` (code to personal email, 10 min);
+  `POST /workers/me/pin-reset/verify { code }` → `204` · `400 INVALID_RESET_CODE` · `429` after 5 tries.
