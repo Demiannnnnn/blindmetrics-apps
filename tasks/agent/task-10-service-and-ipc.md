@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-10` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `agent-ipc/` (crate nuevo), `agent/src/main.rs`, `agent/src/ipc_server.rs` (nuevo), `agent/src/app.rs` (se elimina), `agent/src/ui/{mod.rs,tray.rs}`, `agent/src/background/worker.rs`, `agent/src/consent.rs`, `agent/Cargo.toml`, `Cargo.toml` (workspace) |
 | **Dependencias** | `TASK-INT-03` (clippy verde) |
 | **Paralela con** | `TASK-ADMIN-13` |
@@ -118,5 +118,31 @@ el servicio y la ventana se distribuyen juntos).
 - [ ] Reporte completo (incluye cómo probar a mano: `cargo run -p agent` + cliente de ejemplo).
 
 ## Reporte
-
-_(pendiente)_
+- **Resumen:** Se creó el crate `agent-ipc` con protocolo local versionado (v1), framing por longitud (1 MiB max), transporte seguro (`0700`/`0600`) y cliente async (`IpcClient`). Se transformó `telemetry-agent` en un servicio en segundo plano puro, eliminando `eframe`/`egui` y `agent/src/app.rs`. Se implementó el servidor IPC (`IpcServer`) con handshake por token (`ipc.token`), verificación de instancia única con salida 0, integración con bandeja del sistema (`SystemTrayManager`) respetando PROC-02, persistencia de retiro pendiente fuera de línea (`pending_withdrawal`) con reintento en sincronización, y apagado limpio con vaciado a la cola SQLite local (`SIGINT`/`SIGTERM`/`Salir`).
+- **Archivos:**
+  - `agent-ipc/Cargo.toml`, `agent-ipc/src/{lib,client,framing,transport}.rs`, `agent-ipc/tests/ipc_tests.rs`: nuevo crate de IPC local con cliente, transporte y tests.
+  - `agent/Cargo.toml`, `Cargo.toml`, `Cargo.lock`: integración de `agent-ipc` al workspace y eliminación de dependencia `eframe`.
+  - `agent/src/ipc_server.rs`: servidor IPC con autenticación por token, despacho de requests, suscripción a eventos y tests de integración.
+  - `agent/src/main.rs`: servicio en segundo plano con bandeja, IPC, instancia única, prohibición de `--headless` y cierre limpio.
+  - `agent/src/app.rs`: eliminado.
+  - `agent/src/enrollment.rs`: lógica y tests de entrada y normalización de enrollment desacoplados de egui.
+  - `agent/src/background/worker.rs`: soporte de `Shutdown`, gating de recolectores por disponibilidad de bandeja (`PROC-02`), persistencia y reintento de `pending_withdrawal` (`RF-AGENT-10-11`).
+  - `agent/src/credentials.rs`: persistencia de bandera `pending_withdrawal`.
+  - `agent/src/io/transport.rs`: métodos auxiliares `open_default` y `size_bytes` en `OfflineQueue`.
+  - `agent/src/notifications.rs`: notificaciones del sistema para UI faltante y confirmación de salida.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ pasó sin diferencias de formato.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ pasó con cero advertencias y cero errores.
+  - `cargo test --workspace`: ✅ pasaron los 137 tests de todo el workspace (89 tests en `agent`, 15 tests en `agent-ipc` [10 unitarios + 5 integración], 33 tests en `telemetry-crypto-core`).
+  - Nota UI: no se modificaron `admin-client` ni `agent-ui`.
+- **Decisiones:**
+  - La acción "Salir" de la bandeja implementa confirmación requiriendo un segundo clic en 10 s tras emitir una notificación de confirmación del sistema (`NotificationDispatcher::notify_confirm_quit()`), evitando salidas accidentales que detengan la asistencia legal.
+  - `WindowScreenHint` se propaga en `AppSnapshot.suggested_screen` para que la ventana Tauri sepa qué pantalla presentar al abrirse o tras eventos en vivo emitidos desde la bandeja.
+  - Para asegurar aislamiento de pruebas y evitar colisiones entre suites y procesos, `get_runtime_dir_from_env` prioriza la variable de entorno `TELEMETRY_RUNTIME_DIR` si está configurada antes de recurrir a directorios estándar de sistema.
+- **Prueba manual:**
+  - Iniciar el servicio: `cargo run -p agent` (inicia el servicio en segundo plano, crea la bandeja del sistema y escucha en el socket IPC).
+  - En otra terminal, conectar con un cliente o script de prueba usando `agent_ipc::IpcClient::connect(agent_ipc::default_runtime_dir())` para enviar `Request::Snapshot`, `Request::Diagnostics`, etc.
+  - Verificar que una segunda invocación de `cargo run -p agent` detecta la instancia en ejecución, registra `info` y sale limpiamente con código 0.
+  - Verificar que `cargo run -p agent -- --headless` termina con código de error 1 y el mensaje de prohibición de PROC-02.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.
