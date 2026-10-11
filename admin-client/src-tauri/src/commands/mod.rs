@@ -20,7 +20,7 @@ pub struct CommandError {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
+    pub details: Option<Box<serde_json::Value>>,
 }
 
 impl CommandError {
@@ -111,5 +111,47 @@ mod tests {
 
         let json = serde_json::to_value(CommandError::new("X", "y")).unwrap();
         assert!(json.get("reason").is_none() && json.get("details").is_none());
+    }
+
+    #[test]
+    fn test_command_error_serialization_shape_unchanged() {
+        let err = CommandError {
+            code: "SAMPLE_CODE".to_string(),
+            message: "A sample message".to_string(),
+            reason: Some("SAMPLE_REASON".to_string()),
+            details: Some(Box::new(serde_json::json!({
+                "key": "value",
+                "nested": { "count": 42 }
+            }))),
+        };
+        let value = serde_json::to_value(&err).expect("serialization succeeds");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "code": "SAMPLE_CODE",
+                "message": "A sample message",
+                "reason": "SAMPLE_REASON",
+                "details": {
+                    "key": "value",
+                    "nested": { "count": 42 }
+                }
+            })
+        );
+
+        let min_err = CommandError::new("MIN_CODE", "Min message");
+        let min_value = serde_json::to_value(&min_err).expect("serialization succeeds");
+        assert_eq!(
+            min_value,
+            serde_json::json!({
+                "code": "MIN_CODE",
+                "message": "Min message"
+            })
+        );
+        assert!(min_value.get("reason").is_none());
+        assert!(min_value.get("details").is_none());
+
+        let deserialized: CommandError =
+            serde_json::from_value(value).expect("deserialization succeeds");
+        assert_eq!(err, deserialized);
     }
 }
