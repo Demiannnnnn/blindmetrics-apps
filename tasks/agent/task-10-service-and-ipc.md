@@ -118,31 +118,29 @@ el servicio y la ventana se distribuyen juntos).
 - [ ] Reporte completo (incluye cómo probar a mano: `cargo run -p agent` + cliente de ejemplo).
 
 ## Reporte
-- **Resumen:** Se creó el crate `agent-ipc` con protocolo local versionado (v1), framing por longitud (1 MiB max), transporte seguro (`0700`/`0600`) y cliente async (`IpcClient`). Se transformó `telemetry-agent` en un servicio en segundo plano puro, eliminando `eframe`/`egui` y `agent/src/app.rs`. Se implementó el servidor IPC (`IpcServer`) con handshake por token (`ipc.token`), verificación de instancia única con salida 0, integración con bandeja del sistema (`SystemTrayManager`) respetando PROC-02, persistencia de retiro pendiente fuera de línea (`pending_withdrawal`) con reintento en sincronización, y apagado limpio con vaciado a la cola SQLite local (`SIGINT`/`SIGTERM`/`Salir`).
+- **Resumen:** Se implementaron las correcciones solicitadas en la revisión de TASK-AGENT-10: robustecimiento de seguridad Unix en `ensure_runtime_directory` y `write_ipc_token` (rechazo de symlinks, no-directorios, UID no coincidente y ajuste a 0700/0600 según SEC-18); prohibición estricta de `Request::Shutdown` vía IPC (`NOT_ALLOWED`); resolución de la ventana `telemetry-worker` en el directorio de `current_exe` con override `TELEMETRY_WORKER_UI_BIN`; prueba de integración para `--headless` con `CARGO_BIN_EXE_telemetry-agent`; reintento de retiro pendiente (`pending_withdrawal`) ante 503 y manejo de 4xx definitivos (409/403) sin bucles infinitos; robustez del servidor IPC con timeout de 5 s en Hello, límite de 16 conexiones concurrentes (código `BUSY`), respuesta `BAD_FRAME` y `deny_unknown_fields`.
 - **Archivos:**
-  - `agent-ipc/Cargo.toml`, `agent-ipc/src/{lib,client,framing,transport}.rs`, `agent-ipc/tests/ipc_tests.rs`: nuevo crate de IPC local con cliente, transporte y tests.
-  - `agent/Cargo.toml`, `Cargo.toml`, `Cargo.lock`: integración de `agent-ipc` al workspace y eliminación de dependencia `eframe`.
-  - `agent/src/ipc_server.rs`: servidor IPC con autenticación por token, despacho de requests, suscripción a eventos y tests de integración.
-  - `agent/src/main.rs`: servicio en segundo plano con bandeja, IPC, instancia única, prohibición de `--headless` y cierre limpio.
-  - `agent/src/app.rs`: eliminado.
-  - `agent/src/enrollment.rs`: lógica y tests de entrada y normalización de enrollment desacoplados de egui.
-  - `agent/src/background/worker.rs`: soporte de `Shutdown`, gating de recolectores por disponibilidad de bandeja (`PROC-02`), persistencia y reintento de `pending_withdrawal` (`RF-AGENT-10-11`).
-  - `agent/src/credentials.rs`: persistencia de bandera `pending_withdrawal`.
-  - `agent/src/io/transport.rs`: métodos auxiliares `open_default` y `size_bytes` en `OfflineQueue`.
-  - `agent/src/notifications.rs`: notificaciones del sistema para UI faltante y confirmación de salida.
+  - `agent-ipc/src/transport.rs`: verificación de symlink, UID y permisos `0700`/`0600` en directorio y token (`SEC-18`). Tests unitarios.
+  - `agent-ipc/src/lib.rs`: `deny_unknown_fields` en variantes de `ClientFrame` y `ServerFrame`, re-export de `connect_stream`.
+  - `agent/src/ipc_server.rs`: rechazo de `Request::Shutdown` con `NOT_ALLOWED`, timeout de handshake (5 s), límite de 16 conexiones concurrentes con semáforo, respuesta `BAD_FRAME` ante tramas inválidas. Tests de timeout, BAD_FRAME y rechazo de Shutdown.
+  - `agent/src/main.rs`: función pura testeable `resolve_ui_binary_path` y `launch_ui_bin` buscando el ejecutable hermano `telemetry-worker` (`telemetry-worker.exe`) junto a `current_exe` con override por `TELEMETRY_WORKER_UI_BIN`. Tests unitarios.
+  - `agent/Cargo.toml`: definición explícita de binario `telemetry-agent` (`[[bin]]`) y dev-dependency `tokio` con feature `test-util`.
+  - `agent/tests/cli.rs`: test de integración de línea de comandos validando que `--headless` termina con código de error 1 y mensaje de prohibición (PROC-02).
+  - `agent/src/background/worker.rs`: reintento de retiro pendiente con detección de errores 4xx definitivos (`is_definitive_4xx`), refresco de `/workers/me`, reintento único y limpieza de pendiente con preservación de recolección detenida y registro de `last_error`. Tests wiremock.
 - **Comandos:**
   - `cargo fmt --all --check`: ✅ pasó sin diferencias de formato.
   - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ pasó con cero advertencias y cero errores.
-  - `cargo test --workspace`: ✅ pasaron los 137 tests de todo el workspace (89 tests en `agent`, 15 tests en `agent-ipc` [10 unitarios + 5 integración], 33 tests en `telemetry-crypto-core`).
+  - `cargo test --workspace`: ✅ pasaron los 258 tests de todo el workspace (97 tests en `agent` [96 unitarios + 1 integración en cli.rs], 18 tests en `agent-ipc` [13 unitarios + 5 integración], 51 tests en `telemetry-crypto-core`, 92 tests en `admin-client-core`).
   - Nota UI: no se modificaron `admin-client` ni `agent-ui`.
 - **Decisiones:**
-  - La acción "Salir" de la bandeja implementa confirmación requiriendo un segundo clic en 10 s tras emitir una notificación de confirmación del sistema (`NotificationDispatcher::notify_confirm_quit()`), evitando salidas accidentales que detengan la asistencia legal.
-  - `WindowScreenHint` se propaga en `AppSnapshot.suggested_screen` para que la ventana Tauri sepa qué pantalla presentar al abrirse o tras eventos en vivo emitidos desde la bandeja.
-  - Para asegurar aislamiento de pruebas y evitar colisiones entre suites y procesos, `get_runtime_dir_from_env` prioriza la variable de entorno `TELEMETRY_RUNTIME_DIR` si está configurada antes de recurrir a directorios estándar de sistema.
+  - En Linux/Unix, la ruta fallback de `<runtime_dir>` cuando `$XDG_RUNTIME_DIR` no está configurada es `/tmp/telemetry-worker-$USER`. Esta ruta por usuario es segura frente a ataques de symlink y creación previa en `/tmp` gracias a las validaciones introducidas: `symlink_metadata` rechaza symlinks y no-directorios, se compara el UID del propietario contra el UID efectivo del proceso (vía archivo de prueba), y se fuerzan permisos `0700` en el directorio y `0600` en el token IPC (`SEC-18`).
+  - En Windows named pipes, el crate `interprocess` no expone una API para configurar ACLs personalizadas de seguridad directamente sobre el pipe; de acuerdo con RF-AGENT-10-3 y la especificación, se documenta la limitación de la ACL del named pipe en Windows (se utiliza la seguridad por defecto del sistema entre procesos) y la protección criptográfica recae en el token aleatorio de 32 bytes (`ipc.token`, 256 bits de entropía en tiempo constante).
+  - `Request::Shutdown` se mantiene en el enum `Request` de `agent-ipc` (reservado para futuras extensiones o llamadas internas), pero el servidor IPC rechaza cualquier invocación externa respondiendo con `Response::Error { code: "NOT_ALLOWED", ... }` y manteniendo el servicio en ejecución. La detención real del servicio queda restringida al hilo de la bandeja del sistema (`shutdown_notify`).
+  - La reintentada de `pending_withdrawal` ante 4xx definitivos (e.g. 409 conflicto de versión / 403 trabajador no activo) refresca `/workers/me` y reintenta una sola vez; si persiste el 4xx, limpia la bandera `pending_withdrawal` para evitar bucles infinitos, asegura que la recolección quede detenida (vaciando `accepted_manifest_hash` y flags locales) y registra `last_error` en el estado observable.
 - **Prueba manual:**
-  - Iniciar el servicio: `cargo run -p agent` (inicia el servicio en segundo plano, crea la bandeja del sistema y escucha en el socket IPC).
-  - En otra terminal, conectar con un cliente o script de prueba usando `agent_ipc::IpcClient::connect(agent_ipc::default_runtime_dir())` para enviar `Request::Snapshot`, `Request::Diagnostics`, etc.
+  - Iniciar el servicio: `cargo run -p agent` (inicia el servicio `telemetry-agent`, crea la bandeja del sistema y escucha en el socket IPC).
   - Verificar que una segunda invocación de `cargo run -p agent` detecta la instancia en ejecución, registra `info` y sale limpiamente con código 0.
   - Verificar que `cargo run -p agent -- --headless` termina con código de error 1 y el mensaje de prohibición de PROC-02.
+  - Conectar cliente IPC con `agent_ipc::IpcClient::connect(agent_ipc::default_runtime_dir())` e invocar `Request::Shutdown`: verificar que responde `{ code: "NOT_ALLOWED" }` y el servicio no se detiene.
 - **Pendientes / bloqueos:** Ninguno.
 - **Desviaciones del contrato:** Ninguna.
