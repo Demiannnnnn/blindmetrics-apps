@@ -1,0 +1,69 @@
+{
+  "description": "Canonical attendance mark test vectors for Chilean R38 compliance (ATT-03). SHA-256 over b\"telemetry-mark-v1\\0\" concatenated with compact canonical JSON (fixed field order: v, mark_id, worker_id, worker_run, employer_rut, type, server_ts, device_ts, offline, source, workplace_id, location, prev_hash). Timestamps are second-precision RFC 3339 UTC. Hashes are chained via prev_hash.",
+  "vectors": [
+    {
+      "comment": "Mark 1: Workday start, chained to GENESIS_PREV_HASH, no location, online agent mark",
+      "mark": {
+        "v": 1,
+        "mark_id": "01927d3b-65e1-7000-8000-000000000001",
+        "worker_id": "01927d3b-65e1-7000-8000-0000000000aa",
+        "worker_run": "12.345.678-5",
+        "employer_rut": "76.123.456-0",
+        "type": "WORKDAY_START",
+        "server_ts": "2026-10-11T08:59:58Z",
+        "device_ts": "2026-10-11T08:59:57Z",
+        "offline": false,
+        "source": "AGENT",
+        "workplace_id": "01927d3b-65e1-7000-8000-0000000000w1",
+        "location": null,
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000001\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_START\",\"server_ts\":\"2026-10-11T08:59:58Z\",\"device_ts\":\"2026-10-11T08:59:57Z\",\"offline\":false,\"source\":\"AGENT\",\"workplace_id\":\"01927d3b-65e1-7000-8000-0000000000w1\",\"location\":null,\"prev_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
+      "hash": "01409e46ac76dd10763634062155439c7eb063a75d65264c186a75b6bca2f98e"
+    },
+    {
+      "comment": "Mark 2: Break start with GPS location, chained to mark 1 hash",
+      "mark": {
+        "v": 1,
+        "mark_id": "01927d3b-65e1-7000-8000-000000000002",
+        "worker_id": "01927d3b-65e1-7000-8000-0000000000aa",
+        "worker_run": "12.345.678-5",
+        "employer_rut": "76.123.456-0",
+        "type": "BREAK_START",
+        "server_ts": "2026-10-11T13:00:02Z",
+        "device_ts": "2026-10-11T13:00:01Z",
+        "offline": false,
+        "source": "AGENT",
+        "workplace_id": "01927d3b-65e1-7000-8000-0000000000w1",
+        "location": {
+          "lat": -33.4172,
+          "lon": -70.5724,
+          "accuracy_m": 12.5
+        },
+        "prev_hash": "01409e46ac76dd10763634062155439c7eb063a75d65264c186a75b6bca2f98e"
+      },
+      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000002\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"BREAK_START\",\"server_ts\":\"2026-10-11T13:00:02Z\",\"device_ts\":\"2026-10-11T13:00:01Z\",\"offline\":false,\"source\":\"AGENT\",\"workplace_id\":\"01927d3b-65e1-7000-8000-0000000000w1\",\"location\":{\"lat\":-33.4172,\"lon\":-70.5724,\"accuracy_m\":12.5},\"prev_hash\":\"01409e46ac76dd10763634062155439c7eb063a75d65264c186a75b6bca2f98e\"}",
+      "hash": "15c689887d28a90a79e78121e5e31923961ee668a9cf23b6b23cb52ccb3e0232"
+    },
+    {
+      "comment": "Mark 3: Offline workday end resulting from employer correction, chained to mark 2 hash",
+      "mark": {
+        "v": 1,
+        "mark_id": "01927d3b-65e1-7000-8000-000000000003",
+        "worker_id": "01927d3b-65e1-7000-8000-0000000000aa",
+        "worker_run": "12.345.678-5",
+        "employer_rut": "76.123.456-0",
+        "type": "WORKDAY_END",
+        "server_ts": "2026-10-11T18:05:00Z",
+        "device_ts": "2026-10-11T18:04:55Z",
+        "offline": true,
+        "source": "CORRECTION",
+        "workplace_id": null,
+        "location": null,
+        "prev_hash": "15c689887d28a90a79e78121e5e31923961ee668a9cf23b6b23cb52ccb3e0232"
+      },
+      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000003\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_END\",\"server_ts\":\"2026-10-11T18:05:00Z\",\"device_ts\":\"2026-10-11T18:04:55Z\",\"offline\":true,\"source\":\"CORRECTION\",\"workplace_id\":null,\"location\":null,\"prev_hash\":\"15c689887d28a90a79e78121e5e31923961ee668a9cf23b6b23cb52ccb3e0232\"}",
+      "hash": "f577af760570da2bb601ab82f2ff5823ee6e93f8c223f03bc7919ace3cef1a29"
+    }
+  ]
+}
