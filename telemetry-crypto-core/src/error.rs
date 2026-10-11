@@ -46,4 +46,7 @@ pub enum CryptoError {
 
     #[error("The backup contains a different key than expected")]
     BackupKeyMismatch,
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }

@@ -1,16 +1,24 @@
 pub mod asymmetric;
+pub mod attendance;
 pub mod backup;
 pub mod backup_v2;
 pub mod enrollment;
 pub mod error;
 pub mod kdf;
+pub mod legal;
 pub mod payloads;
+pub mod pin;
+pub mod rut;
 pub mod symmetric;
 
+pub use attendance::*;
 pub use backup::*;
 pub use backup_v2::*;
 pub use enrollment::*;
+pub use legal::*;
 pub use payloads::*;
+pub use pin::*;
+pub use rut::*;
 
 pub use asymmetric::{
     decode_private_key, decode_public_key, derive_public_key, generate_admin_keypair,
