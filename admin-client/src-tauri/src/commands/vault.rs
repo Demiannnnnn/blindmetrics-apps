@@ -149,10 +149,10 @@ fn mismatch_error(backup_fp: &str, registered_fp: &str) -> CommandError {
             short(registered_fp)
         ),
     );
-    err.details = Some(serde_json::json!({
+    err.details = Some(Box::new(serde_json::json!({
         "backup_fingerprint": short(backup_fp),
         "registered_fingerprint": short(registered_fp),
-    }));
+    })));
     err
 }
 

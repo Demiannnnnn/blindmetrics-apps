@@ -160,7 +160,7 @@ pub struct ApiError {
     /// `error.details.reason`.
     pub reason: Option<String>,
     /// Raw `error.details` (filtered with [`ApiError::safe_details`] before reaching the UI).
-    pub details: Option<serde_json::Value>,
+    pub details: Option<Box<serde_json::Value>>,
     pub retry_after_seconds: Option<u64>,
 }
 
@@ -231,14 +231,18 @@ impl ApiError {
                 retry_after_seconds: retry_header,
             };
         };
-        let details = err.get("details").filter(|d| d.is_object()).cloned();
+        let details = err
+            .get("details")
+            .filter(|d| d.is_object())
+            .cloned()
+            .map(Box::new);
         let reason = details
-            .as_ref()
+            .as_deref()
             .and_then(|d| d.get("reason"))
             .and_then(|r| r.as_str())
             .map(str::to_string);
         let retry_detail = details
-            .as_ref()
+            .as_deref()
             .and_then(|d| d.get("retry_after_seconds"))
             .and_then(|r| r.as_u64())
             .filter(|s| *s <= MAX_RETRY_AFTER_SECONDS);
@@ -272,8 +276,8 @@ impl ApiError {
     }
 
     /// Whitelisted `details` for the UI (never raw server bodies).
-    pub fn safe_details(&self) -> Option<serde_json::Value> {
-        let details = self.details.as_ref()?.as_object()?;
+    pub fn safe_details(&self) -> Option<Box<serde_json::Value>> {
+        let details = self.details.as_deref()?.as_object()?;
         let mut safe = serde_json::Map::new();
         for key in SAFE_DETAIL_KEYS {
             if let Some(value) = details.get(key) {
@@ -283,7 +287,7 @@ impl ApiError {
         if let Some(retry) = self.retry_after_seconds {
             safe.insert("retry_after_seconds".into(), retry.into());
         }
-        (!safe.is_empty()).then_some(serde_json::Value::Object(safe))
+        (!safe.is_empty()).then(|| Box::new(serde_json::Value::Object(safe)))
     }
 }
 
@@ -331,7 +335,7 @@ impl SubscriptionBlock {
         }
         let detail = |key: &str| {
             err.details
-                .as_ref()
+                .as_deref()
                 .and_then(|d| d.get(key))
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
