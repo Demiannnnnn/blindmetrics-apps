@@ -9,6 +9,7 @@ LOGDIR=${SCRATCH:-$HOME/.cache/telemetry-orchestration}/logs
 mkdir -p "$LOGDIR"
 LOG="$LOGDIR/$(basename "$TASK" .md)-$(date +%H%M%S).log"
 cd "$REPO" || exit 2
+[ -f "$TASK" ] || { echo "task file not found: $TASK"; exit 2; }
 case "$BRANCH" in dev/*) ;; *) echo "branch must start with dev/"; exit 2;; esac
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then git checkout -q "$BRANCH"; else git checkout -q -b "$BRANCH" develop-AGENTS; fi
 EXTRA_TXT=""; [ -n "$EXTRA" ] && EXTRA_TXT="$(cat "$EXTRA")"
