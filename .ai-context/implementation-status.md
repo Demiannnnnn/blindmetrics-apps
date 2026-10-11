@@ -76,7 +76,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | Dashboard KPIs & alerts | 🟡 | Counts per status, keystore state, K2 mismatch, server backup configured, codes expiring < 2 h. Missing: rejections and "ACTIVE without data 24 h" — API exposes no `last_seen`/last decision. | ADMIN-08 |
 | Parallel decryption & telemetry fetch | ✅ | `rayon` in memory, tolerant to corrupted records; `GET /telemetry/{category}` with validated category/UUID/subcategory and percent-encoded dates. | ADMIN-04, INT-02 |
 | Charts, network explorer, screenshots, files, field map | ✅ | Real decrypted data, LTTB, blur mode, DP-04 lock for OFFICE. | ADMIN-05, ADMIN-06 |
-| Auto-lock & RAM purge | 🟡 | 5–30 min, zeroize + purge (SEC-11), password unlock with revocation after 5 failures, Google-only accounts can unlock by signing in with Google again. **Gap (pre-existing since ADMIN-07):** the "Desbloquear con Biometría (Touch ID / Windows Hello)" button calls `admin_unlock_with_biometric`, which re-opens the session with the stored refresh token **without any OS biometric/user verification** — anyone at the locked machine can use it. Until a real OS prompt (LocalAuthentication / Windows Hello) is wired, hide the button or require the password. | ADMIN-07, ADMIN-10 |
+| Auto-lock & RAM purge | ✅ | 5–30 min, zeroize + purge (SEC-11), password unlock with revocation after 5 failures, Google-only accounts can unlock by signing in with Google again. The unverified biometric unlock (gap since ADMIN-07) was removed by ADMIN-13 (2026-10-11): unlock is password or Google only. | ADMIN-07, ADMIN-10 |
 | Command structure | ✅ | `commands/{session,keys,vault,devices,subscription,workers,telemetry}.rs`, `client.rs`, `device.rs`, `google_oauth.rs`, `keystore.rs`. | ADMIN-08..12 |
 
 ## 4. Server dependencies
@@ -97,7 +97,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 1. Dashboard alerts for rejections / "ACTIVE without data 24 h" need a `last_seen`/last-decision field in the API (ADMIN-08).
 2. The agent cannot decode a QR from the camera or an image; the payload is pasted (AGENT-08).
 3. Google sign-in has no in-app "cancel" button: closing the browser tab ends at the 180 s timeout (ADMIN-10).
-4. **Security:** the biometric unlock of the auto-lock screen performs no OS verification (see the Auto-lock row); it must be fixed or hidden before a production release.
+4. ~~Security: unverified biometric unlock~~ — closed by ADMIN-13 (button and command removed).
 5. The admin WebView CSP (`admin-client/src-tauri/tauri.conf.json`) still allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`; tightening it is pending hardening (see `security-model.md`, XSS row).
 6. **Privacy:** a withdrawal that fails offline is not re-sent automatically (see the Withdrawal row); target: persist a pending withdrawal and resend it on the next poll.
 7. **Privacy:** `agent --headless` runs the engine without a tray icon (`agent/src/main.rs`), contrary to `docs/worker-app-spec.md` §5 ("no invisible monitoring"); do not ship it until it refuses to start without a tray.
@@ -115,7 +115,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Worker window `agent-ui` (Tauri) with parity | ❌ | AGENT-11 |
 | Service: contract v3 lifecycle, terms, PIN, marks + offline queue, corrections, local alerts | ❌ | AGENT-12 |
 | Window: terms, PIN, attendance home, receipts, records, corrections | ❌ | AGENT-13 |
-| Admin: employer terms, employer legal profile, workplaces, legal docs; biometric button removed | ❌ | ADMIN-13 |
+| Admin: employer terms, employer legal profile, workplaces, legal docs; biometric button removed | ✅ | ADMIN-13 |
 | Admin: workers v3 (legal data, agreed schedule, optional telemetry, telemetry pause) | ❌ | ADMIN-14 |
 | Admin: attendance board, days/marks, corrections | ❌ | ADMIN-15 |
 | Admin: R38 reports, exports, read-only reports while blocked | ❌ | ADMIN-16 |
