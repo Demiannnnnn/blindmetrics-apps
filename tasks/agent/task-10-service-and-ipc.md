@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-10` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `agent-ipc/` (crate nuevo), `agent/src/main.rs`, `agent/src/ipc_server.rs` (nuevo), `agent/src/app.rs` (se elimina), `agent/src/ui/{mod.rs,tray.rs}`, `agent/src/background/worker.rs`, `agent/src/consent.rs`, `agent/Cargo.toml`, `Cargo.toml` (workspace) |
 | **Dependencias** | `TASK-INT-03` (clippy verde) |
 | **Paralela con** | `TASK-ADMIN-13` |
@@ -118,5 +118,29 @@ el servicio y la ventana se distribuyen juntos).
 - [ ] Reporte completo (incluye cómo probar a mano: `cargo run -p agent` + cliente de ejemplo).
 
 ## Reporte
-
-_(pendiente)_
+- **Resumen:** Se implementaron las correcciones solicitadas en la revisión de TASK-AGENT-10: robustecimiento de seguridad Unix en `ensure_runtime_directory` y `write_ipc_token` (rechazo de symlinks, no-directorios, UID no coincidente y ajuste a 0700/0600 según SEC-18); prohibición estricta de `Request::Shutdown` vía IPC (`NOT_ALLOWED`); resolución de la ventana `telemetry-worker` en el directorio de `current_exe` con override `TELEMETRY_WORKER_UI_BIN`; prueba de integración para `--headless` con `CARGO_BIN_EXE_telemetry-agent`; reintento de retiro pendiente (`pending_withdrawal`) ante 503 y manejo de 4xx definitivos (409/403) sin bucles infinitos; robustez del servidor IPC con timeout de 5 s en Hello, límite de 16 conexiones concurrentes (código `BUSY`), respuesta `BAD_FRAME` y `deny_unknown_fields`.
+- **Archivos:**
+  - `agent-ipc/src/transport.rs`: verificación de symlink, UID y permisos `0700`/`0600` en directorio y token (`SEC-18`). Tests unitarios.
+  - `agent-ipc/src/lib.rs`: `deny_unknown_fields` en variantes de `ClientFrame` y `ServerFrame`, re-export de `connect_stream`.
+  - `agent/src/ipc_server.rs`: rechazo de `Request::Shutdown` con `NOT_ALLOWED`, timeout de handshake (5 s), límite de 16 conexiones concurrentes con semáforo, respuesta `BAD_FRAME` ante tramas inválidas. Tests de timeout, BAD_FRAME y rechazo de Shutdown.
+  - `agent/src/main.rs`: función pura testeable `resolve_ui_binary_path` y `launch_ui_bin` buscando el ejecutable hermano `telemetry-worker` (`telemetry-worker.exe`) junto a `current_exe` con override por `TELEMETRY_WORKER_UI_BIN`. Tests unitarios.
+  - `agent/Cargo.toml`: definición explícita de binario `telemetry-agent` (`[[bin]]`) y dev-dependency `tokio` con feature `test-util`.
+  - `agent/tests/cli.rs`: test de integración de línea de comandos validando que `--headless` termina con código de error 1 y mensaje de prohibición (PROC-02).
+  - `agent/src/background/worker.rs`: reintento de retiro pendiente con detección de errores 4xx definitivos (`is_definitive_4xx`), refresco de `/workers/me`, reintento único y limpieza de pendiente con preservación de recolección detenida y registro de `last_error`. Tests wiremock.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ pasó sin diferencias de formato.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ pasó con cero advertencias y cero errores.
+  - `cargo test --workspace`: ✅ pasaron los 258 tests de todo el workspace (97 tests en `agent` [96 unitarios + 1 integración en cli.rs], 18 tests en `agent-ipc` [13 unitarios + 5 integración], 51 tests en `telemetry-crypto-core`, 92 tests en `admin-client-core`).
+  - Nota UI: no se modificaron `admin-client` ni `agent-ui`.
+- **Decisiones:**
+  - En Linux/Unix, la ruta fallback de `<runtime_dir>` cuando `$XDG_RUNTIME_DIR` no está configurada es `/tmp/telemetry-worker-$USER`. Esta ruta por usuario es segura frente a ataques de symlink y creación previa en `/tmp` gracias a las validaciones introducidas: `symlink_metadata` rechaza symlinks y no-directorios, se compara el UID del propietario contra el UID efectivo del proceso (vía archivo de prueba), y se fuerzan permisos `0700` en el directorio y `0600` en el token IPC (`SEC-18`).
+  - En Windows named pipes, el crate `interprocess` no expone una API para configurar ACLs personalizadas de seguridad directamente sobre el pipe; de acuerdo con RF-AGENT-10-3 y la especificación, se documenta la limitación de la ACL del named pipe en Windows (se utiliza la seguridad por defecto del sistema entre procesos) y la protección criptográfica recae en el token aleatorio de 32 bytes (`ipc.token`, 256 bits de entropía en tiempo constante).
+  - `Request::Shutdown` se mantiene en el enum `Request` de `agent-ipc` (reservado para futuras extensiones o llamadas internas), pero el servidor IPC rechaza cualquier invocación externa respondiendo con `Response::Error { code: "NOT_ALLOWED", ... }` y manteniendo el servicio en ejecución. La detención real del servicio queda restringida al hilo de la bandeja del sistema (`shutdown_notify`).
+  - La reintentada de `pending_withdrawal` ante 4xx definitivos (e.g. 409 conflicto de versión / 403 trabajador no activo) refresca `/workers/me` y reintenta una sola vez; si persiste el 4xx, limpia la bandera `pending_withdrawal` para evitar bucles infinitos, asegura que la recolección quede detenida (vaciando `accepted_manifest_hash` y flags locales) y registra `last_error` en el estado observable.
+- **Prueba manual:**
+  - Iniciar el servicio: `cargo run -p agent` (inicia el servicio `telemetry-agent`, crea la bandeja del sistema y escucha en el socket IPC).
+  - Verificar que una segunda invocación de `cargo run -p agent` detecta la instancia en ejecución, registra `info` y sale limpiamente con código 0.
+  - Verificar que `cargo run -p agent -- --headless` termina con código de error 1 y el mensaje de prohibición de PROC-02.
+  - Conectar cliente IPC con `agent_ipc::IpcClient::connect(agent_ipc::default_runtime_dir())` e invocar `Request::Shutdown`: verificar que responde `{ code: "NOT_ALLOWED" }` y el servicio no se detiene.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.

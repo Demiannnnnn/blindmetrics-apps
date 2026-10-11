@@ -123,7 +123,7 @@ pub async fn execute_withdraw(
     let _ = cred_store.set_accepted_flags(None);
     tracing::info!("Consent withdrawn locally: buffer and queue purged (DP-09)");
 
-    match send_consent(
+    let send_res = match send_consent(
         api,
         cred_store,
         consent_version,
@@ -151,6 +151,18 @@ pub async fn execute_withdraw(
             }
             _ => Err(err),
         },
+    };
+
+    match send_res {
+        Ok(()) => {
+            let _ = cred_store.set_pending_withdrawal(false);
+            Ok(())
+        }
+        Err(e) => {
+            // RF-AGENT-10-11: persist pending_withdrawal on failure
+            let _ = cred_store.set_pending_withdrawal(true);
+            Err(e)
+        }
     }
 }
 
@@ -198,6 +210,8 @@ pub enum EngineCommand {
     Enrolled { api_base_url: String },
     /// DP-09: purge buffer and on-disk queue, then send WITHDRAW.
     Withdraw,
+    /// RF-AGENT-10-12: clean shutdown (stop collectors, flush to local queue, exit).
+    Shutdown,
 }
 
 /// State published to the UI after every change.
@@ -229,6 +243,20 @@ pub struct EngineHandle {
     pub state: watch::Receiver<EngineSnapshot>,
 }
 
+impl EngineHandle {
+    pub fn shutdown(&self) {
+        let _ = self.commands.send(EngineCommand::Shutdown);
+    }
+
+    pub fn sync_now(&self) {
+        let _ = self.commands.send(EngineCommand::SyncNow);
+    }
+
+    pub fn withdraw(&self) {
+        let _ = self.commands.send(EngineCommand::Withdraw);
+    }
+}
+
 /// Queue-backed delivery state owned by the dispatcher loop.
 struct Dispatcher {
     transport: TelemetryTransport,
@@ -246,6 +274,7 @@ pub struct BackgroundEngine {
     commands: mpsc::UnboundedReceiver<EngineCommand>,
     commands_tx: mpsc::UnboundedSender<EngineCommand>,
     state: watch::Sender<EngineSnapshot>,
+    tray_available: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl BackgroundEngine {
@@ -267,7 +296,22 @@ impl BackgroundEngine {
             commands,
             commands_tx,
             state,
+            tray_available: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         })
+    }
+
+    pub fn set_tray_available(&self, available: bool) {
+        self.tray_available
+            .store(available, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn is_tray_available(&self) -> bool {
+        self.tray_available
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn tray_available_flag(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.tray_available.clone()
     }
 
     /// Handle for the UI; `runtime` must be the runtime that runs [`Self::run`].
@@ -340,7 +384,22 @@ impl BackgroundEngine {
         let ws = self.worker_self.read().await.clone();
         self.publish(mode, ws, false, Some(error)).await;
     }
+}
 
+/// Checks whether an error is a definitive 4xx (excluding 401, 408, 429) (RF-AGENT-10-11).
+fn is_definitive_4xx(err: &SessionError) -> bool {
+    let status = match err {
+        SessionError::Api(AgentError::Api { status, .. }) => Some(*status),
+        SessionError::Api(AgentError::ServerError(status)) => Some(*status),
+        _ => None,
+    };
+    match status {
+        Some(s) => (400..500).contains(&s) && s != 401 && s != 408 && s != 429,
+        None => false,
+    }
+}
+
+impl BackgroundEngine {
     /// Polls `GET /workers/me` and derives the run mode (DP-06, SEC-08).
     async fn sync_lifecycle(&self, queue: &mut OfflineQueue) {
         if self.cred_store.get_access_token().is_none() {
@@ -348,19 +407,140 @@ impl BackgroundEngine {
             return;
         }
         let api = self.api.clone();
-        let me = with_access_token(&api, self.cred_store.as_ref(), |token| {
+        let mut me = with_access_token(&api, self.cred_store.as_ref(), |token| {
             let api = api.clone();
             async move { api.get_me(&token).await }
         })
         .await;
 
+        let mut withdrawal_error: Option<String> = None;
+
+        if self.cred_store.get_pending_withdrawal() {
+            tracing::info!("Retrying pending withdrawal during lifecycle sync (RF-AGENT-10-11)");
+            let version = match &me {
+                Ok(w) => w.consent_version,
+                _ => self
+                    .worker_self
+                    .read()
+                    .await
+                    .as_ref()
+                    .map(|w| w.consent_version)
+                    .unwrap_or(1),
+            };
+            let pinned = self
+                .cred_store
+                .get_pinned_admin_public_key()
+                .unwrap_or_default();
+            let hash = match (&me, pinned.as_str()) {
+                (Ok(w), k) if !k.is_empty() => {
+                    crate::consent::ConsentOffer::from_worker_self(w, k, None)
+                        .map(|o| o.manifest_hash)
+                        .unwrap_or_default()
+                }
+                _ => String::new(),
+            };
+            let send_res = crate::consent::send_consent(
+                &api,
+                self.cred_store.as_ref(),
+                version,
+                &hash,
+                crate::consent::ConsentAction::Decline,
+            )
+            .await;
+
+            match send_res {
+                Ok(_) => {
+                    tracing::info!(
+                        "Pending withdrawal confirmed by server on retry (RF-AGENT-10-11)"
+                    );
+                    let _ = self.cred_store.set_pending_withdrawal(false);
+                }
+                Err(err) if is_definitive_4xx(&err) => {
+                    tracing::warn!(
+                        "Pending withdrawal retry got definitive 4xx ({}): refreshing /workers/me to retry once",
+                        err
+                    );
+                    let refreshed_me = with_access_token(&api, self.cred_store.as_ref(), |token| {
+                        let api = api.clone();
+                        async move { api.get_me(&token).await }
+                    })
+                    .await;
+
+                    let mut retry_succeeded = false;
+                    let mut final_error = format!("Retiro falló con error definitivo: {}", err);
+
+                    if let Ok(ref w) = refreshed_me {
+                        let current_version = w.consent_version;
+                        let current_hash = if !pinned.is_empty() {
+                            crate::consent::ConsentOffer::from_worker_self(w, &pinned, None)
+                                .map(|o| o.manifest_hash)
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+
+                        let retry_res = crate::consent::send_consent(
+                            &api,
+                            self.cred_store.as_ref(),
+                            current_version,
+                            &current_hash,
+                            crate::consent::ConsentAction::Decline,
+                        )
+                        .await;
+
+                        match retry_res {
+                            Ok(_) => {
+                                tracing::info!(
+                                    "Pending withdrawal confirmed after refreshing /workers/me"
+                                );
+                                let _ = self.cred_store.set_pending_withdrawal(false);
+                                retry_succeeded = true;
+                            }
+                            Err(retry_err) => {
+                                tracing::warn!(
+                                    "Second withdrawal attempt failed with error: {}",
+                                    retry_err
+                                );
+                                final_error = format!("Retiro falló tras refrescar: {}", retry_err);
+                            }
+                        }
+                    }
+
+                    if !retry_succeeded {
+                        // Still 4xx: clear pending, keep collection stopped (accepted manifest hash stays cleared) and set last_error
+                        tracing::warn!(
+                            "Clearing pending withdrawal after definitive 4xx; keeping collection stopped"
+                        );
+                        let _ = self.cred_store.set_pending_withdrawal(false);
+                        let _ = self.cred_store.set_accepted_manifest_hash(None);
+                        let _ = self.cred_store.set_accepted_flags(None);
+                        withdrawal_error = Some(final_error);
+                    }
+
+                    if refreshed_me.is_ok() {
+                        me = refreshed_me;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Pending withdrawal retry failed (will retry next cycle): {}",
+                        err
+                    );
+                }
+            }
+        }
+
         match me {
             Ok(me) if me.status == WorkerStatus::Revoked => self.revoke(queue).await,
             Ok(me) => {
                 let pinned = self.cred_store.get_pinned_fingerprint().unwrap_or_default();
-                let accepted = self.cred_store.get_accepted_manifest_hash();
+                let accepted = if self.cred_store.get_pending_withdrawal() {
+                    None
+                } else {
+                    self.cred_store.get_accepted_manifest_hash()
+                };
                 let mode = lifecycle_run_mode(&me, &pinned, accepted.as_deref());
-                self.publish(mode, Some(me), false, None).await;
+                self.publish(mode, Some(me), false, withdrawal_error).await;
             }
             Err(SessionError::Revoked) => self.revoke(queue).await,
             Err(SessionError::NotEnrolled) => {
@@ -459,10 +639,14 @@ impl BackgroundEngine {
 
         // 1. Periodic hourly transparency notification, only while collecting.
         let notify_run_mode = self.run_mode.clone();
+        let notify_tray_available = self.tray_available.clone();
         tokio::spawn(async move {
             let one_hour = Duration::from_secs(3600);
             loop {
                 sleep(one_hour).await;
+                if !notify_tray_available.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
                 if matches!(*notify_run_mode.read().await, RunMode::Collecting(_)) {
                     NotificationDispatcher::notify_periodic_active();
                 }
@@ -474,6 +658,7 @@ impl BackgroundEngine {
         let collector_run_mode = self.run_mode.clone();
         let collector_worker_self = self.worker_self.clone();
         let collector_cred_store = self.cred_store.clone();
+        let collector_tray_available = self.tray_available.clone();
         let corporate_dir = self.config.corporate_watched_dir();
 
         tokio::spawn(async move {
@@ -484,6 +669,11 @@ impl BackgroundEngine {
 
             loop {
                 sleep(Duration::from_secs(30)).await;
+
+                if !collector_tray_available.load(std::sync::atomic::Ordering::Relaxed) {
+                    KeystrokeCollector::set_hook_enabled(false);
+                    continue;
+                }
 
                 let mode = collector_run_mode.read().await.clone();
                 let ws = collector_worker_self.read().await.clone();
@@ -592,10 +782,15 @@ impl BackgroundEngine {
         let screenshot_run_mode = self.run_mode.clone();
         let screenshot_worker_self = self.worker_self.clone();
         let screenshot_cred_store = self.cred_store.clone();
+        let screenshot_tray_available = self.tray_available.clone();
 
         tokio::spawn(async move {
             loop {
                 sleep(Duration::from_secs(600)).await;
+
+                if !screenshot_tray_available.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
 
                 let mode = screenshot_run_mode.read().await.clone();
                 let ws = screenshot_worker_self.read().await.clone();
@@ -690,6 +885,33 @@ impl BackgroundEngine {
                         self.sync_lifecycle(&mut queue).await;
                     }
                     EngineCommand::Withdraw => self.withdraw(&mut queue).await,
+                    EngineCommand::Shutdown => {
+                        tracing::info!("Shutdown command received. Pausing collectors and flushing buffer to disk.");
+                        self.tray_available.store(false, std::sync::atomic::Ordering::SeqCst);
+                        KeystrokeCollector::set_hook_enabled(false);
+                        let batch = self.buffer.drain_for_flush();
+                        let worker_id = self.cred_store
+                            .get_worker_id()
+                            .as_deref()
+                            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                            .unwrap_or_else(uuid::Uuid::nil);
+
+                        if !batch.is_empty() {
+                            if let Some(admin_key) = self.cred_store.get_pinned_admin_public_key() {
+                                let records = build_envelopes(batch, worker_id, &admin_key);
+                                for record in records.into_iter().flatten() {
+                                    let _ = queue.enqueue(
+                                        record.category.as_str(),
+                                        &record.ephemeral_public_key,
+                                        &record.encrypted_payload,
+                                        record.client_timestamp,
+                                        record.subcategory,
+                                    );
+                                }
+                            }
+                        }
+                        break;
+                    }
                 },
                 _ = flush_tick.tick() => {
                     let mode = self.run_mode.read().await.clone();
@@ -1568,6 +1790,189 @@ mod tests {
             queue.count().unwrap(),
             1,
             "record kept for after the reactivation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pending_withdrawal_offline_then_lifecycle_sync_clears_it() {
+        let server = MockServer::start().await;
+
+        // Step 1: Initial state is Active, accepted_manifest_hash is set.
+        // Withdrawal fails with 503 Service Unavailable
+        Mock::given(method("PATCH"))
+            .and(path("/workers/me/consent"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        let creds = enrolled_creds();
+        let (_priv, admin_pub) = telemetry_crypto_core::generate_admin_keypair();
+        creds.set_pinned_admin_public_key(Some(&admin_pub)).unwrap();
+        creds
+            .set_accepted_manifest_hash(Some("accepted_hash"))
+            .unwrap();
+        creds
+            .set_accepted_flags(Some(&ConsentFlags {
+                system_activity: true,
+                ..Default::default()
+            }))
+            .unwrap();
+
+        let (engine, _dir) = test_engine(&server.uri(), creds.clone());
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        queue
+            .enqueue("system", "key", b"payload", Utc::now(), None)
+            .unwrap();
+
+        let client = ApiClient::new(server.uri()).unwrap();
+
+        // Worker withdraws, but network/server returns 503
+        let res = execute_withdraw(
+            &client,
+            creds.as_ref(),
+            &engine.buffer,
+            &mut queue,
+            1,
+            "accepted_hash",
+        )
+        .await;
+
+        assert!(res.is_err(), "Withdrawal failed with 503");
+        assert!(
+            creds.get_pending_withdrawal(),
+            "pending_withdrawal must be true"
+        );
+        assert!(
+            creds.get_accepted_manifest_hash().is_none(),
+            "accepted hash cleared"
+        );
+        assert_eq!(queue.count().unwrap(), 0, "queue purged");
+
+        // Step 2: Server recovers: GET /workers/me answers 200, and PATCH /workers/me/consent answers 200
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "ACTIVE",
+                1,
+                Some(1),
+                "pinned_fp",
+            )))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("PATCH"))
+            .and(path("/workers/me/consent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "status": "PENDING_CONSENT",
+                    "consent_version": 1,
+                    "accepted_consent_version": null,
+                    "consent_flags": ConsentFlags::default()
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Lifecycle sync executes pending withdrawal retry
+        engine.sync_lifecycle(&mut queue).await;
+
+        assert!(
+            !creds.get_pending_withdrawal(),
+            "pending_withdrawal must be cleared after 200"
+        );
+        assert!(matches!(
+            *engine.run_mode.read().await,
+            RunMode::AwaitingConsent { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_pending_withdrawal_definitive_4xx_clears_pending_and_sets_error() {
+        let server = MockServer::start().await;
+
+        let creds = enrolled_creds();
+        let (_priv, admin_pub) = telemetry_crypto_core::generate_admin_keypair();
+        creds.set_pinned_admin_public_key(Some(&admin_pub)).unwrap();
+        creds.set_pending_withdrawal(true).unwrap();
+
+        let (engine, _dir) = test_engine(&server.uri(), creds.clone());
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+
+        // 1. Initial GET /workers/me returns consent_version: 1
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "ACTIVE",
+                1,
+                Some(1),
+                "pinned_fp",
+            )))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        // 2. First retry PATCH returns 409 Conflict (version mismatch)
+        Mock::given(method("PATCH"))
+            .and(path("/workers/me/consent"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "CONFLICT",
+                    "message": "Consent version mismatch",
+                    "details": { "current_consent_version": 2 }
+                }
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        // 3. Refresh GET /workers/me returns consent_version: 2
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "ACTIVE",
+                2,
+                Some(2),
+                "pinned_fp",
+            )))
+            .mount(&server)
+            .await;
+
+        // 4. Second retry PATCH still returns 403 Forbidden (worker not active or locked)
+        Mock::given(method("PATCH"))
+            .and(path("/workers/me/consent"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "WORKER_NOT_ACTIVE",
+                    "message": "Worker is disabled by employer",
+                    "details": {}
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        // Lifecycle sync runs: 1st retry gets 409 -> refreshes /workers/me -> 2nd retry gets 403 -> clears pending, keeps collection stopped, sets last_error
+        engine.sync_lifecycle(&mut queue).await;
+
+        assert!(
+            !creds.get_pending_withdrawal(),
+            "pending_withdrawal cleared to avoid infinite loop"
+        );
+        assert!(
+            creds.get_accepted_manifest_hash().is_none(),
+            "accepted hash stays None"
+        );
+        assert!(
+            matches!(
+                *engine.run_mode.read().await,
+                RunMode::AwaitingConsent { .. }
+            ),
+            "collection remains stopped"
+        );
+        assert!(
+            engine.state.borrow().last_error.is_some(),
+            "last_error must be set"
         );
     }
 }
