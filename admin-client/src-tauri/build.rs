@@ -43,90 +43,25 @@ fn main() {
 
     if release {
         for file in [&employer_terms, &privacy_policy] {
-            if let Ok(content) = std::fs::read_to_string(file) {
-                let placeholders = find_placeholders(&content);
-                if !placeholders.is_empty() {
-                    panic!(
-                        "Release build blocked by unpopulated legal placeholders in {}: {:?}",
-                        file.display(),
-                        placeholders
-                    );
-                }
+            let content = match std::fs::read_to_string(file) {
+                Ok(content) => content,
+                Err(err) => panic!(
+                    "Release build blocked: failed to read required legal file {}: {err}",
+                    file.display()
+                ),
+            };
+            let placeholders = telemetry_crypto_core::legal::find_placeholders(&content);
+            if !placeholders.is_empty() {
+                panic!(
+                    "Release build blocked by unpopulated legal placeholders in {}: {:?}",
+                    file.display(),
+                    placeholders
+                );
             }
         }
     }
 
     tauri_build::build()
-}
-
-/// Detects unpopulated bracket placeholders in legal texts (LEG-06).
-/// Matches bracketed terms that start with an uppercase letter or `MIENTRAS`
-/// (e.g. `[RAZÓN SOCIAL DEL PROVEEDOR]`, `[RUT]`, `[N]`, `[MIENTRAS NO EXISTA AUTORIZACIÓN:]`).
-/// Excludes Markdown links (`[texto](url)`) and checkboxes (`[ ]`, `[x]`, `[X]`).
-fn find_placeholders(text: &str) -> Vec<String> {
-    let mut results = Vec::new();
-    let bytes = text.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-
-    while i < len {
-        if bytes[i] == b'[' {
-            let start = i;
-            let mut j = i + 1;
-            let mut found_close = false;
-            while j < len {
-                if bytes[j] == b'\n' || bytes[j] == b'[' {
-                    break;
-                }
-                if bytes[j] == b']' {
-                    found_close = true;
-                    break;
-                }
-                j += 1;
-            }
-
-            if found_close {
-                let end = j;
-                let inner = &text[start + 1..end];
-                let after = &text[end + 1..];
-
-                // 1. Exclude markdown links [text](url)
-                if after.starts_with('(') {
-                    i = end + 1;
-                    continue;
-                }
-
-                // 2. Exclude checkboxes [ ], [x], [X]
-                let trimmed_inner = inner.trim();
-                if trimmed_inner.is_empty()
-                    || trimmed_inner == "x"
-                    || trimmed_inner == "X"
-                    || inner == " "
-                {
-                    i = end + 1;
-                    continue;
-                }
-
-                // 3. Must start with uppercase or "MIENTRAS"
-                let starts_with_uppercase = inner
-                    .chars()
-                    .next()
-                    .map(|c| c.is_uppercase())
-                    .unwrap_or(false);
-                let starts_with_mientras = inner.starts_with("MIENTRAS");
-
-                if starts_with_uppercase || starts_with_mientras {
-                    results.push(format!("[{inner}]"));
-                }
-
-                i = end + 1;
-                continue;
-            }
-        }
-        i += 1;
-    }
-
-    results
 }
 
 /// Minimal `KEY=VALUE` reader for `.env` (comments with `#`, optional quotes). No dependency needed.

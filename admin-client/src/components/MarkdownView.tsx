@@ -1,4 +1,5 @@
 import React from 'react';
+import { openExternalUrl } from '../api/tauri-bridge';
 
 interface MarkdownViewProps {
   content: string;
@@ -262,15 +263,20 @@ function renderInline(text: string): React.ReactNode {
     if (linkMatch) {
       const label = linkMatch[1];
       const url = linkMatch[2];
-      const isSafe = /^https?:\/\//i.test(url);
-      if (isSafe) {
+      const isHttps = /^https:\/\//i.test(url);
+      if (isHttps) {
         return (
           <a
             key={index}
             href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent underline hover:text-accent-hover"
+            title={url}
+            onClick={e => {
+              e.preventDefault();
+              openExternalUrl(url).catch(err => {
+                console.warn('Failed to open external url:', err);
+              });
+            }}
+            className="text-accent underline hover:text-accent-hover cursor-pointer"
           >
             {label}
           </a>

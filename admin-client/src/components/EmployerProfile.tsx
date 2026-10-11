@@ -35,6 +35,12 @@ import { CHILEAN_REGIONS, formatAddress } from '../lib/employer';
 
 export { CHILEAN_REGIONS, formatAddress };
 
+type EmployerKind = 'LEGAL_ENTITY' | 'NATURAL_PERSON';
+
+function isEmployerKind(value: string): value is EmployerKind {
+  return value === 'LEGAL_ENTITY' || value === 'NATURAL_PERSON';
+}
+
 export const EmployerProfile: React.FC<{ onProfileUpdated?: () => void }> = ({ onProfileUpdated }) => {
   // Employer form state
   const [profile, setProfile] = useState<IEmployerProfile>({
@@ -388,7 +394,12 @@ export const EmployerProfile: React.FC<{ onProfileUpdated?: () => void }> = ({ o
                 <label className="block text-xs font-medium text-fg mb-1">Tipo de persona</label>
                 <select
                   value={profile.kind}
-                  onChange={e => setProfile(prev => ({ ...prev, kind: e.target.value as any }))}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (isEmployerKind(val)) {
+                      setProfile(prev => ({ ...prev, kind: val }));
+                    }
+                  }}
                   className="w-full bg-surface-subtle border border-default text-fg text-xs rounded-control px-3 py-2 focus:outline-hidden focus:border-accent"
                 >
                   <option value="LEGAL_ENTITY">Persona Jurídica (SpA, SA, Ltda)</option>

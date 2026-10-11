@@ -14,7 +14,7 @@ use commands::employer::{
     workplaces_update,
 };
 use commands::keys::{admin_get_public_key, keys_register_on_server, keys_status};
-use commands::legal::{legal_accept_terms, legal_documents, legal_status};
+use commands::legal::{legal_accept_terms, legal_documents, legal_status, open_external_url};
 use commands::session::{
     admin_get_session, admin_is_locked, admin_lock_and_flush_memory, admin_login,
     admin_login_google, admin_logout, admin_register, admin_unlock, admin_update_profile,
@@ -113,6 +113,7 @@ fn main() {
             legal_documents,
             legal_status,
             legal_accept_terms,
+            open_external_url,
             employer_get,
             employer_update,
             workplaces_list,

@@ -85,3 +85,27 @@ test('terms: scroll threshold enables button when scrolled near bottom', () => {
   // When content fits without scrollbar
   assert.equal(isScrollComplete(300, 0, 300), true);
 });
+
+test('employer: isEmployerKind validates allowed values', () => {
+  const isEmployerKind = value => value === 'LEGAL_ENTITY' || value === 'NATURAL_PERSON';
+
+  assert.equal(isEmployerKind('LEGAL_ENTITY'), true);
+  assert.equal(isEmployerKind('NATURAL_PERSON'), true);
+  assert.equal(isEmployerKind('OTHER'), false);
+  assert.equal(isEmployerKind(''), false);
+  assert.equal(isEmployerKind(null), false);
+  assert.equal(isEmployerKind(undefined), false);
+});
+
+test('markdown: only absolute https links are accepted for external opening', () => {
+  const isHttpsLink = url => /^https:\/\//i.test(url);
+
+  assert.equal(isHttpsLink('https://dt.gob.cl'), true);
+  assert.equal(isHttpsLink('https://dt.gob.cl/path'), true);
+  assert.equal(isHttpsLink('http://dt.gob.cl'), false);
+  assert.equal(isHttpsLink('ftp://dt.gob.cl'), false);
+  assert.equal(isHttpsLink('javascript:alert(1)'), false);
+  assert.equal(isHttpsLink('file:///etc/passwd'), false);
+  assert.equal(isHttpsLink('/local/path'), false);
+});
+

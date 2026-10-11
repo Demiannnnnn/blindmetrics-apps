@@ -152,6 +152,72 @@ pub async fn legal_accept_terms() -> Result<TermsAcceptanceResponse, CommandErro
     legal_accept_terms_with_client(get_api_client()).await
 }
 
+const MAX_EXTERNAL_URL_LEN: usize = 2048;
+
+/// Validates that an external URL is an absolute https:// URL with a valid host, without
+/// credentials, without whitespace or control characters, and within 2048 bytes (SEC-17).
+pub fn validate_external_url(url: &str) -> Result<(), CommandError> {
+    let invalid = || {
+        CommandError::new(
+            "URL_INVALID",
+            "Solo se permiten direcciones web absolutas https:// válidas.",
+        )
+    };
+
+    if url.is_empty() || url.len() > MAX_EXTERNAL_URL_LEN {
+        return Err(invalid());
+    }
+
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(invalid());
+    }
+
+    if !url.starts_with("https://") {
+        return Err(invalid());
+    }
+
+    let parsed = reqwest::Url::parse(url).map_err(|_| invalid())?;
+    if parsed.scheme() != "https" {
+        return Err(invalid());
+    }
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(invalid());
+    }
+
+    let host = parsed.host_str().unwrap_or_default();
+    if host.is_empty() {
+        return Err(invalid());
+    }
+
+    // Ensure authority part has no credentials, invalid ports or separators
+    let rest = match url.strip_prefix("https://") {
+        Some(r) => r,
+        None => return Err(invalid()),
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.is_empty() || authority.contains('@') || authority.starts_with(':') {
+        return Err(invalid());
+    }
+
+    Ok(())
+}
+
+/// Opens an external URL in the default system browser (RF-ADMIN-13-3).
+///
+/// Only absolute https:// URLs without credentials and <= 2048 characters are allowed.
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), CommandError> {
+    validate_external_url(&url)?;
+    open::that_detached(&url).map_err(|e| {
+        tracing::warn!("system browser unavailable: {}", e);
+        CommandError::new(
+            "BROWSER_UNAVAILABLE",
+            "No se pudo abrir el navegador. Copia la dirección y ábrela manualmente.",
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,5 +413,47 @@ mod tests {
             // Self-test our matching
             assert_eq!(from_core, crypto_find(doc));
         }
+    }
+
+    #[test]
+    fn test_validate_external_url_rules() {
+        // Valid https URLs
+        assert!(validate_external_url("https://dt.gob.cl").is_ok());
+        assert!(validate_external_url("https://dt.gob.cl/legislacion/1234").is_ok());
+        assert!(validate_external_url("https://dt.gob.cl/portal?id=1&ref=app#art-38").is_ok());
+        assert!(validate_external_url("https://subdomain.example.com:8443/terms").is_ok());
+
+        // Non-https schemes rejected
+        assert!(validate_external_url("http://dt.gob.cl").is_err());
+        assert!(validate_external_url("ftp://dt.gob.cl").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
+        assert!(validate_external_url("file:///etc/passwd").is_err());
+        assert!(validate_external_url("mailto:soporte@dt.gob.cl").is_err());
+        assert!(validate_external_url("data:text/html,<b>xss</b>").is_err());
+
+        // Relative or schemeless rejected
+        assert!(validate_external_url("//dt.gob.cl").is_err());
+        assert!(validate_external_url("dt.gob.cl").is_err());
+        assert!(validate_external_url("/legal/terminos").is_err());
+
+        // Credentials in URL rejected
+        assert!(validate_external_url("https://user:pass@dt.gob.cl").is_err());
+        assert!(validate_external_url("https://user@dt.gob.cl").is_err());
+
+        // Whitespace and control chars rejected
+        assert!(validate_external_url("https://dt.gob.cl/path with spaces").is_err());
+        assert!(validate_external_url("https://dt.gob.cl/\n").is_err());
+        assert!(validate_external_url("https://dt.gob.cl/\tpath").is_err());
+
+        // Empty, incomplete, or malformed authority rejected
+        assert!(validate_external_url("").is_err());
+        assert!(validate_external_url("   ").is_err());
+        assert!(validate_external_url("https://").is_err());
+        assert!(validate_external_url("https:///").is_err());
+        assert!(validate_external_url("https://:8080").is_err());
+
+        // Excessively long URLs rejected (> 2048 chars)
+        let long_url = format!("https://dt.gob.cl/{}", "a".repeat(2100));
+        assert!(validate_external_url(&long_url).is_err());
     }
 }

@@ -937,6 +937,20 @@ export async function legalAcceptTerms(): Promise<TermsAcceptanceResponse> {
   return requireTauri('legal_accept_terms');
 }
 
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isTauri()) {
+    return await invoke<void>('open_external_url', { url });
+  }
+  if (typeof window !== 'undefined' && typeof window.open === 'function') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  if (isDemoMode) {
+    return;
+  }
+  return requireTauri('open_external_url');
+}
+
 // ---------------------------------------------------------------- employer (TASK-ADMIN-13)
 
 let demoEmployer: EmployerProfile | null = isDemoMode
