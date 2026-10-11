@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-CRYPTO-04` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ⛔ bloqueada |
 | **Módulos Afectados** | `telemetry-crypto-core/src/{attendance,legal,pin,rut}.rs` (nuevos), `telemetry-crypto-core/src/lib.rs`, `telemetry-crypto-core/tests/vectors/attendance-mark-v1.json` (nuevo), `telemetry-crypto-core/Cargo.toml` |
 | **Dependencias** | — (paralela a INT-03) |
 | **Prioridad** | P0 — base de AGENT-12, ADMIN-13/14 y de la API v3 |
@@ -94,5 +94,27 @@ LEG-04, LEG-06, `api-contract.md` §9.3, `docs/legal/README.md`.
 - [ ] Reporte completo.
 
 ## Reporte
-
-_(pendiente)_
+- **Resumen:** Se implementaron todos los requerimientos RF-CRYPTO-04-1..11 en `telemetry-crypto-core`: hash canónico encadenado de marcas de asistencia (`CanonicalMark`, `mark_hash`, `verify_mark_hash`), hash y extracción de versión/marcadores de documentos legales (`document_hash`, `parse_version`, `find_placeholders`), política y verificador Argon2id de PIN (`validate_pin`, `PinVerifier`), y validación/formato canónico de RUN/RUT chileno (`Rut`, `RutError`, `compute_dv`). Se generó el vector canónico de pruebas `attendance-mark-v1.json` con 3 marcas encadenadas.
+- **Archivos:**
+  - `telemetry-crypto-core/src/attendance.rs` (nuevo)
+  - `telemetry-crypto-core/src/legal.rs` (nuevo)
+  - `telemetry-crypto-core/src/pin.rs` (nuevo)
+  - `telemetry-crypto-core/src/rut.rs` (nuevo)
+  - `telemetry-crypto-core/src/lib.rs` (re-exports)
+  - `telemetry-crypto-core/src/error.rs` (variante `InvalidInput`)
+  - `telemetry-crypto-core/tests/vectors/attendance-mark-v1.json` (nuevo vector de pruebas)
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ limpio.
+  - `cargo clippy -p telemetry-crypto-core --all-targets -- -D warnings`: ✅ 0 warnings, 0 errores.
+  - `cargo clippy -p telemetry-crypto-core -- -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic`: ✅ limpio (sin unwrap/expect/panic en código de producción).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ❌ falla con 22 errores `clippy::result_large_err` preexistentes en `admin-client-core` (fuera del alcance de esta tarea; tarea paralela `TASK-INT-03`).
+  - `cargo test --workspace`: ✅ 226 tests pasados (49 `telemetry-crypto-core`, 86 `agent`, 91 `admin-client-core`, 0 fallidos).
+  - UI (admin-client / agent-ui): no se modificó código de UI.
+- **Decisiones:**
+  - `find_placeholders`: devuelve los marcadores con corchetes (ej. `"[RUT]"`) excluyendo enlaces Markdown `[texto](url)` y casillas `[ ]`/`[x]`/`[X]`.
+  - `CanonicalMark`: orden de campos estrictamente serializado según `security-model.md` §9.3 con `#[serde(rename = "type")]` y timestamps validados a nivel de segundo UTC (`YYYY-MM-DDTHH:MM:SSZ`).
+  - `PinVerifier`: parámetros por defecto `m = 19456 KiB`, `t = 2`, `p = 1`, salt de 16 bytes y hash de 32 bytes con Argon2id v19. Límites `m: 8192..=262144, t: 1..=10, p: 1..=4, v == 1` validados antes de derivar.
+  - `Rut`: rango `1.000.000..=99.999.999`, módulo 11 estricto con normalización de DV `k` a `K`, y formateo canónico `12.345.678-5`.
+- **Pendientes / bloqueos:**
+  - Bloqueada para el DoD global por `cargo clippy --workspace` debido a los 22 errores `result_large_err` en `admin-client-core`, actualmente asignados a `TASK-INT-03`. Una vez integrado `TASK-INT-03`, clippy en workspace pasará limpiamente.
+- **Desviaciones del contrato:** Ninguna.
