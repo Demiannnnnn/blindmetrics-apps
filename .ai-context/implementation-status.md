@@ -2,8 +2,8 @@
 
 > **2026-10-11 — v3 started.** Baseline on `develop-AGENTS` (= `dev-ecosystem/style-and-fixed-url`
 > `e6b80d1`): `cargo fmt` ✅, `cargo test` ✅ (33 + 86 + 91), admin `npm run build` + `npm test` ✅ (28),
-> but **`cargo clippy --workspace --all-targets -- -D warnings` ❌** with Rust 1.98: 22 ×
-> `clippy::result_large_err` in `admin-client-core` (TASK-INT-03). Everything in §6 below is ❌ until its
+> clippy failed with Rust 1.98 (22 ×
+> `clippy::result_large_err`), fixed by TASK-INT-03 (2026-10-11, clippy ✅). Everything in §6 below is ❌ until its
 > task lands. The audit below (2026-09-30, contract v2) remains accurate for what it covers.
 
 Audited against the code on **2026-09-30** (branch `claude/kind-planck-1ripey`, on top of `4d86bcd`), after closing the **API contract v2** work (`telemetry-api` TASK-13..17 → apps INT-02, CRYPTO-03, AGENT-09, ADMIN-09..12).
@@ -109,8 +109,8 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 
 | Capability | State | Task |
 |:--|:--:|:--|
-| Green clippy baseline | ❌ | INT-03 |
-| Attendance mark hash + vector, legal hash/placeholders, PIN verifier, RUT | ❌ | CRYPTO-04 |
+| Green clippy baseline | ✅ | INT-03 |
+| Attendance mark hash + vector, legal hash/placeholders, PIN verifier, RUT | ✅ | CRYPTO-04 |
 | Worker app split: `agent` service + `agent-ipc` + tray-only, no egui | ❌ | AGENT-10 |
 | Worker window `agent-ui` (Tauri) with parity | ❌ | AGENT-11 |
 | Service: contract v3 lifecycle, terms, PIN, marks + offline queue, corrections, local alerts | ❌ | AGENT-12 |
