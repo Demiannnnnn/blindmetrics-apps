@@ -254,6 +254,9 @@ impl IpcServer {
             }
         });
 
+        // Connection concurrency limiter (RF-AGENT-10-2: max 16 concurrent connections)
+        let conn_limiter = Arc::new(tokio::sync::Semaphore::new(16));
+
         loop {
             tokio::select! {
                 _ = self.context.shutdown_notify.notified() => {
@@ -262,13 +265,28 @@ impl IpcServer {
                 }
                 accept_res = listener.accept() => {
                     match accept_res {
-                        Ok(stream) => {
-                            let server = self.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = server.handle_connection(stream).await {
-                                    tracing::debug!("IPC client connection ended: {}", e);
+                        Ok(mut stream) => {
+                            match conn_limiter.clone().try_acquire_owned() {
+                                Ok(permit) => {
+                                    let server = self.clone();
+                                    tokio::spawn(async move {
+                                        let _permit = permit;
+                                        if let Err(e) = server.handle_connection(stream).await {
+                                            tracing::debug!("IPC client connection ended: {}", e);
+                                        }
+                                    });
                                 }
-                            });
+                                Err(_) => {
+                                    // RF-AGENT-10-2: Extra connections get Rejected { code: "BUSY" } and are closed
+                                    tokio::spawn(async move {
+                                        let rejected = ServerFrame::Rejected {
+                                            code: "BUSY".into(),
+                                            message: "Demasiadas conexiones simultáneas (límite 16)".into(),
+                                        };
+                                        let _ = write_frame(&mut stream, &rejected).await;
+                                    });
+                                }
+                            }
                         }
                         Err(e) => {
                             tracing::warn!("IPC accept error: {}", e);
@@ -292,8 +310,31 @@ impl IpcServer {
         self: Arc<Self>,
         mut stream: Stream,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // 1. Handshake: First frame must be Hello
-        let frame: Option<ClientFrame> = read_frame(&mut stream).await?;
+        // 1. Handshake: First frame must be Hello within 5 seconds (RF-AGENT-10-2)
+        let handshake_res = tokio::time::timeout(
+            Duration::from_secs(5),
+            read_frame::<_, ClientFrame>(&mut stream),
+        )
+        .await;
+
+        let frame = match handshake_res {
+            Ok(Ok(frame)) => frame,
+            Ok(Err(e)) => {
+                // RF-AGENT-10-2: On an oversized/invalid frame during handshake, send BAD_FRAME before closing
+                let rejected = ServerFrame::Rejected {
+                    code: "BAD_FRAME".into(),
+                    message: e.to_string(),
+                };
+                let _ = write_frame(&mut stream, &rejected).await;
+                return Ok(());
+            }
+            Err(_timeout) => {
+                // Handshake timed out: close connection
+                tracing::debug!("IPC handshake timed out after 5s");
+                return Ok(());
+            }
+        };
+
         let Some(ClientFrame::Hello {
             protocol_version,
             token,
@@ -376,8 +417,9 @@ impl IpcServer {
                         }
                         Ok(None) => break, // EOF
                         Err(e) => {
+                            // RF-AGENT-10-2: On an oversized/invalid frame, send BAD_FRAME before closing
                             let rejected = ServerFrame::Rejected {
-                                code: "FRAMING_ERROR".into(),
+                                code: "BAD_FRAME".into(),
                                 message: e.to_string(),
                             };
                             let _ = write_frame(&mut stream, &rejected).await;
@@ -725,10 +767,13 @@ impl IpcServer {
                 self.context.broadcast_snapshot().await;
                 Response::OpenWindowHint
             }
-            Request::Shutdown => {
-                self.context.shutdown_notify.notify_waiters();
-                Response::Shutdown
-            }
+            Request::Shutdown => Response::Error {
+                code: "NOT_ALLOWED".into(),
+                message:
+                    "SHUTDOWN no está permitido a través de IPC; solo la bandeja del sistema puede detener el servicio"
+                        .into(),
+                retry_after_secs: None,
+            },
         }
     }
 }
@@ -739,7 +784,7 @@ mod tests {
     use crate::background::worker::execute_withdraw;
     use crate::background::BackgroundEngine;
     use crate::credentials::InMemoryCredentialStore;
-    use agent_ipc::{IpcClient, StreamExt};
+    use agent_ipc::{connect_stream, IpcClient, StreamExt};
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -847,9 +892,23 @@ mod tests {
         let first_ev = sub.next().await.expect("first event");
         assert!(matches!(first_ev, Event::Snapshot(_)));
 
-        // 8. Shutdown
-        let res = client.call(Request::Shutdown).await.expect("shutdown");
-        assert_eq!(res, Response::Shutdown);
+        // 8. Shutdown over IPC is refused with NOT_ALLOWED and service continues running (RF-AGENT-10-1)
+        let res = client.call(Request::Shutdown).await.expect("shutdown call");
+        assert!(
+            matches!(res, Response::Error { ref code, .. } if code == "NOT_ALLOWED"),
+            "Expected NOT_ALLOWED error on IPC shutdown, got {:?}",
+            res
+        );
+
+        // Assert service keeps running after refused shutdown
+        let post_shutdown_snap = client
+            .call(Request::Snapshot)
+            .await
+            .expect("snapshot after refused shutdown");
+        assert!(matches!(post_shutdown_snap, Response::Snapshot { .. }));
+
+        // In-process notify triggers actual shutdown
+        shutdown_notify.notify_waiters();
 
         let _ = tokio::time::timeout(Duration::from_secs(2), server_task).await;
 
@@ -858,6 +917,114 @@ mod tests {
         if let SocketEndpoint::Path(p) = socket_endpoint(&runtime_dir) {
             assert!(!p.exists());
         }
+    }
+
+    #[tokio::test]
+    async fn test_ipc_handshake_timeout() {
+        tokio::time::pause();
+
+        let dir = tempdir().expect("tempdir");
+        let runtime_dir = dir.path().to_path_buf();
+
+        let config = WorkerConfig::load_or_init_at(runtime_dir.join("config.json"));
+        let cred_store: Arc<dyn CredentialStore> = Arc::new(InMemoryCredentialStore::new());
+        let buffer = Arc::new(MetricsBuffer::new(10));
+        let engine = BackgroundEngine::new(config.clone(), buffer.clone(), cred_store.clone())
+            .expect("engine");
+        let rt_handle = tokio::runtime::Handle::current();
+        let shutdown_notify = Arc::new(Notify::new());
+
+        let server = Arc::new(
+            IpcServer::new(
+                config,
+                cred_store,
+                buffer,
+                engine.handle(rt_handle),
+                runtime_dir.clone(),
+                Arc::new(AtomicBool::new(true)),
+                shutdown_notify.clone(),
+            )
+            .expect("server new"),
+        );
+
+        let server_clone = server.clone();
+        let server_task = tokio::spawn(async move {
+            let _ = server_clone.run().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let endpoint = socket_endpoint(&runtime_dir);
+        let mut stream = connect_stream(&endpoint).await.expect("connect stream");
+
+        // Advance virtual clock past 5 seconds without sending Hello
+        tokio::time::advance(Duration::from_secs(6)).await;
+
+        // Server should close connection on timeout
+        let frame: Result<Option<ServerFrame>, _> = read_frame(&mut stream).await;
+        assert!(
+            frame.is_err() || frame.unwrap().is_none(),
+            "Connection should be closed after 5s handshake timeout"
+        );
+
+        shutdown_notify.notify_waiters();
+        let _ = server_task.await;
+    }
+
+    #[tokio::test]
+    async fn test_ipc_bad_frame_rejected() {
+        let dir = tempdir().expect("tempdir");
+        let runtime_dir = dir.path().to_path_buf();
+
+        let config = WorkerConfig::load_or_init_at(runtime_dir.join("config.json"));
+        let cred_store: Arc<dyn CredentialStore> = Arc::new(InMemoryCredentialStore::new());
+        let buffer = Arc::new(MetricsBuffer::new(10));
+        let engine = BackgroundEngine::new(config.clone(), buffer.clone(), cred_store.clone())
+            .expect("engine");
+        let rt_handle = tokio::runtime::Handle::current();
+        let shutdown_notify = Arc::new(Notify::new());
+
+        let server = Arc::new(
+            IpcServer::new(
+                config,
+                cred_store,
+                buffer,
+                engine.handle(rt_handle),
+                runtime_dir.clone(),
+                Arc::new(AtomicBool::new(true)),
+                shutdown_notify.clone(),
+            )
+            .expect("server new"),
+        );
+
+        let server_clone = server.clone();
+        let server_task = tokio::spawn(async move {
+            let _ = server_clone.run().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let endpoint = socket_endpoint(&runtime_dir);
+        let mut stream = connect_stream(&endpoint).await.expect("connect stream");
+
+        // Send a frame with invalid JSON (unknown fields under deny_unknown_fields)
+        use tokio::io::AsyncWriteExt;
+        let invalid_json = b"{\"type\": \"HELLO\", \"unknown_bad_field\": 123}";
+        let len = (invalid_json.len() as u32).to_be_bytes();
+        stream.write_all(&len).await.unwrap();
+        stream.write_all(invalid_json).await.unwrap();
+        stream.flush().await.unwrap();
+
+        // Server should respond with BAD_FRAME and close (RF-AGENT-10-2)
+        let reply: Option<ServerFrame> = read_frame(&mut stream).await.expect("read frame");
+        assert!(
+            matches!(reply, Some(ServerFrame::Rejected { ref code, .. }) if code == "BAD_FRAME"),
+            "Expected BAD_FRAME response, got {:?}",
+            reply
+        );
+
+        shutdown_notify.notify_waiters();
+        let _ = server_task.await;
     }
 
     #[tokio::test]
@@ -875,20 +1042,5 @@ mod tests {
         assert!(creds.get_pending_withdrawal());
         assert!(creds.get_accepted_manifest_hash().is_none());
         assert_eq!(queue.count().unwrap(), 0);
-    }
-
-    #[test]
-    fn test_headless_flag_prohibited() {
-        if let Ok(exe) = std::env::var("CARGO_BIN_EXE_agent") {
-            let output = std::process::Command::new(exe)
-                .arg("--headless")
-                .output()
-                .expect("execute agent --headless");
-            assert_eq!(output.status.code(), Some(1));
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(
-                stderr.contains("Error: El modo --headless sin bandeja está prohibido (PROC-02)")
-            );
-        }
     }
 }

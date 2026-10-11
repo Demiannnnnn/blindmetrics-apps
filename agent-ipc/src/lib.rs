@@ -6,8 +6,9 @@ pub use client::IpcClient;
 pub use framing::{read_frame, write_frame, FramingError, MAX_FRAME_SIZE};
 pub use futures::{Stream as EventStream, StreamExt};
 pub use transport::{
-    default_runtime_dir, get_runtime_dir_from_env, read_ipc_token, socket_endpoint, token_path,
-    verify_token, write_ipc_token, Listener, ListenerTrait, SocketEndpoint, Stream, StreamTrait,
+    connect_stream, default_runtime_dir, get_runtime_dir_from_env, read_ipc_token, socket_endpoint,
+    token_path, verify_token, write_ipc_token, Listener, ListenerTrait, SocketEndpoint, Stream,
+    StreamTrait,
 };
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// Frame sent from the client to the service over the IPC socket.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(deny_unknown_fields)]
 pub enum ClientFrame {
     Hello {
         protocol_version: u16,
@@ -33,6 +35,7 @@ pub enum ClientFrame {
 /// Frame sent from the service to the client over the IPC socket.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(deny_unknown_fields)]
 pub enum ServerFrame {
     Welcome {
         service_version: String,

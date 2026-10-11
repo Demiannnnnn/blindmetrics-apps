@@ -26,19 +26,59 @@ use notifications::NotificationDispatcher;
 use state::RunMode;
 use ui::tray::{SystemTrayManager, TrayAction};
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// Pure function to resolve the UI binary path (RF-AGENT-10-9).
+/// Priority:
+/// 1. `override_bin`: if `TELEMETRY_WORKER_UI_BIN` is provided (dev override, non-empty).
+/// 2. Sibling executable `telemetry-worker` (`telemetry-worker.exe` on Windows) in the same directory as `current_exe`.
+pub fn resolve_ui_binary_path(
+    override_bin: Option<&str>,
+    current_exe: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(dev_override) = override_bin {
+        let trimmed = dev_override.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+
+    #[cfg(windows)]
+    let bin_name = "telemetry-worker.exe";
+    #[cfg(not(windows))]
+    let bin_name = "telemetry-worker";
+
+    current_exe
+        .and_then(|p| p.parent())
+        .map(|dir| dir.join(bin_name))
+}
+
 fn launch_ui_bin() {
-    let bin =
-        std::env::var("TELEMETRY_WORKER_UI_BIN").unwrap_or_else(|_| "telemetry-worker".to_string());
-    match std::process::Command::new(&bin).spawn() {
+    let override_var = std::env::var("TELEMETRY_WORKER_UI_BIN").ok();
+    let current_exe = std::env::current_exe().ok();
+    let resolved = resolve_ui_binary_path(override_var.as_deref(), current_exe.as_deref());
+
+    let Some(bin_path) = resolved else {
+        tracing::warn!("Could not determine UI binary path (RF-AGENT-10-9)");
+        NotificationDispatcher::notify_ui_not_found();
+        return;
+    };
+
+    if !bin_path.is_file() {
+        tracing::warn!("UI binary does not exist at {:?} (RF-AGENT-10-9)", bin_path);
+        NotificationDispatcher::notify_ui_not_found();
+        return;
+    }
+
+    match std::process::Command::new(&bin_path).spawn() {
         Ok(_) => {
-            tracing::info!("Launched worker UI: {}", bin);
+            tracing::info!("Launched worker UI: {:?}", bin_path);
         }
         Err(e) => {
-            tracing::warn!("Could not launch worker UI '{}': {}", bin, e);
+            tracing::warn!("Could not launch worker UI {:?}: {}", bin_path, e);
             NotificationDispatcher::notify_ui_not_found();
         }
     }
@@ -288,4 +328,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Clean shutdown complete. Exiting with code 0.");
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_ui_binary_path_with_dev_override() {
+        let dev = Some("/custom/bin/telemetry-worker-dev");
+        let current_exe = Some(Path::new("/opt/telemetry/bin/telemetry-agent"));
+        let resolved = resolve_ui_binary_path(dev, current_exe);
+        assert_eq!(
+            resolved,
+            Some(PathBuf::from("/custom/bin/telemetry-worker-dev"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_ui_binary_path_sibling_to_current_exe() {
+        let current_exe = Some(Path::new("/opt/telemetry/bin/telemetry-agent"));
+        let resolved = resolve_ui_binary_path(None, current_exe);
+        #[cfg(windows)]
+        assert_eq!(
+            resolved,
+            Some(PathBuf::from(r"/opt/telemetry/bin\telemetry-worker.exe"))
+        );
+        #[cfg(not(windows))]
+        assert_eq!(
+            resolved,
+            Some(PathBuf::from("/opt/telemetry/bin/telemetry-worker"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_ui_binary_path_empty_override_falls_back_to_sibling() {
+        let dev = Some("   ");
+        let current_exe = Some(Path::new("/usr/local/bin/telemetry-agent"));
+        let resolved = resolve_ui_binary_path(dev, current_exe);
+        #[cfg(windows)]
+        assert_eq!(
+            resolved,
+            Some(PathBuf::from(r"/usr/local/bin\telemetry-worker.exe"))
+        );
+        #[cfg(not(windows))]
+        assert_eq!(
+            resolved,
+            Some(PathBuf::from("/usr/local/bin/telemetry-worker"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_ui_binary_path_missing_inputs() {
+        let resolved = resolve_ui_binary_path(None, None);
+        assert_eq!(resolved, None);
+    }
 }

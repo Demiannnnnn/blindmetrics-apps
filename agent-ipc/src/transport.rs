@@ -131,15 +131,66 @@ pub fn endpoint_to_name(endpoint: &SocketEndpoint) -> std::io::Result<Name<'stat
     }
 }
 
-/// Ensures the `<runtime_dir>/telemetry-worker` directory exists with `0700` permissions on Unix.
+/// Ensures the `<runtime_dir>/telemetry-worker` directory exists with `0700` permissions on Unix (SEC-18).
+/// Refuses symlinks, non-directories, and directories not owned by the current process.
 pub fn ensure_runtime_directory(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::DirBuilderExt;
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);
         builder.mode(0o700);
         builder.create(dir)?;
+
+        let meta = std::fs::symlink_metadata(dir)?;
+        if meta.file_type().is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("Runtime directory {:?} must not be a symlink (SEC-18)", dir),
+            ));
+        }
+        if !meta.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "Runtime directory {:?} must be a regular directory (SEC-18)",
+                    dir
+                ),
+            ));
+        }
+
+        // Compare owner uid with current process uid using a probe file inside dir
+        let probe_path = dir.join(format!(
+            ".uid_probe_{}_{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        let probe = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&probe_path)?;
+        let probe_uid = probe.metadata()?.uid();
+        drop(probe);
+        let _ = std::fs::remove_file(&probe_path);
+
+        if meta.uid() != probe_uid {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "Runtime directory {:?} owner uid {} does not match current process uid {} (SEC-18)",
+                    dir,
+                    meta.uid(),
+                    probe_uid
+                ),
+            ));
+        }
+
+        let mode = meta.permissions().mode();
+        if mode & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
     }
     #[cfg(not(unix))]
     {
@@ -161,18 +212,32 @@ pub fn write_ipc_token(token_file: &Path) -> std::io::Result<String> {
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        // Remove any existing file or symlink first (O_NOFOLLOW / symlink avoidance)
+        let _ = std::fs::remove_file(token_file);
+
         let mut file = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(token_file)?;
         file.write_all(token.as_bytes())?;
+        file.flush()?;
+
+        // Ensure permissions are strictly 0600 even if pre-existing or umask interfered
+        std::fs::set_permissions(token_file, std::fs::Permissions::from_mode(0o600))?;
     }
     #[cfg(not(unix))]
     {
-        std::fs::write(token_file, token.as_bytes())?;
+        let _ = std::fs::remove_file(token_file);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(token_file)?;
+        use std::io::Write;
+        file.write_all(token.as_bytes())?;
+        file.flush()?;
     }
 
     Ok(token)
@@ -180,6 +245,19 @@ pub fn write_ipc_token(token_file: &Path) -> std::io::Result<String> {
 
 /// Reads the IPC token from the file.
 pub fn read_ipc_token(token_file: &Path) -> std::io::Result<String> {
+    #[cfg(unix)]
+    {
+        if let Some(parent) = token_file.parent() {
+            ensure_runtime_directory(parent)?;
+        }
+        let meta = std::fs::symlink_metadata(token_file)?;
+        if meta.file_type().is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("Token file {:?} must not be a symlink (SEC-18)", token_file),
+            ));
+        }
+    }
     let content = std::fs::read_to_string(token_file)?;
     Ok(content.trim().to_string())
 }
@@ -313,5 +391,57 @@ mod tests {
         };
 
         tokio::join!(client_fut, server_fut);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_runtime_directory_mode_755_fixed_to_700() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("test_runtime");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        ensure_runtime_directory(&target).unwrap();
+
+        let meta = std::fs::metadata(&target).unwrap();
+        let mode = meta.permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_runtime_directory_symlink_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real_dir = tmp.path().join("real_dir");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_path = tmp.path().join("symlink_dir");
+        std::os::unix::fs::symlink(&real_dir, &symlink_path).unwrap();
+
+        let err = ensure_runtime_directory(&symlink_path).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains("symlink"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_token_file_permissions_are_0600_and_pre_existing_overwritten() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let token_path = tmp.path().join("telemetry-worker").join("ipc.token");
+
+        // First write
+        let token1 = write_ipc_token(&token_path).unwrap();
+        let meta1 = std::fs::symlink_metadata(&token_path).unwrap();
+        assert_eq!(meta1.permissions().mode() & 0o777, 0o600);
+
+        // Modify mode to 0644 to simulate pre-existing insecure file
+        std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        // Second write (over pre-existing)
+        let token2 = write_ipc_token(&token_path).unwrap();
+        assert_ne!(token1, token2);
+        let meta2 = std::fs::symlink_metadata(&token_path).unwrap();
+        assert_eq!(meta2.permissions().mode() & 0o777, 0o600);
     }
 }

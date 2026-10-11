@@ -33,8 +33,12 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 notify = "6.1"
 tray-icon = "0.24"
 
-[dev-dependencies]
+[[bin]]
+name = "telemetry-agent"
+path = "src/main.rs"
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"
 wiremock = "0.6"
 
