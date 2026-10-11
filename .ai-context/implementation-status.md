@@ -100,7 +100,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 4. ~~Security: unverified biometric unlock~~ — closed by ADMIN-13 (button and command removed).
 5. The admin WebView CSP (`admin-client/src-tauri/tauri.conf.json`) still allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`; tightening it is pending hardening (see `security-model.md`, XSS row).
 6. **Privacy:** a withdrawal that fails offline is not re-sent automatically (see the Withdrawal row); target: persist a pending withdrawal and resend it on the next poll.
-7. **Privacy:** `agent --headless` runs the engine without a tray icon (`agent/src/main.rs`), contrary to `docs/worker-app-spec.md` §5 ("no invisible monitoring"); do not ship it until it refuses to start without a tray.
+7. ~~Privacy: `--headless` without tray~~ — closed by AGENT-10 (flag refused; no tray ⇒ no collectors).
 8. Rate limits and lockouts are enforced by the API only; the apps show the `Retry-After` countdown but do not throttle locally.
 9. End-to-end runs against a live API + real desktop sessions are still pending; see "Verification" above.
 
@@ -111,7 +111,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 |:--|:--:|:--|
 | Green clippy baseline | ✅ | INT-03 |
 | Attendance mark hash + vector, legal hash/placeholders, PIN verifier, RUT | ✅ | CRYPTO-04 |
-| Worker app split: `agent` service + `agent-ipc` + tray-only, no egui | ❌ | AGENT-10 |
+| Worker app split: `agent` service + `agent-ipc` + tray-only, no egui | ✅ | AGENT-10 |
 | Worker window `agent-ui` (Tauri) with parity | ❌ | AGENT-11 |
 | Service: contract v3 lifecycle, terms, PIN, marks + offline queue, corrections, local alerts | ❌ | AGENT-12 |
 | Window: terms, PIN, attendance home, receipts, records, corrections | ❌ | AGENT-13 |
