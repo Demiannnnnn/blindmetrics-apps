@@ -23,6 +23,15 @@ import type {
   PaginationMeta,
   UpdateWorkerForm,
   WorkerListQuery,
+  LegalDocumentsBundle,
+  LegalStatus,
+  TermsAcceptanceResponse,
+  EmployerProfile,
+  Workplace,
+  WorkplaceForm,
+  AttendanceSettings,
+  TechnicalIncident,
+  CreateIncidentForm,
 } from './types';
 
 export * from './types';
@@ -701,25 +710,6 @@ export async function adminUnlock(password: string): Promise<AdminProfile> {
   throw new Error("admin_unlock IPC unavailable outside Tauri");
 }
 
-export async function adminUnlockWithBiometric(): Promise<AdminProfile> {
-  if (isTauri()) {
-    const profile = await invoke<AdminProfile>('admin_unlock_with_biometric');
-    currentSession = profile;
-    return profile;
-  }
-  if (isDemoMode) {
-    const profile: AdminProfile = {
-      id: 'admin-demo-1',
-      name: 'Administrador Demo',
-      email: 'admin@telemetry.cl',
-      organization: 'Organización Demo',
-    };
-    currentSession = profile;
-    return profile;
-  }
-  throw new Error("admin_unlock_with_biometric IPC unavailable outside Tauri");
-}
-
 export async function adminIsLocked(): Promise<boolean> {
   if (isTauri()) {
     return await invoke<boolean>('admin_is_locked');
@@ -897,3 +887,210 @@ export async function devicesRevoke(id: string): Promise<boolean> {
   }
   return requireTauri('devices_revoke');
 }
+
+// ---------------------------------------------------------------- legal (TASK-ADMIN-13)
+
+export async function legalDocuments(): Promise<LegalDocumentsBundle> {
+  if (isTauri()) return await invoke<LegalDocumentsBundle>('legal_documents');
+  if (isDemoMode) {
+    return {
+      employer_terms: {
+        document: 'EMPLOYER_TERMS',
+        title: 'Términos y Condiciones del Servicio Telemetry para Empleadores',
+        version: '2026-10-11',
+        hash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        content: '# Términos y Condiciones del Servicio Telemetry para Empleadores\n\nVersión 2026-10-11\n\nEstos términos regulan el uso de la plataforma...',
+      },
+      privacy_policy: {
+        document: 'PRIVACY_POLICY',
+        title: 'Política de Privacidad de Telemetry',
+        version: '2026-10-11',
+        hash: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+        content: '# Política de Privacidad de Telemetry\n\nVersión 2026-10-11\n\nTelemetry aplica el principio de privacidad por diseño...',
+      },
+    };
+  }
+  return requireTauri('legal_documents');
+}
+
+export async function legalStatus(): Promise<LegalStatus> {
+  if (isTauri()) return await invoke<LegalStatus>('legal_status');
+  if (isDemoMode) {
+    return {
+      terms_accepted_version: '2026-10-11',
+      terms_required_version: '2026-10-11',
+      current_embedded_version: '2026-10-11',
+      needs_acceptance: false,
+    };
+  }
+  return requireTauri('legal_status');
+}
+
+export async function legalAcceptTerms(): Promise<TermsAcceptanceResponse> {
+  if (isTauri()) return await invoke<TermsAcceptanceResponse>('legal_accept_terms');
+  if (isDemoMode) {
+    return {
+      status: 'ACTIVE',
+      terms_accepted_version: '2026-10-11',
+    };
+  }
+  return requireTauri('legal_accept_terms');
+}
+
+// ---------------------------------------------------------------- employer (TASK-ADMIN-13)
+
+let demoEmployer: EmployerProfile | null = isDemoMode
+  ? {
+      kind: 'LEGAL_ENTITY',
+      legal_name: 'Acme SpA',
+      rut: '76.123.456-7',
+      address: {
+        street: 'Av. Apoquindo',
+        number: '1234',
+        floor: '5',
+        office: '501',
+        commune: 'Las Condes',
+        city: 'Santiago',
+        region: 'Región Metropolitana de Santiago',
+      },
+    }
+  : null;
+
+let demoWorkplaces: Workplace[] = isDemoMode
+  ? [
+      {
+        id: 'wp-demo-1',
+        name: 'Casa Matriz',
+        address: {
+          street: 'Av. Apoquindo',
+          number: '1234',
+          floor: '5',
+          office: '501',
+          commune: 'Las Condes',
+          city: 'Santiago',
+          region: 'Región Metropolitana de Santiago',
+        },
+        assigned_workers_count: 2,
+      },
+    ]
+  : [];
+
+let demoAttendanceSettings: AttendanceSettings = {
+  missing_mark_alerts: true,
+};
+
+let demoIncidents: TechnicalIncident[] = isDemoMode
+  ? [
+      {
+        id: 'inc-demo-1',
+        started_at: '2026-10-01T08:00:00Z',
+        ended_at: '2026-10-01T08:45:00Z',
+        description: 'Corte de fibra óptica en data center principal.',
+        created_at: '2026-10-01T08:45:00Z',
+      },
+    ]
+  : [];
+
+export async function employerGet(): Promise<EmployerProfile | null> {
+  if (isTauri()) return await invoke<EmployerProfile | null>('employer_get');
+  if (isDemoMode) return demoEmployer;
+  return requireTauri('employer_get');
+}
+
+export async function employerUpdate(form: EmployerProfile): Promise<EmployerProfile> {
+  if (isTauri()) return await invoke<EmployerProfile>('employer_update', { form });
+  if (isDemoMode) {
+    demoEmployer = { ...form };
+    return demoEmployer;
+  }
+  return requireTauri('employer_update');
+}
+
+export async function workplacesList(): Promise<Workplace[]> {
+  if (isTauri()) return await invoke<Workplace[]>('workplaces_list');
+  if (isDemoMode) return demoWorkplaces;
+  return requireTauri('workplaces_list');
+}
+
+export async function workplacesCreate(form: WorkplaceForm): Promise<Workplace> {
+  if (isTauri()) return await invoke<Workplace>('workplaces_create', { form });
+  if (isDemoMode) {
+    const created: Workplace = {
+      id: `wp-demo-${Date.now()}`,
+      name: form.name,
+      address: form.address,
+      assigned_workers_count: 0,
+    };
+    demoWorkplaces = [...demoWorkplaces, created];
+    return created;
+  }
+  return requireTauri('workplaces_create');
+}
+
+export async function workplacesUpdate(id: string, form: WorkplaceForm): Promise<Workplace> {
+  if (isTauri()) return await invoke<Workplace>('workplaces_update', { id, form });
+  if (isDemoMode) {
+    const idx = demoWorkplaces.findIndex(w => w.id === id);
+    if (idx >= 0) {
+      demoWorkplaces[idx] = {
+        ...demoWorkplaces[idx],
+        name: form.name,
+        address: form.address,
+      };
+      return demoWorkplaces[idx];
+    }
+    throw new Error('Workplace not found');
+  }
+  return requireTauri('workplaces_update');
+}
+
+export async function workplacesDelete(id: string): Promise<boolean> {
+  if (isTauri()) return await invoke<boolean>('workplaces_delete', { id });
+  if (isDemoMode) {
+    demoWorkplaces = demoWorkplaces.filter(w => w.id !== id);
+    return true;
+  }
+  return requireTauri('workplaces_delete');
+}
+
+export async function attendanceSettingsGet(): Promise<AttendanceSettings> {
+  if (isTauri()) return await invoke<AttendanceSettings>('attendance_settings_get');
+  if (isDemoMode) return demoAttendanceSettings;
+  return requireTauri('attendance_settings_get');
+}
+
+export async function attendanceSettingsUpdate(missing_mark_alerts: boolean): Promise<AttendanceSettings> {
+  if (isTauri()) {
+    return await invoke<AttendanceSettings>('attendance_settings_update', {
+      missingMarkAlerts: missing_mark_alerts,
+    });
+  }
+  if (isDemoMode) {
+    demoAttendanceSettings = { missing_mark_alerts };
+    return demoAttendanceSettings;
+  }
+  return requireTauri('attendance_settings_update');
+}
+
+export async function incidentsList(): Promise<TechnicalIncident[]> {
+  if (isTauri()) return await invoke<TechnicalIncident[]>('incidents_list');
+  if (isDemoMode) return demoIncidents;
+  return requireTauri('incidents_list');
+}
+
+export async function incidentsCreate(form: CreateIncidentForm): Promise<TechnicalIncident> {
+  if (isTauri()) return await invoke<TechnicalIncident>('incidents_create', { form });
+  if (isDemoMode) {
+    const created: TechnicalIncident = {
+      id: `inc-demo-${Date.now()}`,
+      started_at: form.started_at,
+      ended_at: form.ended_at ?? null,
+      description: form.description,
+      created_at: new Date().toISOString(),
+    };
+    demoIncidents = [created, ...demoIncidents];
+    return created;
+  }
+  return requireTauri('incidents_create');
+}
+

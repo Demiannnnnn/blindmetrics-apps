@@ -95,6 +95,10 @@ pub struct AdminMeResponse {
     pub key_backup_enabled: bool,
     #[serde(default)]
     pub onboarding_completed: bool,
+    #[serde(default)]
+    pub terms_accepted_version: Option<String>,
+    #[serde(default)]
+    pub terms_required_version: Option<String>,
 }
 
 /// Profile exposed to the UI. Never contains tokens or keys other than the public key.
@@ -120,6 +124,10 @@ pub struct AdminProfile {
     pub is_new_user: bool,
     #[serde(default)]
     pub trial_days_left: Option<i64>,
+    #[serde(default)]
+    pub terms_accepted_version: Option<String>,
+    #[serde(default)]
+    pub terms_required_version: Option<String>,
 }
 
 impl AdminProfile {
@@ -137,6 +145,8 @@ impl AdminProfile {
             onboarding_completed: me.onboarding_completed,
             is_new_user,
             trial_days_left: None,
+            terms_accepted_version: me.terms_accepted_version,
+            terms_required_version: me.terms_required_version,
         }
     }
 }

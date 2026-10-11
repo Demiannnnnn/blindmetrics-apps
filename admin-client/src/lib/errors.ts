@@ -50,6 +50,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   BROWSER_UNAVAILABLE: 'No se pudo abrir el navegador del sistema.',
   PORTAL_URL_UNAVAILABLE: 'El servidor no informó la dirección del portal; contacta a soporte.',
   PORTAL_URL_INVALID: 'La dirección del portal no es válida; contacta a soporte.',
+  EMPLOYER_PROFILE_MISSING: 'Completa los datos de tu empresa antes de crear trabajadores.',
+  TERMS_VERSION_MISMATCH: 'Actualiza la app para aceptar la versión vigente de los términos.',
 };
 
 /** Codes whose own message is more precise than the table (local messages already in Spanish). */

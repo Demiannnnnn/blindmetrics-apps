@@ -143,11 +143,6 @@ pub async fn admin_unlock(password: String) -> Result<AdminProfile, CommandError
 }
 
 #[tauri::command]
-pub async fn admin_unlock_with_biometric() -> Result<AdminProfile, CommandError> {
-    Ok(get_api_client().unlock_with_refresh().await?)
-}
-
-#[tauri::command]
 pub fn admin_is_locked() -> Result<bool, CommandError> {
     Ok(get_api_client().is_locked())
 }

@@ -13,12 +13,15 @@ import {
   FileText,
   Calendar,
   RefreshCw,
+  Building2,
 } from 'lucide-react';
 import {
   WorkerItem,
   AdminProfile,
   SubscriptionStatus,
   VaultStatus,
+  LegalStatus,
+  legalStatus,
   getWorkersList,
   getAdminSession,
   adminLogout,
@@ -42,15 +45,18 @@ import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
 import { TrialBanner } from './components/TrialBanner';
 import { OrganizationPrompt } from './components/OrganizationPrompt';
 import { KeyRecoveryWizard } from './components/KeyRecoveryWizard';
+import { TermsGate } from './components/TermsGate';
+import { EmployerProfile } from './components/EmployerProfile';
 import { useAutoLock } from './hooks/useAutoLock';
 import { describeError } from './lib/errors';
 import { isBlocked, shouldShowTrialBanner } from './lib/subscription';
 
 type LockStatus = Pick<SubscriptionStatus, 'effective_status' | 'reason' | 'portal_url' | 'support_email'>;
 
-/** What stands between a signed-in admin and the console (docs/admin-app-spec.md §1). */
+/** What stands between a signed-in admin and the console (docs/admin-app-spec.md §1, §5.2). */
 type Gate =
   | { kind: 'checking' }
+  | { kind: 'terms'; status: LegalStatus }
   | { kind: 'error'; message: string }
   | { kind: 'blocked'; status: LockStatus }
   | { kind: 'organization' }
@@ -65,7 +71,7 @@ export const App: React.FC = () => {
   const profileRef = useRef<AdminProfile | null>(null);
   profileRef.current = adminProfile;
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'system' | 'network' | 'productivity' | 'files' | 'location' | 'compliance'
+    'dashboard' | 'system' | 'network' | 'productivity' | 'files' | 'location' | 'employer' | 'compliance'
   >('dashboard');
   const [selectedWorker, setSelectedWorker] = useState<WorkerItem | null>(null);
   const [allWorkers, setAllWorkers] = useState<WorkerItem[]>([]);
@@ -76,11 +82,23 @@ export const App: React.FC = () => {
   const [customTo, setCustomTo] = useState<string>('');
 
   /**
-   * RF-ADMIN-12-1: subscription on every start/login/unlock, then organization (RF-ADMIN-09-5)
-   * and the key state (TASK-ADMIN-11). Only a green gate mounts the console.
+   * Gates sequencing (docs/admin-app-spec.md §5.2):
+   * T1 terms → subscription (L2) → organization (O1) → key state (K*).
+   * Only a green gate mounts the console.
    */
   const runGates = useCallback(async () => {
     setGate({ kind: 'checking' });
+    try {
+      const legal = await legalStatus();
+      if (legal.needs_acceptance) {
+        setGate({ kind: 'terms', status: legal });
+        return;
+      }
+    } catch (e) {
+      setGate({ kind: 'error', message: describeError(e, 'No se pudo verificar el estado de los términos legales.') });
+      return;
+    }
+
     let subscription: SubscriptionStatus;
     try {
       subscription = await subscriptionStatus();
@@ -222,6 +240,10 @@ export const App: React.FC = () => {
         <RefreshCw className="w-4 h-4 animate-spin" /> Verificando suscripción y llave…
       </div>
     );
+  }
+
+  if (gate.kind === 'terms') {
+    return <TermsGate onAccepted={runGates} onLogout={handleLogout} />;
   }
 
   if (gate.kind === 'error') {
@@ -369,6 +391,18 @@ export const App: React.FC = () => {
             >
               <MapPin className="w-4 h-4" />
               <span>Ubicación en Terreno (FIELD)</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('employer')}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
+                activeTab === 'employer'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
+              }`}
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Empresa</span>
             </button>
 
             <button
@@ -531,6 +565,7 @@ export const App: React.FC = () => {
               }}
               onOpenVault={() => setActiveTab('compliance')}
               onProfileChanged={setAdminProfile}
+              onNavigateToEmployer={() => setActiveTab('employer')}
             />
           )}
 
@@ -579,6 +614,10 @@ export const App: React.FC = () => {
               timezone={selectedWorker?.timezone ?? 'America/Santiago'}
               timeRange={timeRange}
             />
+          )}
+
+          {activeTab === 'employer' && (
+            <EmployerProfile onProfileUpdated={() => runGates()} />
           )}
 
           {activeTab === 'compliance' && (

@@ -2,6 +2,7 @@ import React from 'react';
 import { ShieldCheck, Lock, FileText, UserCheck } from 'lucide-react';
 import { KeyVault } from './KeyVault';
 import { AccountSecurity } from './AccountSecurity';
+import { LegalDocumentsPanel } from './LegalDocumentsPanel';
 
 interface ConsentSettingsProps {
   registeredFingerprint: string | null | undefined;
@@ -78,6 +79,7 @@ export const ConsentSettings: React.FC<ConsentSettingsProps> = ({
 
       <KeyVault onKeyChanged={onKeyChanged} />
       <AccountSecurity registeredFingerprint={registeredFingerprint} onCurrentDeviceRevoked={onCurrentDeviceRevoked} />
+      <LegalDocumentsPanel />
     </div>
   );
 };
