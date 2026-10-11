@@ -111,6 +111,14 @@ impl OfflineQueue {
         Self::init_tables(conn)
     }
 
+    pub fn open_default() -> SqlResult<Self> {
+        let mut db_path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+        db_path.push("telemetry-worker");
+        let _ = std::fs::create_dir_all(&db_path);
+        db_path.push("offline.db");
+        Self::open(&db_path)
+    }
+
     pub fn open_in_memory() -> SqlResult<Self> {
         let conn = Connection::open_in_memory()?;
         Self::init_tables(conn)
@@ -244,6 +252,15 @@ impl OfflineQueue {
             .conn
             .query_row("SELECT COUNT(*) FROM offline_queue", [], |r| r.get(0))?;
         Ok(count as usize)
+    }
+
+    pub fn size_bytes(&self) -> SqlResult<u64> {
+        let size: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(length(encrypted_payload)), 0) FROM offline_queue",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(size.max(0) as u64)
     }
 
     /// Purges all queued envelopes upon consent withdrawal or revocation (DP-09).

@@ -11,6 +11,7 @@ pub const KEY_PINNED_FINGERPRINT: &str = "pinned_fingerprint";
 pub const KEY_WORKER_ID: &str = "worker_id";
 pub const KEY_ACCEPTED_MANIFEST_HASH: &str = "accepted_manifest_hash";
 pub const KEY_ACCEPTED_FLAGS: &str = "accepted_consent_flags";
+pub const KEY_PENDING_WITHDRAWAL: &str = "pending_withdrawal";
 
 /// Abstract secure credential storage trait to ensure isolation (SEC-05).
 /// Concrete implementations exist for OS Keystore and in-memory mock.
@@ -36,6 +37,13 @@ pub trait CredentialStore: Send + Sync {
     fn get_accepted_flags(&self) -> Option<ConsentFlags>;
     fn set_accepted_flags(&self, flags: Option<&ConsentFlags>) -> Result<(), String>;
 
+    fn get_pending_withdrawal(&self) -> bool {
+        false
+    }
+    fn set_pending_withdrawal(&self, _pending: bool) -> Result<(), String> {
+        Ok(())
+    }
+
     fn wipe(&self) -> Result<(), String> {
         self.set_access_token(None)?;
         self.set_refresh_token(None)?;
@@ -44,6 +52,7 @@ pub trait CredentialStore: Send + Sync {
         self.set_worker_id(None)?;
         self.set_accepted_manifest_hash(None)?;
         self.set_accepted_flags(None)?;
+        self.set_pending_withdrawal(false)?;
         Ok(())
     }
 }
@@ -141,6 +150,19 @@ impl CredentialStore for InMemoryCredentialStore {
         let serialized = flags.map(|f| serde_json::to_string(f).unwrap_or_default());
         self.set_val(KEY_ACCEPTED_FLAGS, serialized.as_deref())
     }
+
+    fn get_pending_withdrawal(&self) -> bool {
+        self.get_val(KEY_PENDING_WITHDRAWAL)
+            .map(|s| s == "true")
+            .unwrap_or(false)
+    }
+
+    fn set_pending_withdrawal(&self, pending: bool) -> Result<(), String> {
+        self.set_val(
+            KEY_PENDING_WITHDRAWAL,
+            if pending { Some("true") } else { None },
+        )
+    }
 }
 
 /// OS Native Keystore implementation backed by keyring (Apple Keychain / Windows Credential Manager / Secret Service).
@@ -229,6 +251,19 @@ impl CredentialStore for KeyringCredentialStore {
     fn set_accepted_flags(&self, flags: Option<&ConsentFlags>) -> Result<(), String> {
         let serialized = flags.map(|f| serde_json::to_string(f).unwrap_or_default());
         Self::set_entry(KEY_ACCEPTED_FLAGS, serialized.as_deref())
+    }
+
+    fn get_pending_withdrawal(&self) -> bool {
+        Self::get_entry(KEY_PENDING_WITHDRAWAL)
+            .map(|s| s == "true")
+            .unwrap_or(false)
+    }
+
+    fn set_pending_withdrawal(&self, pending: bool) -> Result<(), String> {
+        Self::set_entry(
+            KEY_PENDING_WITHDRAWAL,
+            if pending { Some("true") } else { None },
+        )
     }
 }
 

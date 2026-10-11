@@ -194,6 +194,32 @@ impl NotificationDispatcher {
                 .show();
         });
     }
+
+    /// Notifies that the worker UI executable was not found (RF-AGENT-10-9).
+    pub fn notify_ui_not_found() {
+        std::thread::spawn(|| {
+            let _ = Notification::new()
+                .appname("Telemetry Worker")
+                .summary("Telemetry")
+                .body("No se encontró la ventana de la app. Reinstálala.")
+                .icon("dialog-warning")
+                .timeout(notify_rust::Timeout::Milliseconds(6000))
+                .show();
+        });
+    }
+
+    /// Prompts the user to click Salir again within 10s to confirm quit (RF-AGENT-10-9).
+    pub fn notify_confirm_quit() {
+        std::thread::spawn(|| {
+            let _ = Notification::new()
+                .appname("Telemetry Worker")
+                .summary("Telemetry")
+                .body("Vuelve a presionar Salir para confirmar")
+                .icon("dialog-information")
+                .timeout(notify_rust::Timeout::Milliseconds(10000))
+                .show();
+        });
+    }
 }
 
 #[cfg(test)]
@@ -216,5 +242,7 @@ mod tests {
         NotificationDispatcher::notify_consent_request_changed();
         NotificationDispatcher::notify_unlinked();
         NotificationDispatcher::notify_halted();
+        NotificationDispatcher::notify_ui_not_found();
+        NotificationDispatcher::notify_confirm_quit();
     }
 }

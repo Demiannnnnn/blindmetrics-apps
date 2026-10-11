@@ -152,6 +152,72 @@ pub fn commit_enrollment(
     Ok(())
 }
 
+/// Builds the enrollment input from the form: a pasted QR payload
+/// or a manual code.
+pub fn parse_enrollment_input(
+    with_qr: bool,
+    qr_text: &str,
+    code: &str,
+    server_url: &str,
+) -> Result<EnrollmentInput, String> {
+    if with_qr {
+        let qr = EnrollmentQr::parse_payload(qr_text).map_err(|_| {
+            "El contenido pegado no es un código de vinculación válido.".to_string()
+        })?;
+        if !qr_targets_server(&qr.api_url, server_url) {
+            return Err(
+                "Este código de vinculación es de otro servidor. Pide a tu administrador uno generado desde la aplicación oficial."
+                    .into(),
+            );
+        }
+        return Ok(EnrollmentInput::Qr(qr));
+    }
+    let code = normalize_code(code);
+    if code.len() != 12 {
+        return Err("El código debe tener 12 caracteres válidos.".into());
+    }
+    Ok(EnrollmentInput::Manual { code })
+}
+
+/// Messages by `details.reason` of `POST /workers/enroll`.
+pub fn enrollment_error_message(e: &EnrollmentError) -> String {
+    match e {
+        EnrollmentError::Api(AgentError::Api {
+            status: 429,
+            reason,
+            retry_after_seconds,
+            ..
+        }) => {
+            if reason.as_deref() == Some("ENROLLMENT_LOCKED") {
+                let minutes = retry_after_seconds.map(|s| s.div_ceil(60)).unwrap_or(15).max(1);
+                format!(
+                    "Demasiados intentos fallidos. Podrás intentarlo de nuevo en {} minuto(s).",
+                    minutes
+                )
+            } else {
+                "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.".into()
+            }
+        }
+        EnrollmentError::Api(AgentError::Api { status: 409, reason, .. })
+            if reason.as_deref() == Some("DEVICE_ALREADY_ENROLLED") =>
+        {
+            "Este equipo ya está vinculado a otro trabajador de la organización. Pide a tu administrador que lo desvincule.".into()
+        }
+        EnrollmentError::Api(AgentError::Api { status: 409, .. }) => {
+            "Este código ya fue utilizado. Si no fuiste tú, avisa a tu administrador de inmediato."
+                .into()
+        }
+        EnrollmentError::Api(AgentError::Api { status: 400, .. })
+        | EnrollmentError::InvalidCodeFormat => {
+            "Este código es inválido o expiró. Pide uno nuevo a tu administrador.".into()
+        }
+        EnrollmentError::Api(AgentError::Network(_)) => {
+            "No se pudo contactar al servidor. Verifica la dirección y tu conexión.".into()
+        }
+        other => format!("Error de vinculación: {}", other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,5 +450,79 @@ mod tests {
 
         let res = enroll(&client, &manual_input, "dummy-device-id", &device).await;
         assert!(matches!(res, Err(EnrollmentError::Tampered)));
+    }
+
+    fn api_error(status: u16, reason: Option<&str>, retry: Option<u64>) -> EnrollmentError {
+        EnrollmentError::Api(crate::errors::AgentError::Api {
+            status,
+            code: "X".into(),
+            reason: reason.map(str::to_string),
+            retry_after_seconds: retry,
+            details: None,
+        })
+    }
+
+    #[test]
+    fn test_enrollment_error_messages_by_reason() {
+        assert!(
+            enrollment_error_message(&api_error(400, Some("INVALID_ENROLLMENT_TOKEN"), None))
+                .contains("inválido o expiró")
+        );
+        assert!(enrollment_error_message(&api_error(
+            409,
+            Some("ENROLLMENT_ALREADY_COMPLETED"),
+            None
+        ))
+        .contains("ya fue utilizado"));
+        assert!(
+            enrollment_error_message(&api_error(409, Some("DEVICE_ALREADY_ENROLLED"), None))
+                .contains("ya está vinculado a otro trabajador")
+        );
+        assert!(
+            enrollment_error_message(&api_error(429, Some("ENROLLMENT_LOCKED"), Some(900)))
+                .contains("15 minuto")
+        );
+        assert!(
+            enrollment_error_message(&api_error(429, Some("ENROLLMENT_LOCKED"), Some(61)))
+                .contains("2 minuto")
+        );
+        assert!(enrollment_error_message(&api_error(429, None, None))
+            .contains("Demasiadas solicitudes"));
+        assert!(enrollment_error_message(&EnrollmentError::Api(
+            crate::errors::AgentError::Network("down".into())
+        ))
+        .contains("No se pudo contactar"));
+    }
+
+    #[test]
+    fn test_enrollment_input_manual_code_normalized() {
+        let server = "https://api.acme.cl/api/v1";
+        let input = parse_enrollment_input(false, "", "k7qm-4xrt-9pwo", server).unwrap();
+        assert_eq!(
+            input,
+            EnrollmentInput::Manual {
+                code: "K7QM4XRT9PW0".into(),
+            }
+        );
+        assert!(parse_enrollment_input(false, "", "K7QM", server).is_err());
+    }
+
+    #[test]
+    fn test_enrollment_input_pasted_qr_must_target_the_built_in_server() {
+        let server = "https://api.acme.cl/api/v1";
+        let qr = EnrollmentQr::new(server.into(), "K7QM-4XRT-9PWD".into(), "a".repeat(64)).unwrap();
+        let input = parse_enrollment_input(true, &qr.to_json().unwrap(), "", server).unwrap();
+        assert!(matches!(input, EnrollmentInput::Qr(_)));
+        assert!(parse_enrollment_input(true, "not a qr", "", server).is_err());
+        let from_base64 =
+            parse_enrollment_input(true, &qr.to_payload().unwrap(), "", server).unwrap();
+        assert_eq!(from_base64, input);
+        let foreign = EnrollmentQr::new(
+            "https://evil.example/api/v1".into(),
+            "K7QM-4XRT-9PWD".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        assert!(parse_enrollment_input(true, &foreign.to_json().unwrap(), "", server).is_err());
     }
 }
