@@ -78,6 +78,25 @@ pub struct CanonicalMark {
     pub prev_hash: String,
 }
 
+/// Returns true if `id` is a lowercase canonical UUID (8-4-4-4-12, chars 0-9a-f, hyphens at 8, 13, 18, 23).
+#[must_use]
+pub fn is_canonical_uuid(id: &str) -> bool {
+    if id.len() != 36 {
+        return false;
+    }
+    let bytes = id.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if i == 8 || i == 13 || i == 18 || i == 23 {
+            if b != b'-' {
+                return false;
+            }
+        } else if !b.is_ascii_digit() && !(b'a'..=b'f').contains(&b) {
+            return false;
+        }
+    }
+    true
+}
+
 impl CanonicalMark {
     /// Validates the canonical mark fields before hashing (RF-CRYPTO-04-3).
     ///
@@ -89,6 +108,32 @@ impl CanonicalMark {
                 "Canonical mark version must be 1, got {}",
                 self.v
             )));
+        }
+
+        // Validate mark_id: lowercase canonical UUID (8-4-4-4-12)
+        if !is_canonical_uuid(&self.mark_id) {
+            return Err(CryptoError::InvalidInput(format!(
+                "mark_id '{}' must be a lowercase canonical UUID (8-4-4-4-12)",
+                self.mark_id
+            )));
+        }
+
+        // Validate worker_id: lowercase canonical UUID (8-4-4-4-12)
+        if !is_canonical_uuid(&self.worker_id) {
+            return Err(CryptoError::InvalidInput(format!(
+                "worker_id '{}' must be a lowercase canonical UUID (8-4-4-4-12)",
+                self.worker_id
+            )));
+        }
+
+        // Validate workplace_id if present: lowercase canonical UUID (8-4-4-4-12)
+        if let Some(workplace_id) = &self.workplace_id {
+            if !is_canonical_uuid(workplace_id) {
+                return Err(CryptoError::InvalidInput(format!(
+                    "workplace_id '{}' must be a lowercase canonical UUID (8-4-4-4-12)",
+                    workplace_id
+                )));
+            }
         }
 
         // Validate timestamps: RFC 3339 UTC with second precision (YYYY-MM-DDTHH:MM:SSZ)
@@ -384,5 +429,97 @@ mod tests {
             mark_hash(&mark).unwrap_err(),
             CryptoError::InvalidInput(_)
         ));
+    }
+
+    #[test]
+    fn test_is_canonical_uuid() {
+        // Valid UUIDs (lowercase canonical)
+        assert!(is_canonical_uuid("01927d3b-65e1-7000-8000-000000000001"));
+        assert!(is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000aa"));
+        assert!(is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000b1"));
+        assert!(is_canonical_uuid("f47ac10b-58cc-4372-a567-0e02b2c3d479"));
+
+        // Uppercase rejected
+        assert!(!is_canonical_uuid("01927D3B-65E1-7000-8000-000000000001"));
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000A1"));
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000AA"));
+
+        // Wrong length rejected
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-00000000001")); // 35 chars
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000001")); // 37 chars
+        assert!(!is_canonical_uuid(""));
+
+        // Non-hex rejected
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000w1"));
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000g1"));
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000z1"));
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-8000-0000000000_1"));
+
+        // Misplaced or missing hyphens rejected
+        assert!(!is_canonical_uuid("01927d3b65e1-7000-8000-0000000000001"));
+        assert!(!is_canonical_uuid("01927d3b-65e17000-8000-0000000000001"));
+        assert!(!is_canonical_uuid("01927d3b-65e1-70008000-0000000000001"));
+        assert!(!is_canonical_uuid("01927d3b-65e1-7000-80000000000000001"));
+        assert!(!is_canonical_uuid("01927d3b65e170008000000000000001"));
+    }
+
+    #[test]
+    fn test_canonical_mark_validates_uuids() {
+        let doc: VectorDocument = serde_json::from_str(VECTOR_FILE).expect("valid vector json");
+        let base_mark = doc.vectors[0].mark.clone();
+
+        // Valid mark succeeds
+        assert!(base_mark.validate().is_ok());
+
+        // mark_id validation
+        {
+            let mut mark = base_mark.clone();
+            mark.mark_id = "01927D3B-65E1-7000-8000-000000000001".to_string(); // uppercase
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.mark_id = "01927d3b-65e1-7000-8000-00000000001".to_string(); // wrong length
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.mark_id = "01927d3b-65e1-7000-8000-0000000000w1".to_string(); // non-hex
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.mark_id = "01927d3b-65e1-7000-8000-000000000002".to_string(); // valid
+            assert!(mark.validate().is_ok());
+        }
+
+        // worker_id validation
+        {
+            let mut mark = base_mark.clone();
+            mark.worker_id = "01927D3B-65E1-7000-8000-0000000000AA".to_string(); // uppercase
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.worker_id = "01927d3b-65e1-7000-8000-0000000000a".to_string(); // wrong length
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.worker_id = "01927d3b-65e1-7000-8000-0000000000g1".to_string(); // non-hex
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.worker_id = "01927d3b-65e1-7000-8000-0000000000bb".to_string(); // valid
+            assert!(mark.validate().is_ok());
+        }
+
+        // workplace_id validation
+        {
+            let mut mark = base_mark.clone();
+            mark.workplace_id = Some("01927D3B-65E1-7000-8000-0000000000B1".to_string()); // uppercase
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.workplace_id = Some("01927d3b-65e1-7000-8000-0000000000b".to_string()); // wrong length
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.workplace_id = Some("01927d3b-65e1-7000-8000-0000000000w1".to_string()); // non-hex
+            assert!(matches!(mark.validate(), Err(CryptoError::InvalidInput(_))));
+
+            mark.workplace_id = None; // valid None
+            assert!(mark.validate().is_ok());
+
+            mark.workplace_id = Some("01927d3b-65e1-7000-8000-0000000000b1".to_string()); // valid Some
+            assert!(mark.validate().is_ok());
+        }
     }
 }

@@ -14,12 +14,12 @@
         "device_ts": "2026-10-11T08:59:57Z",
         "offline": false,
         "source": "AGENT",
-        "workplace_id": "01927d3b-65e1-7000-8000-0000000000w1",
+        "workplace_id": "01927d3b-65e1-7000-8000-0000000000b1",
         "location": null,
         "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000"
       },
-      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000001\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_START\",\"server_ts\":\"2026-10-11T08:59:58Z\",\"device_ts\":\"2026-10-11T08:59:57Z\",\"offline\":false,\"source\":\"AGENT\",\"workplace_id\":\"01927d3b-65e1-7000-8000-0000000000w1\",\"location\":null,\"prev_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
-      "hash": "01409e46ac76dd10763634062155439c7eb063a75d65264c186a75b6bca2f98e"
+      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000001\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_START\",\"server_ts\":\"2026-10-11T08:59:58Z\",\"device_ts\":\"2026-10-11T08:59:57Z\",\"offline\":false,\"source\":\"AGENT\",\"workplace_id\":\"01927d3b-65e1-7000-8000-0000000000b1\",\"location\":null,\"prev_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
+      "hash": "57c4cad20df41e012451c2841647daef7691fd333b1aaef5afb7fdad7666784e"
     },
     {
       "comment": "Mark 2: Break start with GPS location, chained to mark 1 hash",
@@ -34,16 +34,16 @@
         "device_ts": "2026-10-11T13:00:01Z",
         "offline": false,
         "source": "AGENT",
-        "workplace_id": "01927d3b-65e1-7000-8000-0000000000w1",
+        "workplace_id": "01927d3b-65e1-7000-8000-0000000000b1",
         "location": {
           "lat": -33.4172,
           "lon": -70.5724,
           "accuracy_m": 12.5
         },
-        "prev_hash": "01409e46ac76dd10763634062155439c7eb063a75d65264c186a75b6bca2f98e"
+        "prev_hash": "57c4cad20df41e012451c2841647daef7691fd333b1aaef5afb7fdad7666784e"
       },
-      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000002\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"BREAK_START\",\"server_ts\":\"2026-10-11T13:00:02Z\",\"device_ts\":\"2026-10-11T13:00:01Z\",\"offline\":false,\"source\":\"AGENT\",\"workplace_id\":\"01927d3b-65e1-7000-8000-0000000000w1\",\"location\":{\"lat\":-33.4172,\"lon\":-70.5724,\"accuracy_m\":12.5},\"prev_hash\":\"01409e46ac76dd10763634062155439c7eb063a75d65264c186a75b6bca2f98e\"}",
-      "hash": "15c689887d28a90a79e78121e5e31923961ee668a9cf23b6b23cb52ccb3e0232"
+      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000002\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"BREAK_START\",\"server_ts\":\"2026-10-11T13:00:02Z\",\"device_ts\":\"2026-10-11T13:00:01Z\",\"offline\":false,\"source\":\"AGENT\",\"workplace_id\":\"01927d3b-65e1-7000-8000-0000000000b1\",\"location\":{\"lat\":-33.4172,\"lon\":-70.5724,\"accuracy_m\":12.5},\"prev_hash\":\"57c4cad20df41e012451c2841647daef7691fd333b1aaef5afb7fdad7666784e\"}",
+      "hash": "337a1302c1f5a973ed40b8decb1e7f2ace94ad4adac63f19d222cb0026d1c6a9"
     },
     {
       "comment": "Mark 3: Offline workday end resulting from employer correction, chained to mark 2 hash",
@@ -60,10 +60,10 @@
         "source": "CORRECTION",
         "workplace_id": null,
         "location": null,
-        "prev_hash": "15c689887d28a90a79e78121e5e31923961ee668a9cf23b6b23cb52ccb3e0232"
+        "prev_hash": "337a1302c1f5a973ed40b8decb1e7f2ace94ad4adac63f19d222cb0026d1c6a9"
       },
-      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000003\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_END\",\"server_ts\":\"2026-10-11T18:05:00Z\",\"device_ts\":\"2026-10-11T18:04:55Z\",\"offline\":true,\"source\":\"CORRECTION\",\"workplace_id\":null,\"location\":null,\"prev_hash\":\"15c689887d28a90a79e78121e5e31923961ee668a9cf23b6b23cb52ccb3e0232\"}",
-      "hash": "f577af760570da2bb601ab82f2ff5823ee6e93f8c223f03bc7919ace3cef1a29"
+      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000003\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_END\",\"server_ts\":\"2026-10-11T18:05:00Z\",\"device_ts\":\"2026-10-11T18:04:55Z\",\"offline\":true,\"source\":\"CORRECTION\",\"workplace_id\":null,\"location\":null,\"prev_hash\":\"337a1302c1f5a973ed40b8decb1e7f2ace94ad4adac63f19d222cb0026d1c6a9\"}",
+      "hash": "c97b27ef981f8286f3a63bb1ba51ee2c6371f54fe98a4a9bdb18a00e49ba4bc7"
     }
   ]
 }
