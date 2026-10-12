@@ -305,8 +305,12 @@ schedule changes) answer `402`/`403 SUBSCRIPTION_*` like the rest of the console
   "location": { "lat": -33.41, "lon": -70.57, "accuracy_m": 25 } | null,
   "hash": "64hex", "prev_hash": "64hex",
   "corrected_by": "uuid (correction id)" | null,   // set when this mark was produced by a correction
-  "superseded_by": "uuid (mark id)" | null }       // set on an original replaced by a consolidated correction
+  "superseded_by": "uuid (mark id)" | null,        // set on an original replaced by a consolidated correction
+  "effective_ts": "2026-10-11T12:00:05Z" }         // [v3.1] the time that counts: device_ts if offline or source CORRECTION, else server_ts
 ```
+
+**[v3.1]** Apps **display and group by `effective_ts`** (date and time of the mark); `server_ts` is
+shown as "Registrada por el servidor" in the mark detail. `effective_ts` is not part of the hash.
 
 ### 9.2 Worker side
 
@@ -343,6 +347,9 @@ agent recomputes it. Test vector (shared with `telemetry-api`): `telemetry-crypt
 | `GET /attendance/reports/{report}/export?format=xlsx\|pdf\|docx&…same filters` | Binary file, `Content-Disposition` with name. Identical content to the JSON (R38 art. 28 a). |
 | `GET /attendance/incidents`, `POST /attendance/incidents` | Technical incidents `{ started_at, ended_at?, description }`. |
 | `PUT /attendance/settings` | `{ missing_mark_alerts: bool }` (R38 art. 45.1, default true). |
+| **[v3.1]** `PUT /attendance/absences` | `{ worker_id, date, kind: "JUSTIFIED" \| "UNJUSTIFIED", abbreviation?, note? (≤300) }` → `200 Absence`. The employer qualifies an absence; `abbreviation` ∈ R38 art. 28 list (`A.I.`, `A.J`, `AT`, `C.T.`, `D.E.J.`, `H.E.`, `J.O.`, `L.M.`, `P.G.R`, `PREN.`, `P.S.G.R.`, `POSTN`, `S.A`, `VAC`). Without it, a workday without marks has `absence: null` ("Sin marcas") — the system never labels an absence unjustified by itself. |
+| **[v3.1]** `DELETE /attendance/absences/:id` | `204`. |
+| **[v3.1]** `GET /attendance/verify/:hash` (public) | R38 art. 8 receipt check: `{ valid, type, effective_date, effective_time, employer_legal_name, workplace_name, offline, corrected }` or `404`. Used by the web portal. |
 
 ```jsonc
 // Correction

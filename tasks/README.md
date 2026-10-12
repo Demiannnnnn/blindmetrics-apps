@@ -203,6 +203,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **ADMIN-14** | [`admin-client/task-14-workers-v3-schedule.md`](admin-client/task-14-workers-v3-schedule.md) | Trabajadores v3: datos legales, jornada pactada con advertencias legales, modalidad, telemetría opcional y restringida, pausa de telemetría. | 🟢 |
 | **ADMIN-15** | [`admin-client/task-15-attendance-console.md`](admin-client/task-15-attendance-console.md) | Riel agrupado, asistencia en vivo, días y marcas con verificación de hash, correcciones (R38 art. 40), KPIs. | 🟢 |
 | **ADMIN-16** | [`admin-client/task-16-legal-reports.md`](admin-client/task-16-legal-reports.md) | Seis reportes R38 con filtros del art. 25, vista previa fiel, exportar Excel/PDF/Word, acceso de solo lectura con suscripción bloqueada. | 🔴 |
+| **ADMIN-17** | [`admin-client/task-17-absences-effective-time.md`](admin-client/task-17-absences-effective-time.md) | Contrato v3.1: calificación de ausencias (R38 art. 27.1) y hora efectiva de las marcas (`effective_ts`). | 🔴 |
 
 ### 6.2 Orden y paralelismo
 
@@ -218,7 +219,7 @@ flowchart LR
 ```
 
 Etapas (dos implementadores en paralelo, cada uno en su worktree): **0** INT-03 ∥ CRYPTO-04 ·
-**1** AGENT-10 ∥ ADMIN-13 · **2** AGENT-11 ∥ ADMIN-14 · **3** AGENT-12 ∥ ADMIN-15 · **4** AGENT-13 ∥ ADMIN-16.
+**1** AGENT-10 ∥ ADMIN-13 · **2** AGENT-11 ∥ ADMIN-14 · **3** AGENT-12 ∥ ADMIN-15 · **4** AGENT-13 ∥ ADMIN-16 · **5** ADMIN-17.
 Después: tareas v3 en `telemetry-api` (y luego `telemetry-web`: verificación de comprobantes, login
 secundario del trabajador, portal de fiscalización).
 

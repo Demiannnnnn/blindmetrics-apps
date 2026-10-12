@@ -3,8 +3,9 @@
 Context to resume work without losing what is not in the code. The orchestrator updates it whenever
 work pauses.
 
-Last update: 2026-10-11 — v3 docs written (attendance pivot, terms, Tauri worker app); implementation
-of v3 tasks starting (`tasks/README.md` §6).
+Last update: 2026-10-11 23:50 — stages 0–2 merged (INT-03, CRYPTO-04, AGENT-10/11, ADMIN-13/14/15);
+AGENT-12 and ADMIN-16 in progress; ADMIN-17 added (contract v3.1). `telemetry-api` v3 designed
+(`telemetry-api/ATTENDANCE.md`, TASK-18..23, branch `develop-AGENTS` there).
 
 ## 1. State
 
@@ -38,13 +39,18 @@ of v3 tasks starting (`tasks/README.md` §6).
 | Reports are computed and exported (XLSX/PDF/DOCX) **by the server** | One implementation for admin app, portal and inspectors; R38 art. 28 | `api-contract.md` §9.4 |
 | Release builds fail while legal texts contain owner placeholders | Never ship terms with `[RUT]` etc. | LEG-06 |
 | The product never claims DT authorization until it exists | R38 arts. 3, 50, 58 b | LEG-07 |
+| Contract v3.1: `Mark.effective_ts` (device time for offline/correction marks) and employer-qualified absences; the system never labels an absence unjustified by itself | Reports need the time that counts; an automatic "injustificada" would harm the worker | `api-contract.md` §9, ADMIN-17 |
+| Legal emails go through a transactional outbox in the API (SMTP via `lettre`) | Receipts must not be lost if SMTP is down; never block the mark | `telemetry-api/ATTENDANCE.md` §8 |
+| Marks older than 5 years: anonymization needs an exception to the append-only trigger → **left for the owner** | Evidence integrity vs. retention | `telemetry-api/ATTENDANCE.md` §9 |
 
 ## 4. Pending owner input
 
 - Provider data for the legal texts (`docs/legal/README.md` "Pendientes del dueño").
 - Legal review of `docs/legal/*` and of telemetry `location`/`productivity_screenshots` under R38.
 - Whether/when to start DT certification + authorization (R38 arts. 64–69).
-- System email account for receipts and alerts (API work).
+- System email account (non-personal sender) and SMTP for receipts and alerts (API `MAIL_FROM`, `SMTP_URL`).
+- Review the Chilean holiday list 2024–2028 seeded by API TASK-22.
+- Decide anonymization of marks older than 5 years (API `ATTENDANCE.md` §9).
 
 ## 5. How to resume on another machine
 
@@ -59,4 +65,6 @@ of v3 tasks starting (`tasks/README.md` §6).
 |:--|:--|:--|
 | Official text of R38 (PDF) | Diario Oficial 09-05-2024, edition 43.846, CVE 2489163 | `https://www.diariooficial.interior.gob.cl/publicaciones/2024/05/09/43846/01/2489163.pdf` (needs a browser User-Agent) |
 | agy logs | `~/.cache/telemetry-orchestration/logs` | not needed |
+| `sqlx-cli` 0.7.4 for API agents | `~/.cache/telemetry-orchestration/tools/bin` | `cargo install sqlx-cli --version 0.7.4 --locked --no-default-features --features postgres,rustls --root ~/.cache/telemetry-orchestration/tools` |
+| API test PostgreSQL | docker container `telemetry-api-pg` (127.0.0.1:5441), one DB per worktree | `telemetry-api/tools/orchestration/pg.sh` |
 | `.env` files | local | copy `.env.example` |

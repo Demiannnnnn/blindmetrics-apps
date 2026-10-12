@@ -48,6 +48,10 @@ Con el servicio de AGENT-12 listo, la ventana muestra la función principal. Lee
 - **RF-AGENT-13-7 (banners):** prioridad de la spec §1, uno a la vez, con su acción.
 - **RF-AGENT-13-8 (navegación inicial):** `AttendanceMode` decide E1 → T1 → P1 → A; el riel solo
   aparece tras P1; `suggested_screen = Home` desde la bandeja abre A.
+- **RF-AGENT-13-8b (hora efectiva, contrato v3.1):** fecha y hora mostradas de cada marca =
+  `effective_ts` (`api-contract.md` §9.1); agrupar días por `effective_ts` en la zona del trabajador;
+  `server_ts` aparece solo en el detalle como "Registrada por el servidor". Si el servidor no envía
+  `effective_ts` (respuesta antigua), calcularlo con la regla del contrato en un helper puro probado.
 - **RF-AGENT-13-9 (formatos):** helpers puros `formatDateCl` (`dd/mm/aa`), `formatTimeCl`
   (`hh:mm:ss`), `groupHash`, `maskEmail`, `nextMarkLabel`, `markStatusLabel`, con tests `node --test`.
 
