@@ -11,6 +11,12 @@ import type {
   VaultStatus,
   WorkerResponse,
   WorkerStatus,
+  WorkMode,
+  TelemetryStatus,
+  ScheduleInput,
+  ScheduleResponse,
+  ScheduleUpdateResponse,
+  WorkerWorkplace,
   CreateWorkerForm,
   CreatedWorker,
   ConsentFlags,
@@ -40,6 +46,16 @@ export interface WorkerItem {
   id: string;
   name: string;
   email: string;
+  run: string;
+  personalEmail: string;
+  jobTitle: string;
+  workplace: WorkerWorkplace | null;
+  workMode: WorkMode;
+  art22Exempt: boolean;
+  schedule: ScheduleResponse | null;
+  telemetryStatus: TelemetryStatus;
+  termsAcceptedVersion: string | null;
+  warnings?: string[] | null;
   role: 'OFFICE' | 'FIELD';
   /** True only when the worker is ACTIVE on a bound device (collection allowed). */
   isActive: boolean;
@@ -71,6 +87,7 @@ export interface KpiSummary {
   activeWorkers: number;
   totalWorkers: number;
   byStatus: Record<WorkerStatus, number>;
+  byTelemetryStatus?: Record<TelemetryStatus, number>;
   /** Invited workers whose one-time code expires within 2 h (RF-ADMIN-08-9). */
   expiringCodes: number;
   keystoreProtected: boolean;
@@ -157,6 +174,9 @@ function demoWorker(
   role: 'OFFICE' | 'FIELD',
   status: WorkerStatus,
   flags: ConsentFlags,
+  run = '12.345.678-5',
+  telemetryStatus: TelemetryStatus = 'NOT_REQUESTED',
+  workMode: WorkMode = 'ON_SITE',
 ): WorkerResponse {
   const now = new Date().toISOString();
   const bound = status !== 'PENDING_ENROLLMENT';
@@ -164,19 +184,29 @@ function demoWorker(
     id,
     admin_id: 'admin-demo',
     email,
+    personal_email: email,
+    run,
     name,
+    job_title: role === 'FIELD' ? 'Técnico en terreno' : 'Analista de operaciones',
+    workplace: { id: 'wp-demo-1', name: 'Casa matriz', address: null },
+    work_mode: workMode,
+    art22_exempt: false,
+    schedule: null,
+    telemetry_status: telemetryStatus,
+    terms_accepted_version: bound && status === 'ACTIVE' ? '2026-10-11' : null,
+    warnings: null,
     device_identifier: bound ? 'demo-device' : null,
     device_info: bound ? { hostname: `${name.split(' ')[0].toUpperCase()}-PC`, os: 'demo', app_version: '0.1.0' } : null,
     role_type: role,
-    is_active: status !== 'REVOKED',
+    is_active: status === 'ACTIVE',
     status,
     status_changed_at: now,
-    consent_flags: status === 'ACTIVE' || status === 'PAUSED' ? flags : { ...flags, ...ALL_FALSE },
+    consent_flags: telemetryStatus === 'ACCEPTED' || telemetryStatus === 'PAUSED' ? flags : { ...flags, ...ALL_FALSE },
     requested_consent_flags: flags,
     consent_descriptions: EMPTY_DESCRIPTIONS,
     consent_version: 1,
-    accepted_consent_version: status === 'ACTIVE' || status === 'PAUSED' ? 1 : null,
-    consent_accepted_at: status === 'ACTIVE' ? now : null,
+    accepted_consent_version: telemetryStatus === 'ACCEPTED' || telemetryStatus === 'PAUSED' ? 1 : null,
+    consent_accepted_at: telemetryStatus === 'ACCEPTED' ? now : null,
     enrollment_completed_at: bound ? now : null,
     enrollment_redeemed_at: bound ? now : null,
     enrollment_expires_at: bound ? null : new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
@@ -191,18 +221,59 @@ function demoWorker(
 
 let demoWorkers: WorkerResponse[] = isDemoMode
   ? [
-      demoWorker('01912345-6789-7abc-def0-000000000001', 'Carlos Valenzuela', 'carlos.valenzuela@acme.cl', 'OFFICE', 'ACTIVE', {
-        ...ALL_FALSE,
-        system_activity: true,
-        network_activity: true,
-        productivity_basic: true,
-      }),
-      demoWorker('01912345-6789-7abc-def0-000000000002', 'Fernanda Morales', 'fernanda.morales@acme.cl', 'FIELD', 'PAUSED', {
-        ...ALL_FALSE,
-        system_activity: true,
-        location: true,
-      }),
-      demoWorker('01912345-6789-7abc-def0-000000000003', 'Rodrigo Tapia', 'rodrigo.tapia@acme.cl', 'OFFICE', 'PENDING_ENROLLMENT', ALL_FALSE),
+      demoWorker(
+        '01912345-6789-7abc-def0-000000000001',
+        'Carlos Valenzuela',
+        'carlos.valenzuela@acme.cl',
+        'OFFICE',
+        'ACTIVE',
+        {
+          ...ALL_FALSE,
+          system_activity: true,
+          network_activity: true,
+          productivity_basic: true,
+        },
+        '11.222.333-4',
+        'ACCEPTED',
+        'ON_SITE',
+      ),
+      demoWorker(
+        '01912345-6789-7abc-def0-000000000002',
+        'Fernanda Morales',
+        'fernanda.morales@acme.cl',
+        'FIELD',
+        'ACTIVE',
+        {
+          ...ALL_FALSE,
+          system_activity: true,
+          location: true,
+        },
+        '14.555.666-7',
+        'PAUSED',
+        'ON_SITE',
+      ),
+      demoWorker(
+        '01912345-6789-7abc-def0-000000000003',
+        'Rodrigo Tapia',
+        'rodrigo.tapia@acme.cl',
+        'OFFICE',
+        'PENDING_TERMS',
+        ALL_FALSE,
+        '16.777.888-9',
+        'NOT_REQUESTED',
+        'REMOTE',
+      ),
+      demoWorker(
+        '01912345-6789-7abc-def0-000000000004',
+        'Camila Fuentes',
+        'camila.fuentes@acme.cl',
+        'OFFICE',
+        'PENDING_ENROLLMENT',
+        ALL_FALSE,
+        '18.999.000-1',
+        'NOT_REQUESTED',
+        'HYBRID',
+      ),
     ]
   : [];
 
@@ -442,12 +513,22 @@ export function toWorkerItem(w: WorkerResponse): WorkerItem {
   return {
     id: w.id,
     name: w.name,
-    email: w.email,
+    email: w.personal_email || w.email,
+    run: w.run || '',
+    personalEmail: w.personal_email || w.email,
+    jobTitle: w.job_title || '',
+    workplace: w.workplace ?? null,
+    workMode: w.work_mode || 'ON_SITE',
+    art22Exempt: !!w.art22_exempt,
+    schedule: w.schedule ?? null,
+    telemetryStatus: w.telemetry_status || 'NOT_REQUESTED',
+    termsAcceptedVersion: w.terms_accepted_version ?? null,
+    warnings: w.warnings ?? null,
     role: w.role_type,
     isActive: w.is_active && w.status === 'ACTIVE',
     workHoursStart: (w.work_hours_start || '').slice(0, 5),
     workHoursEnd: (w.work_hours_end || '').slice(0, 5),
-    timezone: w.timezone,
+    timezone: w.timezone ?? '',
     consents: { ...w.consent_flags },
     status: w.status,
     consentDescriptions: w.consent_descriptions,
@@ -464,17 +545,18 @@ async function countWorkers(query: WorkerListQuery): Promise<number> {
   return resp.pagination?.total ?? resp.data.length;
 }
 
-const ALL_STATUSES: WorkerStatus[] = ['ACTIVE', 'PENDING_CONSENT', 'PENDING_ENROLLMENT', 'PAUSED', 'REVOKED'];
+const ALL_STATUSES: WorkerStatus[] = ['ACTIVE', 'PENDING_TERMS', 'PENDING_ENROLLMENT', 'REVOKED'];
 const EXPIRING_WINDOW_MS = 2 * 3600 * 1000;
 
 export async function fetchKpiSummary(): Promise<KpiSummary> {
   if (!isTauri() && !isDemoMode) {
     throw new Error('KPI summary requires the Tauri desktop client.');
   }
-  const [total, counts, invited] = await Promise.all([
+  const [total, counts, invited, allList] = await Promise.all([
     countWorkers({}),
     Promise.all(ALL_STATUSES.map(status => countWorkers({ status }))),
     workersList({ status: 'PENDING_ENROLLMENT', per_page: 100 }),
+    workersList({ per_page: 100 }),
   ]);
   const byStatus = Object.fromEntries(ALL_STATUSES.map((st, i) => [st, counts[i]])) as Record<WorkerStatus, number>;
   const now = Date.now();
@@ -482,6 +564,20 @@ export async function fetchKpiSummary(): Promise<KpiSummary> {
     const exp = w.enrollment_expires_at ? new Date(w.enrollment_expires_at).getTime() : NaN;
     return exp > now && exp - now < EXPIRING_WINDOW_MS;
   }).length;
+
+  const byTelemetryStatus: Record<TelemetryStatus, number> = {
+    NOT_REQUESTED: 0,
+    PENDING_DECISION: 0,
+    ACCEPTED: 0,
+    DECLINED: 0,
+    PAUSED: 0,
+  };
+  for (const w of allList.data) {
+    const ts = (w.telemetry_status as TelemetryStatus) || 'NOT_REQUESTED';
+    if (byTelemetryStatus[ts] !== undefined) {
+      byTelemetryStatus[ts]++;
+    }
+  }
 
   let keystoreProtected = false;
   let keyMismatch = false;
@@ -498,6 +594,7 @@ export async function fetchKpiSummary(): Promise<KpiSummary> {
     activeWorkers: byStatus.ACTIVE,
     totalWorkers: total,
     byStatus,
+    byTelemetryStatus,
     expiringCodes,
     keystoreProtected,
     keyMismatch,
@@ -538,7 +635,7 @@ export async function createWorker(form: CreateWorkerForm): Promise<CreatedWorke
     const worker = demoWorker(
       `01912345-6789-7abc-def0-${Date.now().toString().slice(-12)}`,
       form.name,
-      form.email,
+      form.personal_email,
       form.role_type,
       'PENDING_ENROLLMENT',
       form.consent_flags,
@@ -560,14 +657,59 @@ export async function createWorker(form: CreateWorkerForm): Promise<CreatedWorke
   throw new Error('workers_create IPC unavailable outside Tauri');
 }
 
-/** Pause an ACTIVE worker or resume a PAUSED one. Other states are rejected. */
+/** Pause or resume telemetry for a worker (RF-ADMIN-14-5). */
 export async function pauseOrResumeWorker(worker: WorkerItem, reason?: string): Promise<WorkerResponse> {
-  const next: WorkerStatus | null =
-    worker.status === 'ACTIVE' ? 'PAUSED' : worker.status === 'PAUSED' ? 'ACTIVE' : null;
-  if (!next) {
-    throw new Error(`No se puede pausar/reanudar un trabajador en estado ${worker.status}.`);
+  const next: 'PAUSED' | 'ACTIVE' = worker.telemetryStatus === 'PAUSED' ? 'ACTIVE' : 'PAUSED';
+  return workersSetTelemetryStatus(worker.id, next, reason);
+}
+
+export async function workersSetTelemetryStatus(
+  id: string,
+  status: 'PAUSED' | 'ACTIVE',
+  reason?: string
+): Promise<WorkerResponse> {
+  if (isTauri()) {
+    return await invoke<WorkerResponse>('workers_set_telemetry_status', { id, status, reason });
   }
-  return workersSetStatus(worker.id, next, reason);
+  if (isDemoMode) {
+    const worker = demoWorkers.find(w => w.id === id);
+    if (worker) {
+      worker.telemetry_status = status === 'PAUSED' ? 'PAUSED' : 'ACCEPTED';
+    }
+    return workersGet(id);
+  }
+  throw new Error('workers_set_telemetry_status IPC unavailable outside Tauri');
+}
+
+export async function workersUpdateSchedule(
+  id: string,
+  schedule: ScheduleInput
+): Promise<ScheduleUpdateResponse> {
+  if (isTauri()) {
+    return await invoke<ScheduleUpdateResponse>('workers_update_schedule', { id, schedule });
+  }
+  if (isDemoMode) {
+    const worker = demoWorkers.find(w => w.id === id);
+    const respSchedule: ScheduleResponse = {
+      id: `sched-${Date.now()}`,
+      journey_type: schedule.journey_type,
+      exceptional_resolution: schedule.exceptional_resolution ?? null,
+      days: schedule.days,
+      break_counts_as_work: schedule.break_counts_as_work,
+      disconnection: schedule.disconnection ?? null,
+      location_at_mark: schedule.location_at_mark ?? false,
+      effective_from: schedule.effective_from,
+      requested_by: schedule.requested_by,
+      note: schedule.note ?? null,
+      created_at: new Date().toISOString(),
+      warnings: [],
+    };
+    if (worker) {
+      worker.schedule = respSchedule;
+    }
+    return { schedule: respSchedule, warnings: [] };
+  }
+  throw new Error('workers_update_schedule IPC unavailable outside Tauri');
 }
 
 export async function workersList(query: WorkerListQuery = {}): Promise<CollectionResponse<WorkerResponse>> {
@@ -601,11 +743,14 @@ export async function workersUpdate(id: string, form: UpdateWorkerForm): Promise
 }
 
 export async function workersSetStatus(id: string, status: WorkerStatus, reason?: string): Promise<WorkerResponse> {
+  if (status !== 'REVOKED') {
+    throw new Error('workersSetStatus solo acepta REVOKED. Para pausar telemetría use workersSetTelemetryStatus.');
+  }
   if (isTauri()) {
     return await invoke<WorkerResponse>('workers_set_status', { id, status, reason });
   }
   if (isDemoMode) {
-    demoWorkers = demoWorkers.map(w => (w.id === id ? { ...w, status, is_active: status !== 'REVOKED' } : w));
+    demoWorkers = demoWorkers.map(w => (w.id === id ? { ...w, status: 'REVOKED', is_active: false } : w));
     return workersGet(id);
   }
   throw new Error('workers_set_status IPC unavailable outside Tauri');

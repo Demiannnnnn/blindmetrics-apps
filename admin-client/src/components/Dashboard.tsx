@@ -6,6 +6,8 @@ import {
   fetchKpiSummary,
   EnrollmentView,
   WorkerStatus,
+  WorkMode,
+  Workplace,
   PaginationMeta,
   getWorkersPage,
   pauseOrResumeWorker,
@@ -16,6 +18,7 @@ import {
   workersSetStatus,
   AdminProfile,
   employerGet,
+  workplacesList,
 } from '../api/tauri-bridge';
 import { describeError, errorIs } from '../lib/errors';
 import { EmployeeCard } from './EmployeeCard';
@@ -37,7 +40,6 @@ import {
   Copy,
   Check,
   Cpu,
-  Sparkles,
   ChevronLeft,
   ChevronRight,
   Building2,
@@ -126,6 +128,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [deletingWorker, setDeletingWorker] = useState<WorkerItem | null>(null);
   const [detailWorker, setDetailWorker] = useState<WorkerItem | null>(null);
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'OFFICE' | 'FIELD'>('ALL');
+  const [workModeFilter, setWorkModeFilter] = useState<'ALL' | WorkMode>('ALL');
+  const [workplaceFilter, setWorkplaceFilter] = useState<string>('ALL');
+  const [workplaces, setWorkplaces] = useState<Workplace[]>([]);
   const [statusFilter, setStatusFilter] = useState<'ALL' | WorkerStatus>('ALL');
   const [loading, setLoading] = useState<boolean>(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -157,6 +162,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       employerGet()
         .then(p => setHasEmployerProfile(p !== null))
         .catch(() => setHasEmployerProfile(true));
+      workplacesList()
+        .then(setWorkplaces)
+        .catch(e => console.warn('Failed to load workplaces', e));
       const [k, result] = await Promise.all([
         fetchKpiSummary(),
         getWorkersPage({
@@ -165,6 +173,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
           search: search.trim().length >= 2 ? search.trim() : undefined,
           role_type: roleFilter === 'ALL' ? undefined : roleFilter,
           status: statusFilter === 'ALL' ? undefined : statusFilter,
+          workplace_id: workplaceFilter === 'ALL' ? undefined : workplaceFilter,
+          work_mode: workModeFilter === 'ALL' ? undefined : workModeFilter,
         }),
       ]);
       setKpis(k);
@@ -186,11 +196,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   useEffect(() => {
     setPage(1);
-  }, [search, roleFilter, statusFilter]);
+  }, [search, roleFilter, workModeFilter, workplaceFilter, statusFilter]);
 
   useEffect(() => {
     loadData();
-  }, [search, roleFilter, statusFilter, page]);
+  }, [search, roleFilter, workModeFilter, workplaceFilter, statusFilter, page]);
 
   const replaceWorker = (updated: WorkerItem) =>
     setWorkers(list => list.map(w => (w.id === updated.id ? updated : w)));
@@ -209,7 +219,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const handleShowEnrollment = async (worker: WorkerItem) => {
     // RF-ADMIN-08-5: a code for a device that never accepted consent unlinks that device.
     if (
-      worker.status === 'PENDING_CONSENT' &&
+      worker.status === 'PENDING_TERMS' &&
       worker.deviceHostname &&
       !confirm(`Esto desvincula el equipo actual (${worker.deviceHostname}). ¿Generar un nuevo código?`)
     ) {
@@ -349,7 +359,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-card bg-success-subtle text-success flex items-center justify-center">
-                <Sparkles className="w-5 h-5" />
+                <Key className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-base font-bold text-fg">Resultado de Descifrado Paralelo (Rayon)</h3>
@@ -380,8 +390,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* KPI Cards (RF-ADMIN-08-9) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI Cards (RF-ADMIN-14-7) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-center gap-4">
           <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center">
             <Users className="w-6 h-6" />
@@ -394,19 +404,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        <div className="bg-surface-subtle border border-default rounded-card p-4 ">
+        <div className="bg-surface-subtle border border-default rounded-card p-4">
           <p className="text-xs text-muted font-medium mb-1.5 flex items-center gap-1.5">
             <HardDrive className="w-3.5 h-3.5" /> Por estado
           </p>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-            <span className="text-info">Esperando consentimiento</span>
-            <span className="text-right text-fg font-semibold">{kpis?.byStatus.PENDING_CONSENT ?? 0}</span>
+            <span className="text-success">Activos</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byStatus.ACTIVE ?? 0}</span>
+            <span className="text-info">Esperando términos</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byStatus.PENDING_TERMS ?? 0}</span>
             <span className="text-fg">Invitados</span>
             <span className="text-right text-fg font-semibold">{kpis?.byStatus.PENDING_ENROLLMENT ?? 0}</span>
-            <span className="text-warning">Pausados</span>
-            <span className="text-right text-fg font-semibold">{kpis?.byStatus.PAUSED ?? 0}</span>
             <span className="text-danger">Revocados</span>
             <span className="text-right text-fg font-semibold">{kpis?.byStatus.REVOKED ?? 0}</span>
+          </div>
+        </div>
+
+        <div className="bg-surface-subtle border border-default rounded-card p-4">
+          <p className="text-xs text-muted font-medium mb-1.5 flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5" /> Por telemetría
+          </p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+            <span className="text-success">Aceptada</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byTelemetryStatus?.ACCEPTED ?? 0}</span>
+            <span className="text-info">Pendiente</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byTelemetryStatus?.PENDING_DECISION ?? 0}</span>
+            <span className="text-danger">Rechazada</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byTelemetryStatus?.DECLINED ?? 0}</span>
+            <span className="text-warning">Pausada</span>
+            <span className="text-right text-fg font-semibold">{kpis?.byTelemetryStatus?.PAUSED ?? 0}</span>
           </div>
         </div>
 
@@ -459,6 +485,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
             />
           </div>
 
+          {/* Workplace Filter */}
+          <div className="flex items-center gap-1.5 bg-surface border border-default rounded-control px-2.5 py-1.5 text-xs text-fg">
+            <Building2 className="w-3.5 h-3.5 text-muted" />
+            <select
+              value={workplaceFilter}
+              onChange={e => setWorkplaceFilter(e.target.value)}
+              className="bg-transparent focus:outline-hidden cursor-pointer"
+            >
+              <option value="ALL">Todos los Lugares</option>
+              {workplaces.map(wp => (
+                <option key={wp.id} value={wp.id}>
+                  {wp.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Work Mode Filter */}
+          <div className="flex items-center gap-1.5 bg-surface border border-default rounded-control px-2.5 py-1.5 text-xs text-fg">
+            <select
+              value={workModeFilter}
+              onChange={e => setWorkModeFilter(e.target.value as 'ALL' | WorkMode)}
+              className="bg-transparent focus:outline-hidden cursor-pointer"
+            >
+              <option value="ALL">Todas las Modalidades</option>
+              <option value="ON_SITE">Presencial</option>
+              <option value="REMOTE">Teletrabajo</option>
+              <option value="HYBRID">Mixta</option>
+            </select>
+          </div>
+
           {/* Role Filter */}
           <div className="flex items-center gap-1.5 bg-surface border border-default rounded-control px-2.5 py-1.5 text-xs text-fg">
             <Filter className="w-3.5 h-3.5 text-muted" />
@@ -482,9 +539,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             >
               <option value="ALL">Todos los Estados</option>
               <option value="ACTIVE">Activos</option>
-              <option value="PENDING_CONSENT">Esperando consentimiento</option>
-              <option value="PENDING_ENROLLMENT">Invitados (sin vincular)</option>
-              <option value="PAUSED">Pausados</option>
+              <option value="PENDING_TERMS">Esperando términos</option>
+              <option value="PENDING_ENROLLMENT">Invitados</option>
               <option value="REVOKED">Revocados</option>
             </select>
           </div>

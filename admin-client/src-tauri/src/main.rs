@@ -30,7 +30,8 @@ use commands::vault::{
 };
 use commands::workers::{
     workers_create, workers_delete, workers_get, workers_get_consent_records, workers_list,
-    workers_regenerate_token, workers_set_status, workers_update, workers_update_consent_config,
+    workers_regenerate_token, workers_set_status, workers_set_telemetry_status, workers_update,
+    workers_update_consent_config, workers_update_schedule,
 };
 use std::sync::Arc;
 use tauri::Emitter;
@@ -105,6 +106,8 @@ fn main() {
             workers_get,
             workers_create,
             workers_set_status,
+            workers_set_telemetry_status,
+            workers_update_schedule,
             workers_regenerate_token,
             workers_update,
             workers_update_consent_config,

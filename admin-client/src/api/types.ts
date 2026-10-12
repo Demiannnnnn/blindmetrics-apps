@@ -1,6 +1,82 @@
 // admin-client/src/api/types.ts — mirrors Rust DTOs (snake_case)
 
-export type WorkerStatus = 'PENDING_ENROLLMENT' | 'PENDING_CONSENT' | 'ACTIVE' | 'PAUSED' | 'REVOKED';
+export type WorkerStatus = 'PENDING_ENROLLMENT' | 'PENDING_TERMS' | 'ACTIVE' | 'REVOKED';
+
+export type WorkMode = 'ON_SITE' | 'REMOTE' | 'HYBRID';
+
+export type TelemetryStatus =
+  | 'NOT_REQUESTED'
+  | 'PENDING_DECISION'
+  | 'ACCEPTED'
+  | 'DECLINED'
+  | 'PAUSED';
+
+export type JourneyType =
+  | 'FIXED'
+  | 'SHIFTS'
+  | 'CYCLES'
+  | 'BIWEEKLY'
+  | 'EXCEPTIONAL'
+  | 'PART_TIME';
+
+export interface ExceptionalResolution {
+  number: string;
+  date: string;
+}
+
+export interface ScheduleDay {
+  weekday: number;
+  start: string;
+  end: string;
+  break_start?: string | null;
+  break_end?: string | null;
+}
+
+export interface DisconnectionWindow {
+  start: string;
+  end: string;
+}
+
+export type ScheduleRequestedBy = 'EMPLOYER' | 'WORKER';
+
+export interface ScheduleInput {
+  journey_type: JourneyType;
+  exceptional_resolution?: ExceptionalResolution | null;
+  days: ScheduleDay[];
+  break_counts_as_work: boolean;
+  disconnection?: DisconnectionWindow | null;
+  location_at_mark: boolean;
+  effective_from: string;
+  requested_by: ScheduleRequestedBy;
+  note?: string | null;
+}
+
+export interface ScheduleResponse {
+  id?: string | null;
+  version?: number | null;
+  journey_type: JourneyType;
+  exceptional_resolution?: ExceptionalResolution | null;
+  days: ScheduleDay[];
+  break_counts_as_work: boolean;
+  disconnection?: DisconnectionWindow | null;
+  location_at_mark: boolean;
+  effective_from: string;
+  requested_by?: ScheduleRequestedBy | null;
+  note?: string | null;
+  created_at?: string | null;
+  warnings?: string[] | null;
+}
+
+export interface ScheduleUpdateResponse {
+  schedule: ScheduleResponse;
+  warnings: string[];
+}
+
+export interface WorkerWorkplace {
+  id: string;
+  name: string;
+  address?: Address | string | null;
+}
 
 export interface ConsentFlags {
   system_activity: boolean;
@@ -77,28 +153,46 @@ export interface WorkerResponse {
   enrollment_redeemed_at?: string | null;
   enrollment_expires_at: string | null;
   enrollment_expired?: boolean;
-  work_hours_start: string;
-  work_hours_end: string;
-  timezone: string;
+  work_hours_start?: string | null;
+  work_hours_end?: string | null;
+  timezone?: string | null;
   created_at: string;
   updated_at: string;
+
+  // v3 fields (RF-ADMIN-14-1)
+  run: string;
+  personal_email: string;
+  job_title: string;
+  workplace?: WorkerWorkplace | null;
+  work_mode: WorkMode;
+  art22_exempt: boolean;
+  schedule?: ScheduleResponse | null;
+  telemetry_status: TelemetryStatus;
+  terms_accepted_version?: string | null;
+  warnings?: string[] | null;
 }
 
 export interface CreateWorkerForm {
-  email: string;
   name: string;
+  run: string;
+  personal_email: string;
+  job_title: string;
+  workplace_id: string;
+  work_mode: WorkMode;
+  art22_exempt: boolean;
+  schedule?: ScheduleInput | null;
   role_type: 'OFFICE' | 'FIELD';
-  work_hours_start: string;
-  work_hours_end: string;
-  timezone: string;
   consent_flags: ConsentFlags;
   consent_descriptions: ConsentDescriptions;
+  location_cause?: string | null;
+  timezone?: string;
   enrollment_ttl_hours?: number;
 }
 
 export interface CreatedWorker {
   worker: WorkerResponse;
   enrollment: EnrollmentView;
+  warnings?: string[];
 }
 
 export interface ConsentConfigResponse {
@@ -129,9 +223,14 @@ export interface ConsentRecord {
 
 export interface UpdateWorkerForm {
   name?: string;
+  run?: string;
+  personal_email?: string;
   role_type?: 'OFFICE' | 'FIELD';
-  work_hours_start?: string;
-  work_hours_end?: string;
+  job_title?: string;
+  workplace_id?: string;
+  work_mode?: WorkMode;
+  art22_exempt?: boolean;
+  location_cause?: string | null;
   timezone?: string;
 }
 
@@ -142,6 +241,8 @@ export interface WorkerListQuery {
   role_type?: 'OFFICE' | 'FIELD';
   status?: WorkerStatus;
   is_active?: boolean;
+  workplace_id?: string;
+  work_mode?: WorkMode;
 }
 
 export interface PaginationMeta {
