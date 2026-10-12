@@ -1,5 +1,4 @@
-import React from 'react';
-import { WorkerItem } from '../api/tauri-bridge';
+import { WorkerItem, AttendanceState } from '../api/tauri-bridge';
 import {
   Shield,
   MapPin,
@@ -13,11 +12,13 @@ import {
   Building2,
 } from 'lucide-react';
 import { STATUS_BADGES, getTelemetryBadge } from './consentCategories';
+import { ATTENDANCE_STATE_LABELS } from '../lib/attendance';
 
 export { STATUS_BADGES };
 
 interface EmployeeCardProps {
   worker: WorkerItem;
+  todayAttendanceState?: AttendanceState;
   onSelect: (worker: WorkerItem) => void;
   onToggleStatus: (worker: WorkerItem) => void;
   onShowEnrollment: (worker: WorkerItem) => void;
@@ -42,6 +43,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   onEdit,
   onDelete,
   onOpenDetail,
+  todayAttendanceState,
 }) => {
   // RF-ADMIN-09-8: an unredeemed code that lapsed is shown as such.
   const expired = worker.status === 'PENDING_ENROLLMENT' && !!worker.raw.enrollment_expired;
@@ -63,6 +65,8 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
       : worker.workMode === 'REMOTE'
         ? 'Teletrabajo'
         : 'Mixta';
+
+  const attBadge = todayAttendanceState ? ATTENDANCE_STATE_LABELS[todayAttendanceState] : null;
 
   return (
     <div className="bg-surface-subtle border border-default rounded-card p-5 hover:border-strong transition-colors flex flex-col justify-between">
@@ -111,9 +115,17 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           </div>
           <div>
             <span className="text-[10px] text-muted block">Asistencia (hoy)</span>
-            <span className="font-medium text-muted block mt-0.5" title="Disponible en ADMIN-15">
-              —
-            </span>
+            {worker.art22Exempt ? (
+              <span className="text-[11px] text-muted block mt-0.5 font-medium">Exento art. 22</span>
+            ) : attBadge ? (
+              <span
+                className={`inline-block px-1.5 py-0.2 text-[10px] font-medium rounded-sm border mt-0.5 ${attBadge.className}`}
+              >
+                {attBadge.label}
+              </span>
+            ) : (
+              <span className="text-muted block mt-0.5">—</span>
+            )}
           </div>
           <div>
             <span className="text-[10px] text-muted block">Telemetría</span>

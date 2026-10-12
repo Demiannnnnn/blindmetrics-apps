@@ -1,3 +1,4 @@
+pub mod attendance;
 pub mod devices;
 pub mod employer;
 pub mod keys;

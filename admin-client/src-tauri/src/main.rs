@@ -7,6 +7,10 @@ pub mod google_oauth;
 pub mod keystore;
 
 use client::{get_api_client, ClientEvents, SubscriptionBlock};
+use commands::attendance::{
+    attendance_board, attendance_corrections, attendance_days, attendance_marks,
+    attendance_propose_correction, attendance_withdraw_correction,
+};
 use commands::devices::{devices_list, devices_rename, devices_revoke};
 use commands::employer::{
     attendance_settings_get, attendance_settings_update, employer_get, employer_update,
@@ -127,6 +131,12 @@ fn main() {
             attendance_settings_update,
             incidents_list,
             incidents_create,
+            attendance_board,
+            attendance_days,
+            attendance_marks,
+            attendance_propose_correction,
+            attendance_corrections,
+            attendance_withdraw_correction,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

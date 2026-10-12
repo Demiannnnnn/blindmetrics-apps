@@ -422,3 +422,140 @@ export interface CreateIncidentForm {
   description: string;
 }
 
+// Attendance Types (TASK-ADMIN-15)
+
+export type AttendanceState = 'WORKING' | 'ON_BREAK' | 'OFF' | 'UNMARKED' | 'UNKNOWN';
+
+export type MarkType = 'WORKDAY_START' | 'WORKDAY_END' | 'BREAK_START' | 'BREAK_END';
+
+export type MarkSource = 'AGENT' | 'PORTAL' | 'CORRECTION';
+
+export interface MarkLocation {
+  lat: number;
+  lon: number;
+  accuracy_m: number;
+}
+
+export interface BoardWorkplace {
+  id: string;
+  name: string;
+}
+
+export interface MarkWorkplace {
+  id: string;
+  name: string;
+  address?: string | null;
+}
+
+export interface AttendanceMark {
+  id: string;
+  mark_id?: string | null;
+  client_mark_id?: string | null;
+  worker_id: string;
+  worker_run?: string | null;
+  employer_rut?: string | null;
+  type: MarkType;
+  server_ts: string;
+  device_ts: string;
+  offline: boolean;
+  source: MarkSource;
+  identification?: string | null;
+  workplace_id?: string | null;
+  workplace?: MarkWorkplace | null;
+  location?: MarkLocation | null;
+  hash: string;
+  prev_hash: string;
+  corrected_by?: string | null;
+  superseded_by?: string | null;
+  hash_verified?: boolean | null;
+}
+
+export interface BoardWorker {
+  worker_id: string;
+  name: string;
+  run?: string | null;
+  workplace?: BoardWorkplace | null;
+  work_mode?: WorkMode | string | null;
+  state: AttendanceState;
+  last_mark?: AttendanceMark | null;
+  today_marks: AttendanceMark[];
+  alerts: string[];
+}
+
+export interface AgreedDaySchedule {
+  start: string;
+  end: string;
+  break?: string | null;
+  break_counts_as_work: boolean;
+}
+
+export type AbsenceType = 'JUSTIFIED' | 'UNJUSTIFIED';
+
+export interface DaySummary {
+  date: string;
+  agreed?: AgreedDaySchedule | null;
+  marks: AttendanceMark[];
+  attended: boolean;
+  absence?: AbsenceType | null;
+  absence_note?: string | null;
+  missing: string;
+  extra: string;
+  anomalies: string[];
+  altered: boolean;
+  timezone?: string | null;
+}
+
+export interface AttendanceMarksQuery {
+  worker_id?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export type CorrectionKind = 'MODIFY' | 'ADD' | 'FIX';
+
+export type CorrectionStatus =
+  | 'PENDING'
+  | 'ACCEPTED'
+  | 'OPPOSED'
+  | 'CONSOLIDATED'
+  | 'WITHDRAWN';
+
+export interface Correction {
+  id: string;
+  worker_id: string;
+  worker_name?: string | null;
+  kind: CorrectionKind;
+  original_mark?: AttendanceMark | null;
+  type: MarkType;
+  proposed_ts: string;
+  reason: string;
+  status: CorrectionStatus;
+  created_at: string;
+  notified_at?: string | null;
+  respond_before: string;
+  responded_at?: string | null;
+  resulting_mark_id?: string | null;
+}
+
+export interface ProposeCorrectionInput {
+  worker_ids: string[];
+  kind: CorrectionKind;
+  original_mark_id?: string | null;
+  type: MarkType;
+  proposed_ts: string;
+  reason: string;
+  confirm_no_harm: boolean;
+  original_mark_ts?: string | null;
+  timezone?: string | null;
+}
+
+export interface AttendanceCorrectionsQuery {
+  worker_id?: string;
+  status?: CorrectionStatus;
+  page?: number;
+  per_page?: number;
+}
+
+

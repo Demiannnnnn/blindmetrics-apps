@@ -14,6 +14,8 @@ import {
   Calendar,
   RefreshCw,
   Building2,
+  Clock,
+  CalendarCheck,
 } from 'lucide-react';
 import {
   WorkerItem,
@@ -31,9 +33,12 @@ import {
   vaultStatus,
   TimeRangeFilter,
   TimeRangePreset,
+  employerGet,
 } from './api/tauri-bridge';
 import { AuthView } from './components/AuthView';
 import { Dashboard } from './components/Dashboard';
+import { AttendanceBoard } from './components/AttendanceBoard';
+import { AttendanceDays } from './components/AttendanceDays';
 import { ActivityChart } from './components/ActivityChart';
 import { NetworkExplorer } from './components/NetworkExplorer';
 import { ScreenshotGallery } from './components/ScreenshotGallery';
@@ -53,6 +58,19 @@ import { isBlocked, shouldShowTrialBanner } from './lib/subscription';
 
 type LockStatus = Pick<SubscriptionStatus, 'effective_status' | 'reason' | 'portal_url' | 'support_email'>;
 
+export type MainTab =
+  | 'dashboard'
+  | 'attendance-live'
+  | 'attendance-records'
+  | 'attendance-reports'
+  | 'system'
+  | 'network'
+  | 'productivity'
+  | 'files'
+  | 'location'
+  | 'employer'
+  | 'compliance';
+
 /** What stands between a signed-in admin and the console (docs/admin-app-spec.md §1, §5.2). */
 type Gate =
   | { kind: 'checking' }
@@ -70,11 +88,11 @@ export const App: React.FC = () => {
   const [organizationSkipped, setOrganizationSkipped] = useState(false);
   const profileRef = useRef<AdminProfile | null>(null);
   profileRef.current = adminProfile;
-  const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'system' | 'network' | 'productivity' | 'files' | 'location' | 'employer' | 'compliance'
-  >('dashboard');
+  const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
+  const [attendanceWorkerId, setAttendanceWorkerId] = useState<string | null>(null);
   const [selectedWorker, setSelectedWorker] = useState<WorkerItem | null>(null);
   const [allWorkers, setAllWorkers] = useState<WorkerItem[]>([]);
+  const hasInitializedDefaultTab = useRef(false);
 
   // RF-ADMIN-05-1: Global Time Range Context Filter
   const [timeRange, setTimeRange] = useState<TimeRangeFilter>({ preset: 'today' });
@@ -168,6 +186,21 @@ export const App: React.FC = () => {
           }
         })
         .catch(() => undefined);
+
+      if (!hasInitializedDefaultTab.current) {
+        hasInitializedDefaultTab.current = true;
+        employerGet()
+          .then(profile => {
+            if (profile) {
+              setActiveTab('attendance-live');
+            } else {
+              setActiveTab('dashboard');
+            }
+          })
+          .catch(() => {
+            setActiveTab('dashboard');
+          });
+      }
     }
   }, [adminProfile, gate.kind]);
 
@@ -186,6 +219,7 @@ export const App: React.FC = () => {
     setAllWorkers([]);
     setSelectedWorker(null);
     setOrganizationSkipped(false);
+    hasInitializedDefaultTab.current = false;
   };
 
   const handleLogout = async () => {
@@ -290,6 +324,23 @@ export const App: React.FC = () => {
 
   const trialDays = gate.subscription?.trial_days_left ?? adminProfile.trial_days_left ?? null;
 
+  const isTelemetryView = [
+    'system',
+    'network',
+    'productivity',
+    'files',
+    'location',
+  ].includes(activeTab);
+
+  const handleNavigateToAttendance = (workerId?: string) => {
+    if (workerId) {
+      setAttendanceWorkerId(workerId);
+      setActiveTab('attendance-records');
+    } else {
+      setActiveTab('attendance-live');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-surface text-fg font-sans overflow-hidden">
       {/* Auto-Lock Security Overlay (RF-ADMIN-07-1..3) */}
@@ -332,6 +383,52 @@ export const App: React.FC = () => {
               <LayoutDashboard className="w-4 h-4" />
               <span>Tablero Principal & Enrolamiento</span>
             </button>
+
+            {/* Kicker: ASISTENCIA (RF-ADMIN-15-1) */}
+            <div className="pt-3 pb-1 px-3 text-[10px] font-semibold text-ink-muted tracking-wider uppercase">
+              Asistencia
+            </div>
+
+            <button
+              onClick={() => setActiveTab('attendance-live')}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
+                activeTab === 'attendance-live'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Asistencia en vivo</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('attendance-records')}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
+                activeTab === 'attendance-records'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
+              }`}
+            >
+              <CalendarCheck className="w-4 h-4" />
+              <span>Marcas y correcciones</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('attendance-reports')}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-control font-medium border-l-2 transition-colors ${
+                activeTab === 'attendance-reports'
+                  ? 'bg-ink-raised text-ink-fg border-brand [&>svg]:text-brand'
+                  : 'text-ink-muted border-transparent hover:bg-ink-raised hover:text-ink-fg'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Reportes legales</span>
+            </button>
+
+            {/* Kicker: TELEMETRÍA (RF-ADMIN-15-1) */}
+            <div className="pt-3 pb-1 px-3 text-[10px] font-semibold text-ink-muted tracking-wider uppercase">
+              Telemetría
+            </div>
 
             <button
               onClick={() => setActiveTab('system')}
@@ -392,6 +489,8 @@ export const App: React.FC = () => {
               <MapPin className="w-4 h-4" />
               <span>Ubicación en Terreno (FIELD)</span>
             </button>
+
+            <div className="pt-2 border-t border-ink-line my-1" />
 
             <button
               onClick={() => setActiveTab('employer')}
@@ -479,80 +578,82 @@ export const App: React.FC = () => {
         {gate.subscription && shouldShowTrialBanner(gate.subscription) && trialDays !== null && (
           <TrialBanner daysLeft={trialDays} />
         )}
-        {/* RF-ADMIN-05-1: Global Context Header with Worker and Time Range Selectors */}
-        <header className="h-16 border-b border-default px-6 flex items-center justify-between shrink-0 bg-surface">
-          <div className="flex items-center gap-4 flex-wrap">
-            {/* Worker Selector Dropdown */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted">Trabajador:</span>
-              <div className="relative">
-                <select
-                  value={selectedWorker?.id ?? ''}
-                  onChange={e => {
-                    const w = allWorkers.find(item => item.id === e.target.value);
-                    if (w) setSelectedWorker(w);
-                  }}
-                  className="bg-surface-subtle border border-default text-fg text-xs font-semibold rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-hidden focus:border-accent cursor-pointer"
-                >
-                  {allWorkers.map(w => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} ({w.role}){w.isActive ? '' : ' · inactivo'}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-muted absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Time Range Selector (RF-ADMIN-05-1) */}
-            <div className="flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-muted" />
-              <span className="text-xs font-medium text-muted">Rango:</span>
-              <div className="relative">
-                <select
-                  value={timeRange.preset}
-                  onChange={e => handlePresetChange(e.target.value as TimeRangePreset)}
-                  className="bg-surface-subtle border border-default text-fg text-xs font-medium rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-hidden focus:border-accent cursor-pointer"
-                >
-                  <option value="today">Hoy</option>
-                  <option value="yesterday">Ayer</option>
-                  <option value="7days">Últimos 7 días</option>
-                  <option value="custom">Personalizado</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-muted absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-
-              {/* Custom Date Inputs */}
-              {timeRange.preset === 'custom' && (
-                <div className="flex items-center gap-1.5 text-xs">
-                  <input
-                    type="date"
-                    value={customFrom}
-                    onChange={e => handleCustomDateChange(e.target.value, customTo)}
-                    className="bg-surface-subtle border border-default text-fg rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-accent"
-                  />
-                  <span className="text-muted">-</span>
-                  <input
-                    type="date"
-                    value={customTo}
-                    onChange={e => handleCustomDateChange(customFrom, e.target.value)}
-                    className="bg-surface-subtle border border-default text-fg rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-accent"
-                  />
+        {/* RF-ADMIN-05-1: Global Context Header with Worker and Time Range Selectors (visible only on telemetry) */}
+        {isTelemetryView && (
+          <header className="h-16 border-b border-default px-6 flex items-center justify-between shrink-0 bg-surface">
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Worker Selector Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted">Trabajador:</span>
+                <div className="relative">
+                  <select
+                    value={selectedWorker?.id ?? ''}
+                    onChange={e => {
+                      const w = allWorkers.find(item => item.id === e.target.value);
+                      if (w) setSelectedWorker(w);
+                    }}
+                    className="bg-surface-subtle border border-default text-fg text-xs font-semibold rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-hidden focus:border-accent cursor-pointer"
+                  >
+                    {allWorkers.map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.role}){w.isActive ? '' : ' · inactivo'}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-muted absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* Crypto Status & Time */}
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <span className="bg-surface-subtle text-muted border border-default px-2.5 py-1 rounded-badge">
-              X25519-AES256GCM
-            </span>
-            <span className="text-muted hidden sm:inline">
-              {selectedWorker?.timezone ?? 'America/Santiago'}
-            </span>
-          </div>
-        </header>
+              {/* Time Range Selector (RF-ADMIN-05-1) */}
+              <div className="flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5 text-muted" />
+                <span className="text-xs font-medium text-muted">Rango:</span>
+                <div className="relative">
+                  <select
+                    value={timeRange.preset}
+                    onChange={e => handlePresetChange(e.target.value as TimeRangePreset)}
+                    className="bg-surface-subtle border border-default text-fg text-xs font-medium rounded-control pl-3 pr-8 py-1.5 appearance-none focus:outline-hidden focus:border-accent cursor-pointer"
+                  >
+                    <option value="today">Hoy</option>
+                    <option value="yesterday">Ayer</option>
+                    <option value="7days">Últimos 7 días</option>
+                    <option value="custom">Personalizado</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-muted absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+
+                {/* Custom Date Inputs */}
+                {timeRange.preset === 'custom' && (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <input
+                      type="date"
+                      value={customFrom}
+                      onChange={e => handleCustomDateChange(e.target.value, customTo)}
+                      className="bg-surface-subtle border border-default text-fg rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-accent"
+                    />
+                    <span className="text-muted">-</span>
+                    <input
+                      type="date"
+                      value={customTo}
+                      onChange={e => handleCustomDateChange(customFrom, e.target.value)}
+                      className="bg-surface-subtle border border-default text-fg rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-accent"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Crypto Status & Time */}
+            <div className="flex items-center gap-4 text-xs font-mono">
+              <span className="bg-surface-subtle text-muted border border-default px-2.5 py-1 rounded-badge">
+                X25519-AES256GCM
+              </span>
+              <span className="text-muted hidden sm:inline">
+                {selectedWorker?.timezone ?? 'America/Santiago'}
+              </span>
+            </div>
+          </header>
+        )}
 
         {/* View Content */}
         <div className="flex-1 overflow-y-auto p-6">
@@ -566,7 +667,41 @@ export const App: React.FC = () => {
               onOpenVault={() => setActiveTab('compliance')}
               onProfileChanged={setAdminProfile}
               onNavigateToEmployer={() => setActiveTab('employer')}
+              onNavigateToAttendance={handleNavigateToAttendance}
             />
+          )}
+
+          {activeTab === 'attendance-live' && (
+            <AttendanceBoard
+              onSelectWorker={workerId => {
+                setAttendanceWorkerId(workerId);
+                setActiveTab('attendance-records');
+              }}
+              onNavigateToDashboard={() => setActiveTab('dashboard')}
+            />
+          )}
+
+          {activeTab === 'attendance-records' && (
+            <AttendanceDays
+              key={attendanceWorkerId ?? 'all'}
+              initialWorkerId={attendanceWorkerId ?? undefined}
+              onWorkerChanged={workerId => setAttendanceWorkerId(workerId)}
+            />
+          )}
+
+          {activeTab === 'attendance-reports' && (
+            <div className="max-w-2xl mx-auto p-12 bg-surface border border-default rounded-card text-center space-y-4 mt-12">
+              <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center mx-auto">
+                <FileText className="w-6 h-6" />
+              </div>
+              <h2 className="text-base font-bold text-fg">Reportes Legales (R38 arts. 25, 27, 28)</h2>
+              <p className="text-xs text-muted max-w-md mx-auto leading-relaxed">
+                Reportes oficiales de asistencia, jornada diaria, domingos y festivos, modificaciones de turnos e incidentes técnicos.
+              </p>
+              <div className="inline-block px-3 py-1 bg-surface-subtle border border-default rounded-full text-xs font-medium text-muted">
+                Disponible próximamente
+              </div>
+            </div>
           )}
 
           {activeTab === 'system' && (

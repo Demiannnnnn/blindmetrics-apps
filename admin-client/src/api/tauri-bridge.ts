@@ -38,6 +38,13 @@ import type {
   AttendanceSettings,
   TechnicalIncident,
   CreateIncidentForm,
+  BoardWorker,
+  DaySummary,
+  AttendanceMark,
+  AttendanceMarksQuery,
+  ProposeCorrectionInput,
+  Correction,
+  AttendanceCorrectionsQuery,
 } from './types';
 
 export * from './types';
@@ -1252,4 +1259,164 @@ export async function incidentsCreate(form: CreateIncidentForm): Promise<Technic
   }
   return requireTauri('incidents_create');
 }
+
+// ---------------------------------------------------------------- attendance (TASK-ADMIN-15)
+
+let demoBoardWorkers: BoardWorker[] = [
+  {
+    worker_id: '01927d3b-65e1-7000-8000-0000000000aa',
+    name: 'Juan Pérez',
+    run: '12.345.678-5',
+    workplace: { id: '01927d3b-65e1-7000-8000-0000000000b1', name: 'Casa matriz' },
+    work_mode: 'ON_SITE',
+    state: 'WORKING',
+    last_mark: {
+      id: '01927d3b-65e1-7000-8000-000000000001',
+      worker_id: '01927d3b-65e1-7000-8000-0000000000aa',
+      worker_run: '12.345.678-5',
+      employer_rut: '76.123.456-0',
+      type: 'WORKDAY_START',
+      server_ts: new Date().toISOString().slice(0, 10) + 'T09:00:00Z',
+      device_ts: new Date().toISOString().slice(0, 10) + 'T08:59:58Z',
+      offline: false,
+      source: 'AGENT',
+      identification: 'DEVICE_PIN',
+      workplace_id: '01927d3b-65e1-7000-8000-0000000000b1',
+      workplace: { id: '01927d3b-65e1-7000-8000-0000000000b1', name: 'Casa matriz' },
+      hash: '57c4cad20df41e012451c2841647daef7691fd333b1aaef5afb7fdad7666784e',
+      prev_hash: '0000000000000000000000000000000000000000000000000000000000000000',
+      hash_verified: true,
+    },
+    today_marks: [
+      {
+        id: '01927d3b-65e1-7000-8000-000000000001',
+        worker_id: '01927d3b-65e1-7000-8000-0000000000aa',
+        worker_run: '12.345.678-5',
+        employer_rut: '76.123.456-0',
+        type: 'WORKDAY_START',
+        server_ts: new Date().toISOString().slice(0, 10) + 'T09:00:00Z',
+        device_ts: new Date().toISOString().slice(0, 10) + 'T08:59:58Z',
+        offline: false,
+        source: 'AGENT',
+        identification: 'DEVICE_PIN',
+        workplace_id: '01927d3b-65e1-7000-8000-0000000000b1',
+        workplace: { id: '01927d3b-65e1-7000-8000-0000000000b1', name: 'Casa matriz' },
+        hash: '57c4cad20df41e012451c2841647daef7691fd333b1aaef5afb7fdad7666784e',
+        prev_hash: '0000000000000000000000000000000000000000000000000000000000000000',
+        hash_verified: true,
+      },
+    ],
+    alerts: [],
+  },
+];
+
+let demoCorrections: Correction[] = [];
+
+export async function attendanceBoard(): Promise<BoardWorker[]> {
+  if (isTauri()) return await invoke<BoardWorker[]>('attendance_board');
+  if (isDemoMode) return demoBoardWorkers;
+  return requireTauri('attendance_board');
+}
+
+export async function attendanceDays(
+  workerId: string,
+  from: string,
+  to: string,
+): Promise<DaySummary[]> {
+  if (isTauri()) {
+    return await invoke<DaySummary[]>('attendance_days', {
+      workerId,
+      from,
+      to,
+    });
+  }
+  if (isDemoMode) {
+    return [
+      {
+        date: new Date().toISOString().slice(0, 10),
+        agreed: {
+          start: '09:00:00',
+          end: '18:00:00',
+          break: '13:00:00-14:00:00',
+          break_counts_as_work: false,
+        },
+        marks: demoBoardWorkers[0]?.today_marks ?? [],
+        attended: true,
+        missing: '-00:00:00',
+        extra: '+00:00:00',
+        anomalies: [],
+        altered: false,
+      },
+    ];
+  }
+  return requireTauri('attendance_days');
+}
+
+export async function attendanceMarks(
+  query: AttendanceMarksQuery,
+): Promise<CollectionResponse<AttendanceMark>> {
+  if (isTauri()) return await invoke<CollectionResponse<AttendanceMark>>('attendance_marks', { query });
+  if (isDemoMode) {
+    const marks = demoBoardWorkers.flatMap(w => w.today_marks);
+    return {
+      data: marks,
+      pagination: { total: marks.length, page: 1, per_page: 20, total_pages: 1 },
+    };
+  }
+  return requireTauri('attendance_marks');
+}
+
+export async function attendanceProposeCorrection(
+  form: ProposeCorrectionInput,
+): Promise<Correction[]> {
+  if (isTauri()) {
+    return await invoke<Correction[]>('attendance_propose_correction', { form });
+  }
+  if (isDemoMode) {
+    const created: Correction = {
+      id: `corr-demo-${Date.now()}`,
+      worker_id: form.worker_ids[0] || '01927d3b-65e1-7000-8000-0000000000aa',
+      worker_name: 'Juan Pérez',
+      kind: form.kind,
+      original_mark: null,
+      type: form.type,
+      proposed_ts: form.proposed_ts,
+      reason: form.reason,
+      status: 'PENDING',
+      created_at: new Date().toISOString(),
+      respond_before: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+    };
+    demoCorrections = [created, ...demoCorrections];
+    return [created];
+  }
+  return requireTauri('attendance_propose_correction');
+}
+
+export async function attendanceCorrections(
+  query: AttendanceCorrectionsQuery,
+): Promise<CollectionResponse<Correction>> {
+  if (isTauri()) return await invoke<CollectionResponse<Correction>>('attendance_corrections', { query });
+  if (isDemoMode) {
+    const filtered = query.status
+      ? demoCorrections.filter(c => c.status === query.status)
+      : demoCorrections;
+    return {
+      data: filtered,
+      pagination: { total: filtered.length, page: 1, per_page: 20, total_pages: 1 },
+    };
+  }
+  return requireTauri('attendance_corrections');
+}
+
+export async function attendanceWithdrawCorrection(id: string): Promise<void> {
+  if (isTauri()) return await invoke<void>('attendance_withdraw_correction', { id });
+  if (isDemoMode) {
+    demoCorrections = demoCorrections.map(c =>
+      c.id === id ? { ...c, status: 'WITHDRAWN' as const } : c,
+    );
+    return;
+  }
+  return requireTauri('attendance_withdraw_correction');
+}
+
 
