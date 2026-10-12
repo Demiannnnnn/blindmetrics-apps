@@ -15,6 +15,196 @@ use telemetry_crypto_core::enrollment::{
 };
 use telemetry_crypto_core::{ConsentDescriptions, ConsentFlags};
 
+/// Work modality (`api-contract.md` §11). Closed set: unknown values fail to deserialize.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum WorkMode {
+    OnSite,
+    Remote,
+    Hybrid,
+}
+
+impl WorkMode {
+    /// Case-insensitive parse used by list filters and update forms.
+    pub fn parse(raw: &str) -> Result<Self, CommandError> {
+        match raw.trim().to_uppercase().as_str() {
+            "ON_SITE" => Ok(Self::OnSite),
+            "REMOTE" => Ok(Self::Remote),
+            "HYBRID" => Ok(Self::Hybrid),
+            _ => Err(validation_error(
+                "Modalidad debe ser ON_SITE, REMOTE o HYBRID",
+            )),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OnSite => "ON_SITE",
+            Self::Remote => "REMOTE",
+            Self::Hybrid => "HYBRID",
+        }
+    }
+}
+
+/// Journey type of an agreed schedule (R38 art. 25.1 e).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum JourneyType {
+    Fixed,
+    Shifts,
+    Cycles,
+    Biweekly,
+    Exceptional,
+    PartTime,
+}
+
+/// Who asked for a schedule version.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RequestedBy {
+    Employer,
+    Worker,
+}
+
+/// Telemetry state of a worker, independent from `status` (`domain.md` §5).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TelemetryStatus {
+    NotRequested,
+    PendingDecision,
+    Accepted,
+    Declined,
+    Paused,
+}
+
+/// Link/terms lifecycle of a worker (contract v3 §12).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum WorkerStatus {
+    PendingEnrollment,
+    PendingTerms,
+    Active,
+    Revoked,
+}
+
+impl WorkerStatus {
+    pub fn parse(raw: &str) -> Result<Self, CommandError> {
+        match raw.trim().to_uppercase().as_str() {
+            "PENDING_ENROLLMENT" => Ok(Self::PendingEnrollment),
+            "PENDING_TERMS" => Ok(Self::PendingTerms),
+            "ACTIVE" => Ok(Self::Active),
+            "REVOKED" => Ok(Self::Revoked),
+            _ => Err(validation_error(format!("Unknown worker status '{raw}'"))),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PendingEnrollment => "PENDING_ENROLLMENT",
+            Self::PendingTerms => "PENDING_TERMS",
+            Self::Active => "ACTIVE",
+            Self::Revoked => "REVOKED",
+        }
+    }
+}
+
+fn default_work_mode() -> WorkMode {
+    WorkMode::OnSite
+}
+
+fn default_telemetry_status() -> TelemetryStatus {
+    TelemetryStatus::NotRequested
+}
+
+fn default_role_type() -> String {
+    "OFFICE".to_string()
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ExceptionalResolution {
+    pub number: String,
+    pub date: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ScheduleDay {
+    pub weekday: u8,
+    pub start: String,
+    pub end: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_start: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_end: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DisconnectionWindow {
+    pub start: String,
+    pub end: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ScheduleInput {
+    pub journey_type: JourneyType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exceptional_resolution: Option<ExceptionalResolution>,
+    #[serde(default)]
+    pub days: Vec<ScheduleDay>,
+    #[serde(default)]
+    pub break_counts_as_work: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disconnection: Option<DisconnectionWindow>,
+    #[serde(default)]
+    pub location_at_mark: bool,
+    pub effective_from: String,
+    pub requested_by: RequestedBy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ScheduleResponse {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub version: Option<i32>,
+    pub journey_type: JourneyType,
+    #[serde(default)]
+    pub exceptional_resolution: Option<ExceptionalResolution>,
+    #[serde(default)]
+    pub days: Vec<ScheduleDay>,
+    #[serde(default)]
+    pub break_counts_as_work: bool,
+    #[serde(default)]
+    pub disconnection: Option<DisconnectionWindow>,
+    #[serde(default)]
+    pub location_at_mark: bool,
+    pub effective_from: String,
+    #[serde(default)]
+    pub requested_by: Option<RequestedBy>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub warnings: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ScheduleUpdateResponse {
+    pub schedule: ScheduleResponse,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct WorkerWorkplace {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub address: Option<serde_json::Value>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct WorkerDeviceInfo {
     pub hostname: String,
@@ -26,13 +216,14 @@ pub struct WorkerDeviceInfo {
 pub struct WorkerResponse {
     pub id: String,
     pub admin_id: String,
+    #[serde(default)]
     pub email: String,
     pub name: String,
     pub device_identifier: Option<String>,
     pub device_info: Option<WorkerDeviceInfo>,
     pub role_type: String, // "OFFICE" | "FIELD"
     pub is_active: bool,
-    pub status: String, // "PENDING_ENROLLMENT" | "PENDING_CONSENT" | "ACTIVE" | "PAUSED" | "REVOKED"
+    pub status: WorkerStatus,
     #[serde(default)]
     pub status_changed_at: Option<String>,
     /// Effective flags: the subset the worker accepted.
@@ -48,11 +239,36 @@ pub struct WorkerResponse {
     pub enrollment_expires_at: Option<String>,
     #[serde(default)]
     pub enrollment_expired: bool,
+    #[serde(default)]
     pub work_hours_start: Option<String>,
+    #[serde(default)]
     pub work_hours_end: Option<String>,
+    #[serde(default)]
     pub timezone: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+
+    // v3 fields (RF-ADMIN-14-1)
+    #[serde(default)]
+    pub run: String,
+    #[serde(default)]
+    pub personal_email: String,
+    #[serde(default)]
+    pub job_title: String,
+    #[serde(default)]
+    pub workplace: Option<WorkerWorkplace>,
+    #[serde(default = "default_work_mode")]
+    pub work_mode: WorkMode,
+    #[serde(default)]
+    pub art22_exempt: bool,
+    #[serde(default)]
+    pub schedule: Option<ScheduleResponse>,
+    #[serde(default = "default_telemetry_status")]
+    pub telemetry_status: TelemetryStatus,
+    #[serde(default)]
+    pub terms_accepted_version: Option<String>,
+    #[serde(default)]
+    pub warnings: Option<Vec<String>>,
 }
 
 /// Enrollment package issued by the API (api-contract §5).
@@ -69,6 +285,8 @@ pub struct EnrollmentPackage {
 pub struct CreateWorkerApiResponse {
     pub worker: WorkerResponse,
     pub enrollment: EnrollmentPackage,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -93,6 +311,8 @@ pub struct EnrollmentView {
 pub struct CreatedWorker {
     pub worker: WorkerResponse,
     pub enrollment: EnrollmentView,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -128,59 +348,110 @@ pub struct ConsentRecord {
     pub created_at: String,
 }
 
+/// Create-worker form (W2, contract v3 §11). Validation here is authoritative; the React
+/// form mirrors it for live messages (RF-ADMIN-14-2).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct CreateWorkerForm {
-    pub email: String,
     pub name: String,
+    #[serde(default)]
+    pub run: String,
+    #[serde(default)]
+    pub personal_email: String,
+    #[serde(default)]
+    pub job_title: String,
+    #[serde(default)]
+    pub workplace_id: String,
+    #[serde(default = "default_work_mode")]
+    pub work_mode: WorkMode,
+    #[serde(default)]
+    pub art22_exempt: bool,
+    #[serde(default)]
+    pub schedule: Option<ScheduleInput>,
+    #[serde(default = "default_role_type")]
     pub role_type: String, // "OFFICE" | "FIELD"
-    pub work_hours_start: String,
-    pub work_hours_end: String,
-    pub timezone: String,
+    #[serde(default)]
     pub consent_flags: ConsentFlags,
+    #[serde(default)]
     pub consent_descriptions: ConsentDescriptions,
+    #[serde(default)]
+    pub location_cause: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
     pub enrollment_ttl_hours: Option<u32>,
 }
 
 impl CreateWorkerForm {
-    pub fn validate(&self) -> Result<(), CommandError> {
-        if self.email.trim().is_empty() || !self.email.contains('@') {
-            return Err(CommandError::new(
-                "VALIDATION_ERROR",
-                "Valid email address is required",
+    /// Validates the whole form and returns the canonical RUN (`12.345.678-5`).
+    ///
+    /// Enforces ATT-11 (warnings only, never here), ATT-12 (only art. 22 may skip the
+    /// schedule), DP-04 (location needs FIELD + cause), DP-05 (no screenshots outside
+    /// `ON_SITE`) and DP-08 (an all-false consent is valid: attendance-only worker).
+    pub fn validate(&self) -> Result<String, CommandError> {
+        let name = self.name.trim();
+        if name.chars().count() < 2 || name.chars().count() > 255 {
+            return Err(CommandError::validation(
+                "El nombre debe tener entre 2 y 255 caracteres.",
             ));
         }
-        if self.name.trim().is_empty() {
-            return Err(CommandError::new(
-                "VALIDATION_ERROR",
-                "Worker name is required",
+
+        let canonical_run = validate_run(&self.run)?;
+        validate_personal_email(&self.personal_email)?;
+        validate_job_title(&self.job_title)?;
+
+        if self.workplace_id.trim().is_empty() {
+            return Err(CommandError::validation(
+                "Se requiere seleccionar un lugar de trabajo.",
             ));
         }
 
         let role_upper = validate_role(&self.role_type)?;
 
-        // DP-04 / RF-ADMIN-08-2: OFFICE workers cannot have location enabled
-        if role_upper == "OFFICE" && self.consent_flags.location {
+        if !self.art22_exempt {
+            let sched = self.schedule.as_ref().ok_or_else(|| {
+                CommandError::validation(
+                    "Se debe ingresar la jornada pactada para trabajadores no exentos del art. 22.",
+                )
+            })?;
+            validate_schedule(sched, self.work_mode)?;
+        }
+
+        if let Some(tz) = &self.timezone {
+            if !tz.trim().is_empty() {
+                validate_timezone(tz)?;
+            }
+        }
+
+        // DP-05: screenshots not allowed for REMOTE or HYBRID
+        if self.consent_flags.productivity_screenshots && self.work_mode != WorkMode::OnSite {
             return Err(CommandError::new(
-                "VALIDATION_ERROR",
-                "Location tracking is prohibited for OFFICE workers",
+                "SCREENSHOTS_NOT_ALLOWED_REMOTE",
+                "Las capturas de pantalla no están permitidas para trabajadores en teletrabajo o modalidad mixta (R38 art. 55 a).",
             ));
         }
 
-        validate_work_hours(&self.work_hours_start, &self.work_hours_end)?;
-        validate_timezone(&self.timezone)?;
+        // DP-04 / RF-ADMIN-14-2: location tracking requires FIELD role and location_cause
+        if self.consent_flags.location {
+            if role_upper != "FIELD" {
+                return Err(CommandError::new(
+                    "VALIDATION_ERROR",
+                    "La ubicación solo puede solicitarse a trabajadores en terreno (FIELD).",
+                ));
+            }
+            validate_location_cause(self.location_cause.as_deref())?;
+        }
 
-        // RF-ADMIN-08-2: enrollment code lifetime 1–72 h
         if let Some(ttl) = self.enrollment_ttl_hours {
             if !(1..=72).contains(&ttl) {
-                return Err(validation_error(
-                    "Enrollment code lifetime must be between 1 and 72 hours",
+                return Err(CommandError::validation(
+                    "La vigencia del código debe estar entre 1 y 72 horas.",
                 ));
             }
         }
 
         validate_consent_descriptions(&self.consent_flags, &self.consent_descriptions)?;
 
-        Ok(())
+        Ok(canonical_run)
     }
 
     pub fn normalized_descriptions(&self) -> ConsentDescriptions {
@@ -196,14 +467,7 @@ const QUERY_VALUE_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'.')
     .remove(b'_')
     .remove(b'~');
-const VALID_ROLES: [&str; 2] = ["OFFICE", "FIELD"];
-const VALID_STATUSES: [&str; 5] = [
-    "PENDING_ENROLLMENT",
-    "PENDING_CONSENT",
-    "ACTIVE",
-    "PAUSED",
-    "REVOKED",
-];
+pub const VALID_ROLES: [&str; 2] = ["OFFICE", "FIELD"];
 /// Top-level areas of the IANA tz database (plus `Etc`). Used for a lightweight
 /// format check; the server remains the authority on the exact zone list.
 const IANA_AREAS: [&str; 11] = [
@@ -329,6 +593,226 @@ pub fn validate_consent_descriptions(
     Ok(())
 }
 
+/// RUN (RF-ADMIN-14-2): mod 11 through `telemetry_crypto_core::rut`; returns the canonical form.
+pub fn validate_run(raw: &str) -> Result<String, CommandError> {
+    if raw.trim().is_empty() {
+        return Err(CommandError::validation(
+            "Se requiere el RUN del trabajador.",
+        ));
+    }
+    telemetry_crypto_core::rut::parse(raw)
+        .map(|r| r.format())
+        .map_err(|e| CommandError::validation(format!("RUN inválido: {e}")))
+}
+
+/// Personal email (R38 art. 12 e): receives every mark receipt, so a plausible address is required.
+pub fn validate_personal_email(raw: &str) -> Result<(), CommandError> {
+    let e = raw.trim();
+    let ok = e.chars().count() <= 254
+        && !e.chars().any(char::is_whitespace)
+        && e.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty()
+                && !domain.contains('@')
+                && domain.contains('.')
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
+        });
+    if ok {
+        Ok(())
+    } else {
+        Err(CommandError::validation(
+            "Se requiere un correo personal válido.",
+        ))
+    }
+}
+
+/// Job title, 2–100 characters (not bytes).
+pub fn validate_job_title(raw: &str) -> Result<(), CommandError> {
+    let n = raw.trim().chars().count();
+    if (2..=100).contains(&n) {
+        Ok(())
+    } else {
+        Err(CommandError::validation(
+            "El cargo debe tener entre 2 y 100 caracteres.",
+        ))
+    }
+}
+
+/// `location_cause`, 20–500 characters, shown verbatim to the worker (DP-04, R38 art. 53 e).
+pub fn validate_location_cause(raw: Option<&str>) -> Result<(), CommandError> {
+    let len = raw.unwrap_or("").trim().chars().count();
+    if (20..=500).contains(&len) {
+        Ok(())
+    } else {
+        Err(CommandError::new(
+            "LOCATION_CAUSE_REQUIRED",
+            "Se requiere declarar una causa de seguridad o legal (20 a 500 caracteres) para solicitar ubicación (R38 art. 53 e).",
+        ))
+    }
+}
+
+/// Strict `HH:MM` (00:00–23:59) to minutes since midnight.
+pub fn time_to_minutes_str(t: &str) -> Option<u32> {
+    let b = t.trim().as_bytes();
+    if b.len() != 5 || b[2] != b':' {
+        return None;
+    }
+    let digits = |x: &[u8]| -> Option<u32> {
+        x.iter().try_fold(0u32, |acc, c| {
+            c.is_ascii_digit().then(|| acc * 10 + u32::from(c - b'0'))
+        })
+    };
+    let h = digits(&b[0..2])?;
+    let m = digits(&b[3..5])?;
+    (h <= 23 && m <= 59).then_some(h * 60 + m)
+}
+
+/// Length of the disconnection window in minutes; a window may cross midnight.
+pub fn calculate_disconnection_minutes(start: &str, end: &str) -> Result<u32, CommandError> {
+    let s = time_to_minutes_str(start)
+        .ok_or_else(|| validation_error("Hora de inicio de desconexión inválida"))?;
+    let e = time_to_minutes_str(end)
+        .ok_or_else(|| validation_error("Hora de fin de desconexión inválida"))?;
+    let mins = if e >= s { e - s } else { 24 * 60 - s + e };
+    Ok(mins)
+}
+
+fn validate_date(raw: &str, what: &str) -> Result<(), CommandError> {
+    chrono::NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d")
+        .map(|_| ())
+        .map_err(|_| validation_error(format!("{what} inválida (use AAAA-MM-DD)")))
+}
+
+/// Schedule rules that do not depend on the work mode. Exceeding the daily/weekly legal
+/// maximum is **not** an error here (ATT-11): the server answers with `warnings`.
+pub fn validate_schedule_basic(schedule: &ScheduleInput) -> Result<(), CommandError> {
+    if schedule.journey_type == JourneyType::Exceptional {
+        let res = schedule.exceptional_resolution.as_ref().ok_or_else(|| {
+            validation_error("Jornada excepcional requiere número y fecha de resolución de la DT")
+        })?;
+        if res.number.trim().is_empty() {
+            return Err(validation_error(
+                "El número de resolución no puede estar vacío",
+            ));
+        }
+        validate_date(&res.date, "La fecha de resolución")?;
+    }
+
+    if schedule.days.is_empty() {
+        return Err(validation_error(
+            "La jornada debe tener al menos un día de trabajo.",
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for day in &schedule.days {
+        if !(1..=7).contains(&day.weekday) {
+            return Err(validation_error(
+                "Día de la semana inválido (debe ser 1 a 7)",
+            ));
+        }
+        if !seen.insert(day.weekday) {
+            return Err(validation_error(format!(
+                "El día {} está repetido en la jornada",
+                day.weekday
+            )));
+        }
+        let s = time_to_minutes_str(&day.start).ok_or_else(|| {
+            validation_error(format!("Hora de entrada inválida en día {}", day.weekday))
+        })?;
+        let e = time_to_minutes_str(&day.end).ok_or_else(|| {
+            validation_error(format!("Hora de salida inválida en día {}", day.weekday))
+        })?;
+        if s >= e {
+            return Err(validation_error(format!(
+                "La hora de entrada debe ser anterior a la hora de salida en día {}",
+                day.weekday
+            )));
+        }
+        match (&day.break_start, &day.break_end) {
+            (None, None) => {}
+            (Some(bs), Some(be)) => {
+                let bs_min = time_to_minutes_str(bs)
+                    .ok_or_else(|| validation_error("Hora de inicio de colación inválida"))?;
+                let be_min = time_to_minutes_str(be)
+                    .ok_or_else(|| validation_error("Hora de fin de colación inválida"))?;
+                if bs_min < s || be_min > e || bs_min >= be_min {
+                    return Err(validation_error(format!(
+                        "Franja de colación inválida dentro de la jornada en día {}",
+                        day.weekday
+                    )));
+                }
+            }
+            _ => {
+                return Err(validation_error(format!(
+                    "La colación requiere inicio y término en día {}",
+                    day.weekday
+                )))
+            }
+        }
+    }
+
+    if let Some(disc) = &schedule.disconnection {
+        let disc_mins = calculate_disconnection_minutes(&disc.start, &disc.end)?;
+        if disc_mins < 12 * 60 {
+            return Err(validation_error(
+                "La desconexión debe ser de al menos 12 horas continuas.",
+            ));
+        }
+    }
+
+    validate_date(&schedule.effective_from, "La fecha de vigencia")?;
+    if schedule
+        .note
+        .as_deref()
+        .is_some_and(|n| n.chars().count() > MAX_REASON_CHARS)
+    {
+        return Err(validation_error(
+            "La nota admite como máximo 500 caracteres",
+        ));
+    }
+
+    Ok(())
+}
+
+/// Full schedule validation for a worker with the given modality. CT art. 152 quáter J:
+/// `REMOTE`/`HYBRID` need a disconnection window of at least 12 continuous hours.
+pub fn validate_schedule(
+    schedule: &ScheduleInput,
+    work_mode: WorkMode,
+) -> Result<(), CommandError> {
+    validate_schedule_basic(schedule)?;
+
+    if work_mode != WorkMode::OnSite {
+        let disc = schedule.disconnection.as_ref().ok_or_else(|| {
+            validation_error("Se requiere franja de desconexión (≥ 12 h continuas) para teletrabajo o jornada mixta.")
+        })?;
+        let disc_mins = calculate_disconnection_minutes(&disc.start, &disc.end)?;
+        if disc_mins < 12 * 60 {
+            return Err(validation_error(
+                "La desconexión debe ser de al menos 12 horas continuas.",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn parse_schedule_update_response(
+    value: serde_json::Value,
+) -> Result<ScheduleUpdateResponse, CommandError> {
+    if let Ok(resp) = serde_json::from_value::<ScheduleUpdateResponse>(value.clone()) {
+        return Ok(resp);
+    }
+    if let Ok(schedule) = serde_json::from_value::<ScheduleResponse>(value.clone()) {
+        let warnings = schedule.warnings.clone().unwrap_or_default();
+        return Ok(ScheduleUpdateResponse { schedule, warnings });
+    }
+    Err(CommandError::new(
+        "DESERIALIZATION_ERROR",
+        "Formato de respuesta de actualización de jornada desconocido",
+    ))
+}
+
 fn validate_role(role: &str) -> Result<String, CommandError> {
     let upper = role.trim().to_uppercase();
     if VALID_ROLES.contains(&upper.as_str()) {
@@ -343,9 +827,14 @@ fn validate_role(role: &str) -> Result<String, CommandError> {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct UpdateWorkerForm {
     pub name: Option<String>,
+    pub run: Option<String>,
+    pub personal_email: Option<String>,
     pub role_type: Option<String>,
-    pub work_hours_start: Option<String>,
-    pub work_hours_end: Option<String>,
+    pub job_title: Option<String>,
+    pub workplace_id: Option<String>,
+    pub work_mode: Option<WorkMode>,
+    pub art22_exempt: Option<bool>,
+    pub location_cause: Option<String>,
     pub timezone: Option<String>,
 }
 
@@ -355,29 +844,46 @@ impl UpdateWorkerForm {
         let mut body = serde_json::Map::new();
 
         if let Some(name) = &self.name {
-            if name.trim().is_empty() {
-                return Err(validation_error("Worker name cannot be empty"));
+            let n = name.trim();
+            if n.chars().count() < 2 || n.chars().count() > 255 {
+                return Err(validation_error(
+                    "El nombre debe tener entre 2 y 255 caracteres",
+                ));
             }
-            body.insert("name".into(), name.trim().into());
+            body.insert("name".into(), n.into());
+        }
+        if let Some(run) = &self.run {
+            body.insert("run".into(), validate_run(run)?.into());
+        }
+        if let Some(email) = &self.personal_email {
+            validate_personal_email(email)?;
+            body.insert("personal_email".into(), email.trim().into());
         }
         if let Some(role) = &self.role_type {
             body.insert("role_type".into(), validate_role(role)?.into());
         }
-        match (&self.work_hours_start, &self.work_hours_end) {
-            (Some(start), Some(end)) => {
-                validate_work_hours(start, end)?;
-                body.insert(
-                    "work_hours_start".into(),
-                    normalize_work_hour(start)?.into(),
-                );
-                body.insert("work_hours_end".into(), normalize_work_hour(end)?.into());
+        if let Some(title) = &self.job_title {
+            validate_job_title(title)?;
+            body.insert("job_title".into(), title.trim().into());
+        }
+        if let Some(w) = &self.workplace_id {
+            if w.trim().is_empty() {
+                return Err(validation_error("workplace_id no puede estar vacío"));
             }
-            (None, None) => {}
-            _ => {
-                return Err(validation_error(
-                    "Work hours start and end must be updated together",
-                ))
+            body.insert("workplace_id".into(), w.trim().into());
+        }
+        if let Some(m) = self.work_mode {
+            body.insert("work_mode".into(), m.as_str().into());
+        }
+        if let Some(exempt) = self.art22_exempt {
+            body.insert("art22_exempt".into(), serde_json::Value::Bool(exempt));
+        }
+        if let Some(cause) = &self.location_cause {
+            let c = cause.trim();
+            if !c.is_empty() {
+                validate_location_cause(Some(c))?;
             }
+            body.insert("location_cause".into(), c.into());
         }
         if let Some(tz) = &self.timezone {
             validate_timezone(tz)?;
@@ -421,6 +927,8 @@ pub struct WorkerListQuery {
     pub role_type: Option<String>,
     pub status: Option<String>,
     pub is_active: Option<bool>,
+    pub workplace_id: Option<String>,
+    pub work_mode: Option<String>,
 }
 
 impl WorkerListQuery {
@@ -446,14 +954,21 @@ impl WorkerListQuery {
             params.push(format!("role_type={}", validate_role(r)?));
         }
         if let Some(st) = &self.status {
-            let upper = st.trim().to_uppercase();
-            if !VALID_STATUSES.contains(&upper.as_str()) {
-                return Err(validation_error(format!("Unknown worker status '{}'", st)));
-            }
-            params.push(format!("status={}", upper));
+            params.push(format!("status={}", WorkerStatus::parse(st)?.as_str()));
         }
         if let Some(active) = self.is_active {
             params.push(format!("is_active={}", active));
+        }
+        if let Some(w) = &self.workplace_id {
+            if !w.trim().is_empty() {
+                params.push(format!(
+                    "workplace_id={}",
+                    utf8_percent_encode(w.trim(), QUERY_VALUE_ENCODE_SET)
+                ));
+            }
+        }
+        if let Some(m) = &self.work_mode {
+            params.push(format!("work_mode={}", WorkMode::parse(m)?.as_str()));
         }
 
         Ok(if params.is_empty() {
@@ -594,23 +1109,57 @@ pub async fn workers_create_with_client(
     client: &AdminApiClient,
     form: CreateWorkerForm,
 ) -> Result<CreatedWorker, CommandError> {
-    form.validate()?;
+    let canonical_run = form.validate()?;
 
     // RF-ADMIN-08-1: the server must hold our local key (registered now if
     // missing) before it accepts workers; a different key blocks creation (K2).
     let admin_pub = ensure_server_key_with_client(client).await?;
 
-    let body = serde_json::json!({
-        "email": form.email.trim(),
+    // Contract v3 §11: `work_hours_*` are derived by the server from the schedule, so the
+    // app never sends (nor invents) them. An art. 22 exempt worker carries no schedule.
+    let mut body = serde_json::json!({
         "name": form.name.trim(),
+        "personal_email": form.personal_email.trim(),
+        "run": canonical_run,
+        "job_title": form.job_title.trim(),
+        "workplace_id": form.workplace_id.trim(),
+        "work_mode": form.work_mode,
+        "art22_exempt": form.art22_exempt,
         "role_type": validate_role(&form.role_type)?,
-        "work_hours_start": normalize_work_hour(&form.work_hours_start)?,
-        "work_hours_end": normalize_work_hour(&form.work_hours_end)?,
-        "timezone": form.timezone.trim(),
         "consent_flags": form.consent_flags,
         "consent_descriptions": form.normalized_descriptions(),
         "enrollment_ttl_hours": validate_ttl(form.enrollment_ttl_hours)?,
     });
+
+    if let Some(obj) = body.as_object_mut() {
+        if let (false, Some(sched)) = (form.art22_exempt, &form.schedule) {
+            obj.insert(
+                "schedule".to_string(),
+                serde_json::to_value(sched)
+                    .map_err(|e| CommandError::new("SERIALIZATION_ERROR", e.to_string()))?,
+            );
+        }
+        if form.consent_flags.location {
+            obj.insert(
+                "location_cause".to_string(),
+                serde_json::Value::String(
+                    form.location_cause
+                        .as_deref()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                ),
+            );
+        }
+        if let Some(tz) = &form.timezone {
+            if !tz.trim().is_empty() {
+                obj.insert(
+                    "timezone".to_string(),
+                    serde_json::Value::String(tz.trim().to_string()),
+                );
+            }
+        }
+    }
 
     let created: CreateWorkerApiResponse = client.post_json("/workers", &body).await?;
 
@@ -629,14 +1178,31 @@ pub async fn workers_create_with_client(
         "Worker created and enrollment QR issued successfully"
     );
 
+    let mut warnings = created.warnings;
+    if let Some(w) = &created.worker.warnings {
+        for warning in w {
+            if !warnings.contains(warning) {
+                warnings.push(warning.clone());
+            }
+        }
+    }
+    if let Some(sched) = &created.worker.schedule {
+        if let Some(w) = &sched.warnings {
+            for warning in w {
+                if !warnings.contains(warning) {
+                    warnings.push(warning.clone());
+                }
+            }
+        }
+    }
+
     Ok(CreatedWorker {
         worker: created.worker,
         enrollment: view,
+        warnings,
     })
 }
 
-/// Admin-driven transitions only; the server is the authority on which are valid.
-const ADMIN_STATUS_TARGETS: [&str; 3] = ["ACTIVE", "PAUSED", "REVOKED"];
 const MAX_REASON_CHARS: usize = 500;
 
 #[tauri::command]
@@ -656,9 +1222,50 @@ pub async fn workers_set_status_with_client(
 ) -> Result<WorkerResponse, CommandError> {
     validate_worker_id(id)?;
     let status = status.trim().to_uppercase();
-    if !ADMIN_STATUS_TARGETS.contains(&status.as_str()) {
+    if status != "REVOKED" {
+        return Err(validation_error(
+            "workers_set_status acepta solo REVOKED (para pausar o reanudar telemetría use workers_set_telemetry_status)",
+        ));
+    }
+    let reason = reason
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty());
+    if reason
+        .as_ref()
+        .is_some_and(|r| r.chars().count() > MAX_REASON_CHARS)
+    {
+        return Err(validation_error(
+            "El motivo admite como máximo 500 caracteres",
+        ));
+    }
+    let body = serde_json::json!({ "status": "REVOKED", "reason": reason });
+    let worker: WorkerResponse = client
+        .patch_json(&format!("/workers/{id}/status"), &body)
+        .await?;
+    tracing::info!(worker_id = %id, to = "REVOKED", "Worker revoked");
+    Ok(worker)
+}
+
+#[tauri::command]
+pub async fn workers_set_telemetry_status(
+    id: String,
+    status: String,
+    reason: Option<String>,
+) -> Result<WorkerResponse, CommandError> {
+    workers_set_telemetry_status_with_client(get_api_client(), &id, &status, reason).await
+}
+
+pub async fn workers_set_telemetry_status_with_client(
+    client: &AdminApiClient,
+    id: &str,
+    status: &str,
+    reason: Option<String>,
+) -> Result<WorkerResponse, CommandError> {
+    validate_worker_id(id)?;
+    let status = status.trim().to_uppercase();
+    if status != "PAUSED" && status != "ACTIVE" {
         return Err(validation_error(format!(
-            "Status must be one of ACTIVE, PAUSED or REVOKED (got '{}')",
+            "telemetry_status must be PAUSED or ACTIVE (got '{}')",
             status
         )));
     }
@@ -675,10 +1282,42 @@ pub async fn workers_set_status_with_client(
     }
     let body = serde_json::json!({ "status": status, "reason": reason });
     let worker: WorkerResponse = client
-        .patch_json(&format!("/workers/{id}/status"), &body)
+        .patch_json(&format!("/workers/{id}/telemetry-status"), &body)
         .await?;
-    tracing::info!(worker_id = %id, to = %status, "Worker status changed");
+    tracing::info!(worker_id = %id, telemetry_status = %status, "Worker telemetry status changed");
     Ok(worker)
+}
+
+#[tauri::command]
+pub async fn workers_update_schedule(
+    id: String,
+    schedule: ScheduleInput,
+) -> Result<ScheduleUpdateResponse, CommandError> {
+    workers_update_schedule_with_client(get_api_client(), &id, schedule).await
+}
+
+pub async fn workers_update_schedule_with_client(
+    client: &AdminApiClient,
+    id: &str,
+    schedule: ScheduleInput,
+) -> Result<ScheduleUpdateResponse, CommandError> {
+    validate_worker_id(id)?;
+    // The disconnection rule depends on the worker's modality (CT art. 152 quáter J), and an
+    // art. 22 exempt worker has no agreed schedule (ATT-12).
+    let worker = workers_get_with_client(client, id).await?;
+    if worker.art22_exempt {
+        return Err(validation_error(
+            "El trabajador está excluido de la limitación de jornada (art. 22): no tiene jornada pactada.",
+        ));
+    }
+    validate_schedule(&schedule, worker.work_mode)?;
+
+    let raw: serde_json::Value = client
+        .put_json(&format!("/workers/{id}/schedule"), &schedule)
+        .await?;
+    let resp = parse_schedule_update_response(raw)?;
+    tracing::info!(worker_id = %id, "Worker schedule updated");
+    Ok(resp)
 }
 
 /// RF-ADMIN-09-3: new code, then verification against the worker's current manifest.
@@ -835,6 +1474,26 @@ mod tests {
 
     const API_URL: &str = "https://api.example.cl/api/v1";
 
+    fn make_valid_schedule() -> ScheduleInput {
+        ScheduleInput {
+            journey_type: JourneyType::Fixed,
+            exceptional_resolution: None,
+            days: vec![ScheduleDay {
+                weekday: 1,
+                start: "08:30".into(),
+                end: "17:30".into(),
+                break_start: Some("13:00".into()),
+                break_end: Some("14:00".into()),
+            }],
+            break_counts_as_work: false,
+            disconnection: None,
+            location_at_mark: false,
+            effective_from: "2026-10-14".into(),
+            requested_by: RequestedBy::Employer,
+            note: None,
+        }
+    }
+
     fn make_valid_form() -> CreateWorkerForm {
         let flags = ConsentFlags {
             system_activity: true,
@@ -848,14 +1507,19 @@ mod tests {
         };
 
         CreateWorkerForm {
-            email: "pedro@acme.cl".into(),
+            run: "12.345.678-5".into(),
+            personal_email: "pedro@acme.cl".into(),
             name: "Pedro Morales".into(),
+            job_title: "Técnico".into(),
+            workplace_id: "wp-1".into(),
+            work_mode: WorkMode::OnSite,
+            art22_exempt: false,
+            schedule: Some(make_valid_schedule()),
             role_type: "FIELD".into(),
-            work_hours_start: "08:30".into(),
-            work_hours_end: "17:30".into(),
-            timezone: "America/Santiago".into(),
             consent_flags: flags,
             consent_descriptions: desc,
+            location_cause: None,
+            timezone: Some("America/Santiago".into()),
             enrollment_ttl_hours: Some(24),
         }
     }
@@ -864,8 +1528,34 @@ mod tests {
         serde_json::json!({
             "id": id,
             "admin_id": "admin-1",
-            "email": form.email,
+            "email": form.personal_email,
+            "personal_email": form.personal_email,
+            "run": "12.345.678-5",
             "name": form.name,
+            "job_title": form.job_title,
+            "workplace": {
+                "id": form.workplace_id,
+                "name": "Casa matriz",
+                "address": null
+            },
+            "work_mode": form.work_mode,
+            "art22_exempt": form.art22_exempt,
+            "schedule": {
+                "id": "sched-1",
+                "journey_type": "FIXED",
+                "days": form.schedule.as_ref().map(|s| &s.days).cloned().unwrap_or_default(),
+                "break_counts_as_work": false,
+                "disconnection": null,
+                "location_at_mark": false,
+                "effective_from": "2026-10-14",
+                "requested_by": "EMPLOYER",
+                "note": null,
+                "created_at": "2026-10-01T10:00:00Z",
+                "warnings": null
+            },
+            "telemetry_status": "PENDING_DECISION",
+            "terms_accepted_version": null,
+            "warnings": null,
             "device_identifier": null,
             "device_info": null,
             "role_type": form.role_type,
@@ -967,9 +1657,7 @@ mod tests {
 
         let err = form.validate().unwrap_err();
         assert_eq!(err.code, "VALIDATION_ERROR");
-        assert!(err
-            .message
-            .contains("Location tracking is prohibited for OFFICE workers"));
+        assert!(err.message.contains("FIELD") || err.message.contains("OFFICE"));
     }
 
     #[tokio::test]
@@ -1407,12 +2095,14 @@ mod tests {
             per_page: Some(500),
             search: Some("ana & josé".into()),
             role_type: Some("field".into()),
-            status: Some("paused".into()),
+            status: Some("active".into()),
             is_active: Some(true),
+            workplace_id: Some("wp 1".into()),
+            work_mode: Some("remote".into()),
         };
         assert_eq!(
             q.to_endpoint().unwrap(),
-            "/workers?page=2&per_page=100&search=ana%20%26%20jos%C3%A9&role_type=FIELD&status=PAUSED&is_active=true"
+            "/workers?page=2&per_page=100&search=ana%20%26%20jos%C3%A9&role_type=FIELD&status=ACTIVE&is_active=true&workplace_id=wp%201&work_mode=REMOTE"
         );
     }
 
@@ -1438,16 +2128,16 @@ mod tests {
     fn test_workers_update_body_contains_only_provided_fields() {
         let form = UpdateWorkerForm {
             name: Some("  Ana Díaz ".into()),
-            work_hours_start: Some("08:00".into()),
-            work_hours_end: Some("17:00".into()),
+            job_title: Some("  Diseñadora ".into()),
+            work_mode: Some(WorkMode::Remote),
             ..Default::default()
         };
         assert_eq!(
             form.to_body().unwrap(),
             serde_json::json!({
                 "name": "Ana Díaz",
-                "work_hours_start": "08:00:00",
-                "work_hours_end": "17:00:00"
+                "job_title": "Diseñadora",
+                "work_mode": "REMOTE"
             })
         );
     }
@@ -1455,11 +2145,16 @@ mod tests {
     #[test]
     fn test_workers_update_invalid_forms_rejected() {
         assert!(UpdateWorkerForm::default().to_body().is_err());
-        let half_hours = UpdateWorkerForm {
-            work_hours_start: Some("08:00".into()),
+        let bad_run = UpdateWorkerForm {
+            run: Some("12.345.678-0".into()),
             ..Default::default()
         };
-        assert!(half_hours.to_body().is_err());
+        assert!(bad_run.to_body().is_err());
+        let bad_email = UpdateWorkerForm {
+            personal_email: Some("bad-email".into()),
+            ..Default::default()
+        };
+        assert!(bad_email.to_body().is_err());
         let bad_role = UpdateWorkerForm {
             role_type: Some("MANAGER".into()),
             ..Default::default()
@@ -1475,6 +2170,11 @@ mod tests {
     fn worker_json(name: &str) -> serde_json::Value {
         serde_json::json!({
             "id": "w-1", "admin_id": "admin-1", "email": "ana@acme.cl", "name": name,
+            "personal_email": "ana@acme.cl", "run": "12.345.678-5", "job_title": "Analista",
+            "workplace": { "id": "wp-1", "name": "Casa matriz", "address": null },
+            "work_mode": "ON_SITE", "art22_exempt": false, "schedule": null,
+            "telemetry_status": "NOT_REQUESTED", "terms_accepted_version": null,
+            "warnings": null,
             "device_identifier": null, "device_info": null,
             "role_type": "OFFICE", "is_active": true, "status": "ACTIVE",
             "status_changed_at": null,
@@ -1563,21 +2263,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_workers_set_status_non_admin_target_rejected() {
+    async fn test_workers_set_status_rejects_paused_locally() {
         let client = AdminApiClient::new("http://127.0.0.1:9".into());
-        let err = workers_set_status_with_client(&client, "w-1", "PENDING_CONSENT", None)
+        let err = workers_set_status_with_client(&client, "w-1", "PAUSED", None)
             .await
             .unwrap_err();
         assert_eq!(err.code, "VALIDATION_ERROR");
+        assert!(err.message.contains("REVOKED"));
+
+        let err_active = workers_set_status_with_client(&client, "w-1", "ACTIVE", None)
+            .await
+            .unwrap_err();
+        assert_eq!(err_active.code, "VALIDATION_ERROR");
     }
 
     #[tokio::test]
-    async fn test_workers_set_status_sends_normalized_body() {
+    async fn test_workers_set_status_sends_revoked_body() {
         let server = MockServer::start().await;
         Mock::given(method("PATCH"))
             .and(path("/workers/w-1/status"))
             .and(wiremock::matchers::body_json(
-                serde_json::json!({ "status": "PAUSED", "reason": null }),
+                serde_json::json!({ "status": "REVOKED", "reason": "Término de contrato" }),
             ))
             .respond_with(
                 ResponseTemplate::new(200)
@@ -1589,32 +2295,240 @@ mod tests {
 
         let client = AdminApiClient::new(server.uri());
         client.set_access_token_for_test(Some("tok".into()));
-        workers_set_status_with_client(&client, "w-1", "paused", Some("   ".into()))
-            .await
-            .unwrap();
+        workers_set_status_with_client(
+            &client,
+            "w-1",
+            "revoked",
+            Some("Término de contrato".into()),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
-    async fn test_workers_set_status_surfaces_invalid_transition() {
+    async fn test_workers_set_telemetry_status_patch_json() {
         let server = MockServer::start().await;
         Mock::given(method("PATCH"))
-            .and(path("/workers/w-1/status"))
-            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
-                "error": {
-                    "code": "CONFLICT",
-                    "message": "Cannot resume a worker without consent",
-                    "details": { "reason": "INVALID_STATUS_TRANSITION" }
-                }
-            })))
+            .and(path("/workers/w-1/telemetry-status"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "status": "PAUSED", "reason": "Licencia médica" }),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": worker_json("Ana") })),
+            )
+            .expect(1)
             .mount(&server)
             .await;
 
         let client = AdminApiClient::new(server.uri());
         client.set_access_token_for_test(Some("tok".into()));
-        let err = workers_set_status_with_client(&client, "w-1", "ACTIVE", None)
+        let updated = workers_set_telemetry_status_with_client(
+            &client,
+            "w-1",
+            "PAUSED",
+            Some("Licencia médica".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(updated.name, "Ana");
+    }
+
+    #[tokio::test]
+    async fn test_workers_update_schedule_put_json() {
+        let server = MockServer::start().await;
+        let schedule_input = make_valid_schedule();
+        Mock::given(method("GET"))
+            .and(path("/workers/w-1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": worker_json("Ana") })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/workers/w-1/schedule"))
+            .and(wiremock::matchers::body_json(
+                serde_json::to_value(&schedule_input).unwrap(),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "schedule": {
+                        "id": "sched-2",
+                        "journey_type": "FIXED",
+                        "days": schedule_input.days,
+                        "break_counts_as_work": false,
+                        "disconnection": null,
+                        "location_at_mark": false,
+                        "effective_from": "2026-10-14",
+                        "requested_by": "EMPLOYER",
+                        "note": null,
+                        "created_at": "2026-10-02T10:00:00Z",
+                        "warnings": ["WEEKLY_MAX_EXCEEDED"]
+                    },
+                    "warnings": ["WEEKLY_MAX_EXCEEDED"]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        let res = workers_update_schedule_with_client(&client, "w-1", schedule_input)
+            .await
+            .unwrap();
+        assert_eq!(res.warnings, vec!["WEEKLY_MAX_EXCEEDED".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_workers_create_v3_exact_body() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        let local_pub = generate_and_save_master_keys().unwrap();
+        mount_admin_without_key(&server).await;
+
+        let form = make_valid_form();
+        let worker_val = created_worker_json(&form, "worker-v3-1");
+
+        let expected_body = serde_json::json!({
+            "name": "Pedro Morales",
+            "personal_email": "pedro@acme.cl",
+            "run": "12.345.678-5",
+            "job_title": "Técnico",
+            "workplace_id": "wp-1",
+            "work_mode": "ON_SITE",
+            "art22_exempt": false,
+            "role_type": "FIELD",
+            "consent_flags": form.consent_flags,
+            "consent_descriptions": form.normalized_descriptions(),
+            "enrollment_ttl_hours": 24,
+            "timezone": "America/Santiago",
+            "schedule": serde_json::to_value(form.schedule.as_ref().unwrap()).unwrap(),
+        });
+
+        Mock::given(method("POST"))
+            .and(path("/workers"))
+            .and(wiremock::matchers::body_json(expected_body))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "data": {
+                    "worker": worker_val.clone(),
+                    "enrollment": server_package(&local_pub, &worker_val, "A68K-2PZS-PC4H"),
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let created = workers_create_with_client(&client_for(&server), form)
+            .await
+            .expect("workers_create failed");
+        assert_eq!(created.worker.run, "12.345.678-5");
+        assert_eq!(created.worker.job_title, "Técnico");
+    }
+
+    #[test]
+    fn test_workers_create_v3_screenshots_remote_rejected_client_side() {
+        let mut form = make_valid_form();
+        form.work_mode = WorkMode::Remote;
+        form.consent_flags.productivity_screenshots = true;
+        form.consent_descriptions.productivity_screenshots = Some("Capturas periódicas".into());
+        if let Some(s) = form.schedule.as_mut() {
+            s.disconnection = Some(DisconnectionWindow {
+                start: "20:00".into(),
+                end: "08:00".into(),
+            });
+        }
+        let err = form.validate().unwrap_err();
+        assert_eq!(err.code, "SCREENSHOTS_NOT_ALLOWED_REMOTE");
+
+        form.work_mode = WorkMode::Hybrid;
+        let err_hybrid = form.validate().unwrap_err();
+        assert_eq!(err_hybrid.code, "SCREENSHOTS_NOT_ALLOWED_REMOTE");
+    }
+
+    #[test]
+    fn test_workers_create_v3_location_cause_required_client_side() {
+        let mut form = make_valid_form();
+        form.role_type = "FIELD".into();
+        form.consent_flags.location = true;
+        form.consent_descriptions.location = Some("Ubicación en terreno".into());
+        form.location_cause = None;
+
+        let err = form.validate().unwrap_err();
+        assert_eq!(err.code, "LOCATION_CAUSE_REQUIRED");
+
+        form.location_cause = Some("Corta".into());
+        let err_short = form.validate().unwrap_err();
+        assert_eq!(err_short.code, "LOCATION_CAUSE_REQUIRED");
+
+        form.location_cause =
+            Some("Causa de seguridad vial en rutas interurbanas de reparto".into());
+        assert!(form.validate().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_workers_create_v3_employer_profile_missing_surfaces_api_error() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        let _ = generate_and_save_master_keys().unwrap();
+        mount_admin_without_key(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/workers"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "CONFLICT",
+                    "message": "Employer profile required",
+                    "details": { "reason": "EMPLOYER_PROFILE_MISSING" }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let err = workers_create_with_client(&client_for(&server), make_valid_form())
             .await
             .unwrap_err();
-        assert!(err.is("INVALID_STATUS_TRANSITION"));
+        assert_eq!(err.code, "CONFLICT");
+        assert!(err.is("EMPLOYER_PROFILE_MISSING"));
+    }
+
+    #[tokio::test]
+    async fn test_workers_create_v3_schedule_warnings_collected() {
+        let _guard = crate::keystore::KEYSTORE_TEST_MUTEX.lock().await;
+        crate::keystore::init_test_vault();
+        let server = MockServer::start().await;
+        let local_pub = generate_and_save_master_keys().unwrap();
+        mount_admin_without_key(&server).await;
+
+        let form = make_valid_form();
+        let worker_val = created_worker_json(&form, "worker-warn-1");
+
+        Mock::given(method("POST"))
+            .and(path("/workers"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "data": {
+                    "worker": worker_val.clone(),
+                    "enrollment": server_package(&local_pub, &worker_val, "A68K-2PZS-PC4H"),
+                    "warnings": ["DAILY_MAX_EXCEEDED", "WEEKLY_MAX_EXCEEDED"]
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let created = workers_create_with_client(&client_for(&server), form)
+            .await
+            .expect("workers_create failed");
+        assert_eq!(
+            created.warnings,
+            vec![
+                "DAILY_MAX_EXCEEDED".to_string(),
+                "WEEKLY_MAX_EXCEEDED".to_string()
+            ]
+        );
     }
 
     #[tokio::test]

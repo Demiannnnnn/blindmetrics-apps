@@ -1,4 +1,11 @@
-import type { ConsentDescriptions, ConsentFlags, ConsentRecord } from '../api/types';
+import type {
+  ConsentDescriptions,
+  ConsentFlags,
+  ConsentRecord,
+  WorkerStatus,
+  TelemetryStatus,
+  WorkMode,
+} from '../api/types';
 
 export type ConsentKey = keyof ConsentFlags;
 
@@ -207,3 +214,137 @@ export function consentRecordsToCsv(records: ConsentRecord[]): string {
   );
   return [header.join(','), ...rows].join('\n');
 }
+
+export const STATUS_BADGES: Record<WorkerStatus, { label: string; className: string }> = {
+  ACTIVE: { label: 'Activo', className: 'bg-success-subtle text-success border-default' },
+  PENDING_TERMS: {
+    label: 'Esperando términos',
+    className: 'bg-info-subtle text-info border-default',
+  },
+  PENDING_ENROLLMENT: { label: 'Invitado', className: 'bg-surface-subtle text-fg border-strong' },
+  REVOKED: { label: 'Revocado', className: 'bg-danger-subtle text-danger border-default' },
+};
+
+export function getTelemetryBadge(
+  telemetryStatus: TelemetryStatus,
+  consentFlags: ConsentFlags,
+  requestedFlags: ConsentFlags,
+): { label: string; className: string } {
+  const summary = consentSummary(consentFlags, requestedFlags);
+  switch (telemetryStatus) {
+    case 'NOT_REQUESTED':
+      return { label: 'No solicitada', className: 'bg-surface text-muted border-default' };
+    case 'PENDING_DECISION':
+      return { label: 'Pendiente', className: 'bg-info-subtle text-info border-default' };
+    case 'ACCEPTED':
+      return {
+        label: `${summary.accepted}/${summary.requested} aceptadas`,
+        className: 'bg-success-subtle text-success border-default',
+      };
+    case 'DECLINED':
+      return { label: 'Rechazada', className: 'bg-danger-subtle text-danger border-default' };
+    case 'PAUSED':
+      return { label: 'Pausada', className: 'bg-warning-subtle text-warning border-default' };
+    default:
+      return { label: 'No solicitada', className: 'bg-surface text-muted border-default' };
+  }
+}
+
+/** Verifies Chilean RUN check digit (modulo 11). */
+export function isValidRut(input: string): boolean {
+  const clean = input.replace(/[.\s-]/g, '').toUpperCase();
+  if (clean.length < 2) return false;
+  const dv = clean.slice(-1);
+  const body = clean.slice(0, -1);
+  if (!/^\d+$/.test(body)) return false;
+  const num = parseInt(body, 10);
+  if (num < 1_000_000 || num > 99_999_999) return false;
+  let sum = 0, mult = 2, temp = num;
+  while (temp > 0) {
+    sum += (temp % 10) * mult;
+    temp = Math.floor(temp / 10);
+    mult = mult === 7 ? 2 : mult + 1;
+  }
+  const rem = 11 - (sum % 11);
+  const expected = rem === 11 ? '0' : rem === 10 ? 'K' : String(rem);
+  return dv === expected;
+}
+
+export interface WorkerIdentityInput {
+  name: string;
+  run: string;
+  personalEmail: string;
+  jobTitle: string;
+}
+
+export function validateWorkerIdentity(input: WorkerIdentityInput): string | null {
+  const name = input.name.trim();
+  if (!name || name.length < 2 || name.length > 255) {
+    return 'El nombre completo debe tener entre 2 y 255 caracteres.';
+  }
+
+  const run = input.run.trim();
+  if (!run) {
+    return 'El RUN del trabajador es obligatorio.';
+  }
+  if (!isValidRut(run)) {
+    return 'El RUN ingresado es inválido (módulo 11).';
+  }
+
+  const email = input.personalEmail.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return 'Se requiere un correo personal válido para el envío de comprobantes.';
+  }
+
+  const jobTitle = input.jobTitle.trim();
+  if (!jobTitle || jobTitle.length < 2 || jobTitle.length > 100) {
+    return 'El cargo debe tener entre 2 y 100 caracteres.';
+  }
+
+  return null;
+}
+
+export function validateWorkerWorkplaceAndMode(workplaceId: string, workMode: string): string | null {
+  if (!workplaceId || !workplaceId.trim()) {
+    return 'Selecciona un lugar de trabajo.';
+  }
+  if (!['ON_SITE', 'REMOTE', 'HYBRID'].includes(workMode)) {
+    return 'Modalidad de trabajo inválida.';
+  }
+  return null;
+}
+
+export function validateWorkerTelemetry(
+  workMode: WorkMode,
+  role: 'OFFICE' | 'FIELD',
+  consentFlags: ConsentFlags,
+  locationCause?: string | null,
+): string | null {
+  // DP-05: screenshots not allowed for REMOTE or HYBRID
+  if (workMode !== 'ON_SITE' && consentFlags.productivity_screenshots) {
+    return 'Las capturas de pantalla están deshabilitadas para teletrabajo o modalidad mixta (DP-05, R38 art. 55 a).';
+  }
+
+  // DP-04: location requires FIELD role
+  if (consentFlags.location && role !== 'FIELD') {
+    return 'La telemetría de ubicación solo está permitida para rol en terreno (FIELD) (DP-04).';
+  }
+
+  // DP-04: location requires location_cause between 20 and 500 chars
+  if (consentFlags.location) {
+    const cause = (locationCause || '').trim();
+    if (!cause || cause.length < 20 || cause.length > 500) {
+      return 'La solicitud de ubicación requiere declarar una causa de seguridad o legal de entre 20 y 500 caracteres (DP-04).';
+    }
+  }
+
+  return null;
+}
+
+export function validateEnrollmentTtl(ttlHours: number): string | null {
+  if (isNaN(ttlHours) || ttlHours < 1 || ttlHours > 72) {
+    return 'El código de vinculación debe tener una vigencia de entre 1 y 72 horas.';
+  }
+  return null;
+}
+

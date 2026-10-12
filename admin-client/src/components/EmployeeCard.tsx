@@ -1,7 +1,20 @@
 import React from 'react';
-import { WorkerItem, WorkerStatus } from '../api/tauri-bridge';
-import { Shield, Clock, MapPin, Eye, Pause, Play, QrCode, Pencil, Trash2, Laptop, AlertTriangle } from 'lucide-react';
-import { consentSummary } from './consentCategories';
+import { WorkerItem } from '../api/tauri-bridge';
+import {
+  Shield,
+  MapPin,
+  Eye,
+  Pause,
+  Play,
+  QrCode,
+  Pencil,
+  Trash2,
+  Laptop,
+  Building2,
+} from 'lucide-react';
+import { STATUS_BADGES, getTelemetryBadge } from './consentCategories';
+
+export { STATUS_BADGES };
 
 interface EmployeeCardProps {
   worker: WorkerItem;
@@ -13,22 +26,13 @@ interface EmployeeCardProps {
   onOpenDetail: (worker: WorkerItem) => void;
 }
 
-export const STATUS_BADGES: Record<WorkerStatus, { label: string; className: string }> = {
-  ACTIVE: { label: 'Activo', className: 'bg-success-subtle text-success border-default' },
-  PENDING_CONSENT: { label: 'Esperando consentimiento', className: 'bg-info-subtle text-info border-default' },
-  PENDING_ENROLLMENT: { label: 'Invitado', className: 'bg-strong text-fg border-strong' },
-  PAUSED: { label: 'Pausado', className: 'bg-warning-subtle text-warning border-default' },
-  REVOKED: { label: 'Revocado', className: 'bg-danger-subtle text-danger border-default' },
-};
-
-const CONSENT_BADGES: { key: keyof WorkerItem['consents']; label: string }[] = [
-  { key: 'system_activity', label: 'Sistema' },
-  { key: 'network_activity', label: 'Red (FQDN)' },
-  { key: 'productivity_basic', label: 'Teclado/Clic' },
-  { key: 'productivity_screenshots', label: 'Capturas' },
-  { key: 'file_activity', label: 'Archivos' },
-  { key: 'location', label: 'GPS' },
-];
+export function telemetryBadge(worker: WorkerItem): { label: string; className: string } {
+  return getTelemetryBadge(
+    worker.telemetryStatus,
+    worker.raw.consent_flags,
+    worker.raw.requested_consent_flags,
+  );
+}
 
 export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   worker,
@@ -43,32 +47,85 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   const expired = worker.status === 'PENDING_ENROLLMENT' && !!worker.raw.enrollment_expired;
   const badge = expired
     ? { label: 'Código expirado', className: 'bg-danger-subtle text-danger border-default' }
-    : STATUS_BADGES[worker.status];
-  const summary = consentSummary(worker.raw.consent_flags, worker.raw.requested_consent_flags);
-  const canToggle = worker.status === 'ACTIVE' || worker.status === 'PAUSED';
-  const accepted = worker.acceptedConsentVersion;
-  const versionOutdated = accepted !== null && accepted < worker.consentVersion;
+    : STATUS_BADGES[worker.status] || {
+        label: worker.status,
+        className: 'bg-surface text-muted border-default',
+      };
+
+  const teleBadge = telemetryBadge(worker);
+  const canToggleTelemetry =
+    worker.status !== 'REVOKED' &&
+    (worker.telemetryStatus === 'ACCEPTED' || worker.telemetryStatus === 'PAUSED');
+
+  const workModeLabel =
+    worker.workMode === 'ON_SITE'
+      ? 'Presencial'
+      : worker.workMode === 'REMOTE'
+        ? 'Teletrabajo'
+        : 'Mixta';
 
   return (
     <div className="bg-surface-subtle border border-default rounded-card p-5 hover:border-strong transition-colors flex flex-col justify-between">
       <div>
+        {/* Name, email, RUN, status badges */}
         <div className="flex justify-between items-start mb-3 gap-2">
           <div className="min-w-0">
             <button
               onClick={() => onOpenDetail(worker)}
               className="text-base font-semibold text-fg truncate hover:text-accent hover:underline text-left max-w-full"
-              title="Ver detalle, consentimiento y acciones"
+              title="Ver detalle, jornada y telemetría"
             >
               {worker.name}
             </button>
-            <p className="text-xs text-muted font-mono mt-0.5 truncate">{worker.email}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs font-mono font-medium text-fg bg-surface px-1.5 py-0.2 rounded-sm border border-default">
+                {worker.run || '—'}
+              </span>
+              <p className="text-xs text-muted truncate">{worker.personalEmail || worker.email}</p>
+            </div>
+            {worker.jobTitle && (
+              <p className="text-[11px] text-muted truncate mt-0.5">{worker.jobTitle}</p>
+            )}
           </div>
-          <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border whitespace-nowrap ${badge.className}`}>
-            {badge.label}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span
+              className={`px-2 py-0.5 text-[11px] font-semibold rounded-full border whitespace-nowrap ${badge.className}`}
+            >
+              {badge.label}
+            </span>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 text-xs mb-3">
+        {/* W1 Columns/data: Lugar, Modalidad, Asistencia, Telemetría */}
+        <div className="grid grid-cols-2 gap-2 text-xs mb-3 p-2.5 bg-surface border border-default rounded-control">
+          <div>
+            <span className="text-[10px] text-muted block">Lugar</span>
+            <span className="font-medium text-fg truncate block flex items-center gap-1 mt-0.5">
+              <Building2 className="w-3 h-3 text-muted shrink-0" />
+              <span className="truncate">{worker.workplace?.name || '—'}</span>
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-muted block">Modalidad</span>
+            <span className="font-medium text-fg block mt-0.5">{workModeLabel}</span>
+          </div>
+          <div>
+            <span className="text-[10px] text-muted block">Asistencia (hoy)</span>
+            <span className="font-medium text-muted block mt-0.5" title="Disponible en ADMIN-15">
+              —
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-muted block">Telemetría</span>
+            <span
+              className={`inline-block px-1.5 py-0.2 text-[10px] font-medium rounded-sm border mt-0.5 ${teleBadge.className}`}
+            >
+              {teleBadge.label}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs mb-3">
           <span
             className={`px-2 py-0.5 rounded-badge font-medium flex items-center gap-1 border border-default ${
               worker.role === 'FIELD' ? 'bg-warning-subtle text-warning' : 'bg-surface text-muted'
@@ -77,86 +134,67 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
             {worker.role === 'FIELD' ? <MapPin className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
             {worker.role}
           </span>
-          <span className="bg-surface-subtle text-fg px-2 py-0.5 rounded-sm flex items-center gap-1">
-            <Clock className="w-3 h-3 text-muted" />
-            {worker.workHoursStart} - {worker.workHoursEnd}
-          </span>
-          <span
-            className={`px-2 py-0.5 rounded flex items-center gap-1 ${
- versionOutdated ? 'bg-warning-subtle text-warning' : 'bg-surface-subtle text-fg'
- }`}
-            title="Versión de consentimiento aceptada / vigente"
-          >
-            {versionOutdated && <AlertTriangle className="w-3 h-3" />}v{accepted ?? '–'} / v{worker.consentVersion}
-          </span>
-        </div>
-
-        <p className="text-[11px] text-muted mb-3 flex items-center gap-1">
-          <Laptop className="w-3 h-3" />
-          {worker.deviceHostname ?? 'Sin equipo vinculado'}
-        </p>
-
-        <div className="border-t border-default pt-3 mb-4">
-          <p className="text-xs font-medium text-muted mb-2">
-            Consentimientos vigentes:{' '}
-            {summary.requested > 0 && (worker.status === 'ACTIVE' || worker.status === 'PAUSED') && (
-              <span className="text-fg">aceptó {summary.accepted} de {summary.requested}</span>
-            )}
+          <p className="text-[11px] text-muted flex items-center gap-1">
+            <Laptop className="w-3 h-3" />
+            {worker.deviceHostname ?? 'Sin equipo'}
           </p>
-          <div className="grid grid-cols-3 gap-1.5 text-[11px]">
-            {CONSENT_BADGES.map(({ key, label }) => (
-              <span
-                key={key}
-                className={`p-1 rounded-badge text-center truncate border border-default ${
-                  worker.consents[key] ? 'bg-success-subtle text-success' : 'bg-surface text-muted'
-                }`}
-              >
-                {key === 'location' && worker.role === 'OFFICE' ? 'GPS (N/A)' : label}
-              </span>
-            ))}
-          </div>
         </div>
       </div>
 
+      {/* Action buttons */}
       <div className="flex gap-2 pt-2 border-t border-default">
         <button
           onClick={() => onSelect(worker)}
           className="flex-1 bg-surface hover:bg-surface-subtle text-fg border border-default text-xs font-medium py-2 px-3 rounded-control flex items-center justify-center gap-1.5 transition"
         >
           <Eye className="w-3.5 h-3.5" />
-          Ver Telemetría
+          Telemetría
         </button>
         <button
           onClick={() => onEdit(worker)}
           disabled={worker.status === 'REVOKED'}
-          className="bg-surface-subtle hover:bg-strong text-fg p-2 rounded-control text-xs transition disabled:opacity-40"
+          className="bg-surface-subtle hover:bg-surface text-fg p-2 rounded-control text-xs border border-default transition disabled:opacity-40"
           title="Editar datos del trabajador"
         >
           <Pencil className="w-4 h-4" />
         </button>
         <button
           onClick={() => onShowEnrollment(worker)}
-          className="bg-surface-subtle hover:bg-strong text-fg p-2 rounded-control text-xs transition"
-          title={worker.deviceHostname ? 'Mover a un equipo nuevo (nuevo código)' : 'Generar código de enrolamiento'}
+          className="bg-surface-subtle hover:bg-surface text-fg p-2 rounded-control text-xs border border-default transition"
+          title={
+            worker.deviceHostname
+              ? 'Mover a un equipo nuevo (nuevo código)'
+              : 'Generar código de vinculación'
+          }
         >
           <QrCode className="w-4 h-4" />
         </button>
         <button
           onClick={() => onToggleStatus(worker)}
-          disabled={!canToggle}
-          className={`p-2 rounded-control text-xs transition disabled:opacity-40 ${
- worker.status === 'ACTIVE'
- ? 'bg-warning-subtle hover:bg-warning-subtle text-warning border border-default'
- : 'bg-success-subtle hover:bg-success-subtle text-success border border-default'
- }`}
-          title={worker.status === 'ACTIVE' ? 'Pausar recolección' : worker.status === 'PAUSED' ? 'Reanudar recolección' : 'Solo disponible para trabajadores activos o pausados'}
+          disabled={!canToggleTelemetry}
+          className={`p-2 rounded-control text-xs transition border border-default disabled:opacity-40 ${
+            worker.telemetryStatus === 'PAUSED'
+              ? 'bg-success-subtle text-success hover:bg-success-subtle/80'
+              : 'bg-warning-subtle text-warning hover:bg-warning-subtle/80'
+          }`}
+          title={
+            worker.telemetryStatus === 'PAUSED'
+              ? 'Reanudar telemetría'
+              : worker.telemetryStatus === 'ACCEPTED'
+                ? 'Pausar telemetría'
+                : 'Pausar/Reanudar telemetría no disponible'
+          }
         >
-          {worker.status === 'ACTIVE' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          {worker.telemetryStatus === 'PAUSED' ? (
+            <Play className="w-4 h-4" />
+          ) : (
+            <Pause className="w-4 h-4" />
+          )}
         </button>
         <button
           onClick={() => onDelete(worker)}
-          className="bg-danger-subtle hover:bg-danger-subtle text-danger border border-default p-2 rounded-control text-xs transition"
-          title="Dar de baja"
+          className="bg-danger-subtle hover:bg-danger-subtle/80 text-danger border border-default p-2 rounded-control text-xs transition"
+          title="Dar de baja / Revocar"
         >
           <Trash2 className="w-4 h-4" />
         </button>

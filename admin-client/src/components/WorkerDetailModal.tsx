@@ -1,23 +1,40 @@
 import React, { useEffect, useState } from 'react';
-import { X, Laptop, Pause, Play, Ban, Trash2, QrCode, Eye, Download, Pencil } from 'lucide-react';
+import {
+  X,
+  Laptop,
+  Pause,
+  Play,
+  Ban,
+  Trash2,
+  QrCode,
+  Eye,
+  Download,
+  Clock,
+  Calendar,
+  FileCheck,
+  Shield,
+  Building2,
+} from 'lucide-react';
 import {
   ConsentDescriptions,
   ConsentFlags,
   ConsentRecord,
+  ScheduleInput,
   WorkerItem,
   WorkerResponse,
   toWorkerItem,
   workersGet,
   workersGetConsentRecords,
   workersSetStatus,
+  workersSetTelemetryStatus,
   workersUpdateConsentConfig,
+  workersUpdateSchedule,
 } from '../api/tauri-bridge';
 import { STATUS_BADGES } from './EmployeeCard';
-import { ConsentEditor, ConsentPreview } from './ConsentEditor';
+import { ConsentEditor } from './ConsentEditor';
+import { ScheduleEditor } from './ScheduleEditor';
 import {
   CONSENT_CATEGORIES,
-  acceptedCategoriesOf,
-  categoryLabel,
   consentRecordsToCsv,
   consentSummary,
   decisionLabel,
@@ -25,53 +42,115 @@ import {
   normalizeDescriptions,
 } from './consentCategories';
 import { describeError } from '../lib/errors';
+import {
+  JOURNEY_TYPE_LABELS,
+  WEEKDAY_NAMES,
+  calculateDayHours,
+  calculateWeeklyTotalHours,
+  formatMinutes,
+} from '../lib/schedule';
 
 interface WorkerDetailModalProps {
   worker: WorkerItem;
   organization: string;
   onClose: () => void;
-  /** Called with the fresh worker after any server-side change. */
   onChanged: (worker: WorkerItem) => void;
   onRegenerate: (worker: WorkerItem) => void;
   onDelete: (worker: WorkerItem) => void;
   onViewTelemetry: (worker: WorkerItem) => void;
+  onNavigateToAttendance?: () => void;
 }
+
+type TabType = 'attendance' | 'schedule' | 'telemetry' | 'evidence';
 
 function fmtDate(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : '—';
 }
 
-/** W4 — Worker detail and lifecycle actions (RF-ADMIN-08-7/8). */
+/** W4 — Worker detail with Attendance, Schedule, Telemetry, and Evidence tabs (RF-ADMIN-14-5). */
 export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   worker: initial,
-  organization,
+  organization: _organization,
   onClose,
   onChanged,
   onRegenerate,
   onDelete,
   onViewTelemetry,
+  onNavigateToAttendance,
 }) => {
+  const [activeTab, setActiveTab] = useState<TabType>('schedule');
   const [worker, setWorker] = useState<WorkerResponse>(initial.raw);
   const [records, setRecords] = useState<ConsentRecord[] | null>(null);
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Lifecycle
   const [reason, setReason] = useState('');
   const [revokeTyped, setRevokeTyped] = useState('');
   const [showRevoke, setShowRevoke] = useState(false);
+
+  // Telemetry edit
   const [editingConsent, setEditingConsent] = useState(false);
   const [draftFlags, setDraftFlags] = useState<ConsentFlags>(initial.raw.requested_consent_flags);
-  const [draftDescriptions, setDraftDescriptions] = useState<ConsentDescriptions>(initial.raw.consent_descriptions);
+  const [draftDescriptions, setDraftDescriptions] = useState<ConsentDescriptions>(
+    initial.raw.consent_descriptions,
+  );
+
+  // Schedule edit
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const [scheduleDraft, setScheduleDraft] = useState<ScheduleInput>(() => {
+    if (initial.schedule) {
+      return {
+        journey_type: initial.schedule.journey_type,
+        exceptional_resolution: initial.schedule.exceptional_resolution ?? null,
+        days: initial.schedule.days,
+        break_counts_as_work: initial.schedule.break_counts_as_work,
+        disconnection: initial.schedule.disconnection ?? null,
+        location_at_mark: initial.schedule.location_at_mark,
+        effective_from:
+          initial.schedule.effective_from || new Date().toISOString().slice(0, 10),
+        requested_by: initial.schedule.requested_by || 'EMPLOYER',
+        note: initial.schedule.note ?? null,
+      };
+    }
+    return {
+      journey_type: 'FIXED',
+      exceptional_resolution: null,
+      days: [],
+      break_counts_as_work: false,
+      disconnection: null,
+      location_at_mark: false,
+      effective_from: new Date().toISOString().slice(0, 10),
+      requested_by: 'EMPLOYER',
+      note: null,
+    };
+  });
+  const [scheduleServerWarnings, setScheduleServerWarnings] = useState<string[]>([]);
 
   const item = toWorkerItem(worker);
   const badge = STATUS_BADGES[worker.status];
-  const hasConsent = worker.accepted_consent_version !== null;
   const summary = consentSummary(worker.consent_flags, worker.requested_consent_flags);
 
   useEffect(() => {
     workersGet(initial.id)
-      .then(setWorker)
+      .then(w => {
+        setWorker(w);
+        if (w.schedule) {
+          setScheduleDraft({
+            journey_type: w.schedule.journey_type,
+            exceptional_resolution: w.schedule.exceptional_resolution ?? null,
+            days: w.schedule.days,
+            break_counts_as_work: w.schedule.break_counts_as_work,
+            disconnection: w.schedule.disconnection ?? null,
+            location_at_mark: w.schedule.location_at_mark,
+            effective_from: w.schedule.effective_from || new Date().toISOString().slice(0, 10),
+            requested_by: w.schedule.requested_by || 'EMPLOYER',
+            note: w.schedule.note ?? null,
+          });
+        }
+      })
       .catch(e => setError(describeError(e)));
     workersGetConsentRecords(initial.id)
       .then(setRecords)
@@ -91,36 +170,69 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     try {
       await action();
     } catch (e: any) {
-      // The API is the authority on transitions.
       setError(describeError(e));
     } finally {
       setBusy(false);
     }
   };
 
-  const setStatus = (status: 'ACTIVE' | 'PAUSED' | 'REVOKED') =>
+  // Revoke worker (RF-ADMIN-14-5: workersSetStatus only accepts REVOKED)
+  const revokeWorker = () =>
     run(async () => {
-      const updated = await workersSetStatus(worker.id, status, reason.trim() || undefined);
+      const updated = await workersSetStatus(worker.id, 'REVOKED', reason.trim() || undefined);
       setReason('');
       setShowRevoke(false);
       setRevokeTyped('');
-      apply(updated);
+      apply(updated, 'Trabajador revocado.');
+    });
+
+  // Telemetry status pause/resume
+  const setTelemetryStatus = (status: 'PAUSED' | 'ACTIVE') =>
+    run(async () => {
+      const updated = await workersSetTelemetryStatus(
+        worker.id,
+        status,
+        reason.trim() || undefined,
+      );
+      setReason('');
+      apply(
+        updated,
+        status === 'PAUSED' ? 'Telemetría pausada.' : 'Telemetría reanudada.',
+      );
     });
 
   const saveConsent = () =>
     run(async () => {
-      const flags = worker.role_type === 'OFFICE' ? { ...draftFlags, location: false } : draftFlags;
-      if (!Object.values(flags).some(Boolean)) throw new Error('Active al menos una categoría de datos.');
+      const flags =
+        worker.role_type === 'OFFICE' ? { ...draftFlags, location: false } : draftFlags;
       if (Object.keys(descriptionErrors(flags, draftDescriptions)).length > 0) {
         throw new Error('Revise las descripciones de las categorías activas.');
       }
-      const res = await workersUpdateConsentConfig(worker.id, flags, normalizeDescriptions(flags, draftDescriptions));
+      const res = await workersUpdateConsentConfig(
+        worker.id,
+        flags,
+        normalizeDescriptions(flags, draftDescriptions),
+      );
       setEditingConsent(false);
       apply(
         res.worker,
         res.requires_worker_acceptance
-          ? `Versión v${res.consent_version} publicada. El trabajador debe aceptarla antes de reanudar la recolección.`
-          : `Versión v${res.consent_version} publicada. No requiere nueva aceptación.`,
+          ? `Versión v${res.consent_version} publicada. Requiere nueva decisión del trabajador.`
+          : `Versión v${res.consent_version} publicada.`,
+      );
+    });
+
+  const saveSchedule = () =>
+    run(async () => {
+      const res = await workersUpdateSchedule(worker.id, scheduleDraft);
+      setScheduleServerWarnings(res.warnings || []);
+      setEditingSchedule(false);
+      const updatedWorker = await workersGet(worker.id);
+      apply(
+        updatedWorker,
+        res.warnings && res.warnings.length > 0
+          ? 'Jornada actualizada con advertencias legales.'
+          : 'Jornada pactada actualizada exitosamente.',
       );
     });
 
@@ -130,33 +242,61 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `consentimiento-${worker.email}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `consentimiento-${worker.personal_email || worker.email}-${new Date()
+      .toISOString()
+      .slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const btn = 'px-3 py-1.5 rounded-control text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-40';
+  const btn =
+    'px-3 py-1.5 rounded-control text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-40';
+
+  const workModeLabel =
+    worker.work_mode === 'ON_SITE'
+      ? 'Presencial'
+      : worker.work_mode === 'REMOTE'
+        ? 'Teletrabajo'
+        : 'Mixta';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
       <div className="bg-surface-subtle border border-default rounded-card max-w-4xl w-full p-6 shadow-md max-h-[92vh] overflow-y-auto space-y-5">
-        {/* Header */}
+        {/* Header with legal data */}
         <div className="flex justify-between items-start border-b border-default pb-3">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-lg font-semibold text-fg">{worker.name}</h3>
-              <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full border ${badge.className}`}>{badge.label}</span>
-              <span className="text-xs text-muted">{worker.role_type}</span>
+              <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full border ${badge.className}`}>
+                {badge.label}
+              </span>
+              <span className="text-xs font-mono font-medium text-fg bg-surface px-2 py-0.5 rounded-control border border-default">
+                RUN: {worker.run || '—'}
+              </span>
+              <span className="text-xs text-muted">{worker.job_title || 'Sin cargo'}</span>
             </div>
-            <p className="text-xs text-muted font-mono">{worker.email}</p>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted mt-1.5">
+              <span>{worker.personal_email || worker.email}</span>
+              <span className="flex items-center gap-1">
+                <Building2 className="w-3 h-3" />
+                {worker.workplace?.name || 'Sin lugar asignado'}
+              </span>
+              <span className="flex items-center gap-1 font-medium text-fg">
+                Modalidad: {workModeLabel}
+              </span>
+              {worker.art22_exempt && (
+                <span className="text-accent font-semibold">Excluido art. 22</span>
+              )}
+            </div>
+
             <p className="text-[11px] text-muted mt-1 flex items-center gap-1">
               <Laptop className="w-3 h-3" />
               {worker.device_info
                 ? `${worker.device_info.hostname} · ${worker.device_info.os} · agent ${worker.device_info.app_version}`
                 : 'Sin equipo vinculado'}
-            </p>
-            <p className="text-[11px] text-muted">
-              Vinculado: {fmtDate(worker.enrollment_completed_at)} · Último cambio de estado: {fmtDate(worker.status_changed_at)}
+              {' · '}
+              Vinculado: {fmtDate(worker.enrollment_completed_at)}
             </p>
           </div>
           <button onClick={onClose} className="text-muted hover:text-fg">
@@ -164,198 +304,516 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           </button>
         </div>
 
-        {error && <div className="p-2.5 bg-danger-subtle border border-danger rounded-control text-xs text-danger">{error}</div>}
-        {notice && <div className="p-2.5 bg-success-subtle border border-success rounded-control text-xs text-success">{notice}</div>}
-
-        {/* Lifecycle actions (enabled per status; the API decides) */}
-        <section className="space-y-2">
-          <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">Acciones</h4>
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => onViewTelemetry(item)} className={`${btn} bg-accent hover:bg-accent-hover text-accent-fg`}>
-              <Eye className="w-3.5 h-3.5" /> Ver telemetría
-            </button>
-            <button onClick={() => onRegenerate(item)} className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}>
-              <QrCode className="w-3.5 h-3.5" />
-              {worker.device_identifier ? 'Mover a equipo nuevo' : 'Regenerar código'}
-            </button>
-            {(worker.status === 'ACTIVE' || worker.status === 'PAUSED') && (
-              <input
-                value={reason}
-                onChange={e => setReason(e.target.value)}
-                placeholder="Motivo (opcional)"
-                className="bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 w-44 focus:outline-hidden focus:border-accent"
-              />
-            )}
-            {worker.status === 'ACTIVE' && (
-              <button disabled={busy} onClick={() => setStatus('PAUSED')} className={`${btn} bg-warning-subtle hover:bg-warning-subtle text-warning`}>
-                <Pause className="w-3.5 h-3.5" /> Pausar
-              </button>
-            )}
-            {worker.status === 'PAUSED' && (
-              <button
-                disabled={busy || !hasConsent}
-                onClick={() => setStatus('ACTIVE')}
-                title={hasConsent ? undefined : 'El trabajador no tiene un consentimiento vigente'}
-                className={`${btn} bg-success-subtle hover:bg-success-subtle text-success`}
-              >
-                <Play className="w-3.5 h-3.5" /> Reanudar
-              </button>
-            )}
-            {worker.status !== 'REVOKED' && (
-              <button disabled={busy} onClick={() => setShowRevoke(v => !v)} className={`${btn} bg-danger-subtle hover:bg-danger-subtle text-danger`}>
-                <Ban className="w-3.5 h-3.5" /> Revocar
-              </button>
-            )}
-            <button onClick={() => onDelete(item)} className={`${btn} bg-danger-subtle hover:bg-danger-subtle text-danger`}>
-              <Trash2 className="w-3.5 h-3.5" /> Eliminar
-            </button>
+        {error && (
+          <div className="p-2.5 bg-danger-subtle border border-danger rounded-control text-xs text-danger">
+            {error}
           </div>
-          {showRevoke && (
-            <div className="p-3 bg-danger-subtle border border-danger rounded-control space-y-2 text-xs text-fg">
-              <p>
-                Revocar desvincula el equipo: el agente borra sus credenciales, la llave fijada y la cola local. Escriba{' '}
-                <span className="font-semibold text-fg">{worker.name}</span> para confirmar.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  value={revokeTyped}
-                  onChange={e => setRevokeTyped(e.target.value)}
-                  className="flex-1 bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 focus:outline-hidden focus:border-danger"
-                />
-                <button
-                  disabled={busy || revokeTyped.trim() !== worker.name.trim()}
-                  onClick={() => setStatus('REVOKED')}
-                  className={`${btn} bg-danger hover:bg-danger-hover text-accent-fg`}
-                >
-                  Confirmar revocación
-                </button>
-              </div>
-            </div>
+        )}
+        {notice && (
+          <div className="p-2.5 bg-success-subtle border border-success rounded-control text-xs text-success">
+            {notice}
+          </div>
+        )}
+
+        {/* Global lifecycle actions (W4) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => onRegenerate(item)}
+            className={`${btn} bg-surface hover:bg-surface-subtle text-fg border border-default`}
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            {worker.device_identifier ? 'Mover a equipo nuevo' : 'Generar código'}
+          </button>
+          {worker.status !== 'REVOKED' && (
+            <button
+              disabled={busy}
+              onClick={() => setShowRevoke(v => !v)}
+              className={`${btn} bg-danger-subtle hover:bg-danger-subtle text-danger border border-default`}
+            >
+              <Ban className="w-3.5 h-3.5" /> Revocar
+            </button>
           )}
-        </section>
+          <button
+            onClick={() => onDelete(item)}
+            className={`${btn} bg-danger-subtle hover:bg-danger-subtle text-danger border border-default`}
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Eliminar
+          </button>
+        </div>
 
-        {/* Consent */}
-        <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
-              Consentimiento · vigente v{worker.consent_version} · aceptada v{worker.accepted_consent_version ?? '–'}
-              {hasConsent && summary.requested > 0 && (
-                <span className="normal-case font-normal text-muted">
-                  {' '}
-                  · aceptó {summary.accepted} de {summary.requested} categorías solicitadas
-                </span>
-              )}
-            </h4>
-            {!editingConsent && worker.status !== 'REVOKED' && (
-              <button onClick={() => setEditingConsent(true)} className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}>
-                <Pencil className="w-3.5 h-3.5" /> Editar datos a recolectar
+        {showRevoke && (
+          <div className="p-3 bg-danger-subtle border border-danger rounded-control space-y-2 text-xs text-fg">
+            <p>
+              Revocar desvincula el equipo: el agente borra sus credenciales y la llave fijada. Escriba{' '}
+              <span className="font-semibold text-fg">{worker.name}</span> para confirmar.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={revokeTyped}
+                placeholder="Nombre del trabajador"
+                onChange={e => setRevokeTyped(e.target.value)}
+                className="flex-1 bg-surface border border-default text-fg text-xs rounded-control px-2.5 py-1.5 focus:outline-hidden focus:border-danger"
+              />
+              <button
+                disabled={busy || revokeTyped.trim() !== worker.name.trim()}
+                onClick={revokeWorker}
+                className={`${btn} bg-danger hover:bg-danger-hover text-accent-fg font-semibold`}
+              >
+                Confirmar revocación
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Navigation Tabs (RF-ADMIN-14-5) */}
+        <div className="flex items-center gap-1 border-b border-default">
+          <button
+            onClick={() => setActiveTab('attendance')}
+            className={`px-4 py-2 text-xs font-semibold border-b-2 transition -mb-px flex items-center gap-1.5 ${
+              activeTab === 'attendance'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-muted hover:text-fg'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            Asistencia
+          </button>
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`px-4 py-2 text-xs font-semibold border-b-2 transition -mb-px flex items-center gap-1.5 ${
+              activeTab === 'schedule'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-muted hover:text-fg'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            Jornada
+          </button>
+          <button
+            onClick={() => setActiveTab('telemetry')}
+            className={`px-4 py-2 text-xs font-semibold border-b-2 transition -mb-px flex items-center gap-1.5 ${
+              activeTab === 'telemetry'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-muted hover:text-fg'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5" />
+            Telemetría
+          </button>
+          <button
+            onClick={() => setActiveTab('evidence')}
+            className={`px-4 py-2 text-xs font-semibold border-b-2 transition -mb-px flex items-center gap-1.5 ${
+              activeTab === 'evidence'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-muted hover:text-fg'
+            }`}
+          >
+            <FileCheck className="w-3.5 h-3.5" />
+            Evidencia
+          </button>
+        </div>
+
+        {/* TAB 1: ASISTENCIA */}
+        {activeTab === 'attendance' && (
+          <div className="p-6 bg-surface border border-default rounded-card text-center space-y-3">
+            <Clock className="w-8 h-8 text-accent mx-auto" />
+            <h4 className="text-sm font-semibold text-fg">Registro de Asistencia en Tiempo Real</h4>
+            <p className="text-xs text-muted max-w-md mx-auto">
+              Las marcas diarias, el balance de horas y la proposición de correcciones están
+              disponibles en la consola de asistencia (AS1 / AS2).
+            </p>
+            {onNavigateToAttendance && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onNavigateToAttendance();
+                }}
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold rounded-control transition"
+              >
+                Ir a Asistencia en Vivo
               </button>
             )}
           </div>
+        )}
 
-          {editingConsent ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <ConsentEditor
-                role={worker.role_type}
-                flags={worker.role_type === 'OFFICE' ? { ...draftFlags, location: false } : draftFlags}
-                descriptions={draftDescriptions}
-                onChange={(f, d) => {
-                  setDraftFlags(f);
-                  setDraftDescriptions(d);
-                }}
-              />
-              <div className="space-y-3">
-                <ConsentPreview organization={organization} flags={draftFlags} descriptions={draftDescriptions} />
-                <p className="text-[11px] text-warning">
-                  Ampliar lo que se recolecta publica una nueva versión: las categorías nuevas solo se recolectan si el
-                  trabajador las acepta; mientras tanto siguen vigentes las que ya había aceptado.
+        {/* TAB 2: JORNADA */}
+        {activeTab === 'schedule' && (
+          <div className="space-y-4">
+            {worker.art22_exempt ? (
+              <div className="p-5 bg-surface border border-default rounded-card space-y-2">
+                <h4 className="text-sm font-semibold text-fg">
+                  Excluido de limitación de jornada (art. 22 inc. 2°)
+                </h4>
+                <p className="text-xs text-muted leading-relaxed">
+                  Este trabajador está contratado bajo el artículo 22 inciso 2° del Código del
+                  Trabajo. No cuenta con una jornada laboral pactada ni está sujeto a registro de
+                  asistencia y jornada (ATT-12).
                 </p>
-                <div className="flex justify-end gap-2">
-                  <button onClick={() => setEditingConsent(false)} className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}>
+              </div>
+            ) : editingSchedule ? (
+              <div className="p-4 bg-surface border border-default rounded-card space-y-4">
+                <div className="flex items-center justify-between border-b border-default pb-2">
+                  <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
+                    Cambiar Jornada Pactada
+                  </h4>
+                  <button
+                    onClick={() => setEditingSchedule(false)}
+                    className="text-xs text-muted hover:text-fg"
+                  >
                     Cancelar
                   </button>
-                  <button disabled={busy} onClick={saveConsent} className={`${btn} bg-accent hover:bg-accent-hover text-accent-fg`}>
-                    Publicar nueva versión
+                </div>
+                <ScheduleEditor
+                  value={scheduleDraft}
+                  onChange={setScheduleDraft}
+                  workMode={worker.work_mode}
+                  serverWarnings={scheduleServerWarnings}
+                />
+                <div className="flex justify-end gap-2 pt-2 border-t border-default">
+                  <button
+                    type="button"
+                    onClick={() => setEditingSchedule(false)}
+                    className="px-3 py-1.5 bg-surface-subtle text-fg rounded-control text-xs"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={saveSchedule}
+                    className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg rounded-control text-xs font-semibold"
+                  >
+                    {busy ? 'Guardando…' : 'Guardar Nueva Versión'}
                   </button>
                 </div>
               </div>
-            </div>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="text-muted">
-                <tr className="text-left">
-                  <th className="py-1 font-medium">Categoría</th>
-                  <th className="py-1 font-medium">Solicitado</th>
-                  <th className="py-1 font-medium">Aceptado por el trabajador</th>
-                  <th className="py-1 font-medium">Descripción mostrada al trabajador</th>
-                </tr>
-              </thead>
-              <tbody className="text-fg">
-                {CONSENT_CATEGORIES.map(c => (
-                  <tr key={c.key} className="border-t border-default align-top">
-                    <td className="py-1.5 pr-2">{c.label}</td>
-                    <td className="py-1.5">{worker.requested_consent_flags[c.key] ? 'Sí' : '—'}</td>
-                    <td className="py-1.5">{worker.consent_flags[c.key] ? 'Sí' : '—'}</td>
-                    <td className="py-1.5 text-muted italic">{worker.consent_descriptions[c.key] || ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
+            ) : worker.schedule ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
+                      Jornada Pactada Vigente
+                    </h4>
+                    <p className="text-xs text-muted">
+                      Rige desde: <span className="font-medium text-fg">{worker.schedule.effective_from || '—'}</span>
+                      {worker.schedule.requested_by && (
+                        <span> · Solicitada por: {worker.schedule.requested_by === 'EMPLOYER' ? 'Empleador' : 'Trabajador'}</span>
+                      )}
+                    </p>
+                  </div>
+                  {worker.status !== 'REVOKED' && (
+                    <button
+                      onClick={() => setEditingSchedule(true)}
+                      className={`${btn} bg-accent hover:bg-accent-hover text-accent-fg`}
+                    >
+                      Cambiar jornada
+                    </button>
+                  )}
+                </div>
 
-        {/* Consent evidence */}
-        <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">Historial de consentimiento</h4>
-            <button
-              onClick={exportCsv}
-              disabled={!records || records.length === 0}
-              className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}
-            >
-              <Download className="w-3.5 h-3.5" /> Exportar CSV
-            </button>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3 bg-surface border border-default rounded-card">
+                    <p className="text-[11px] text-muted">Tipo de Jornada</p>
+                    <p className="text-xs font-semibold text-fg mt-0.5">
+                      {JOURNEY_TYPE_LABELS[worker.schedule.journey_type] || worker.schedule.journey_type}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-surface border border-default rounded-card">
+                    <p className="text-[11px] text-muted">Total Semanal</p>
+                    <p className="text-xs font-semibold text-fg mt-0.5">
+                      {calculateWeeklyTotalHours(
+                        worker.schedule.days,
+                        worker.schedule.break_counts_as_work,
+                      ).toFixed(1)}{' '}
+                      horas
+                    </p>
+                  </div>
+                  <div className="p-3 bg-surface border border-default rounded-card">
+                    <p className="text-[11px] text-muted">Colación Imputable</p>
+                    <p className="text-xs font-semibold text-fg mt-0.5">
+                      {worker.schedule.break_counts_as_work ? 'Sí (cuenta como trabajo)' : 'No'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Days Table */}
+                <div className="border border-default rounded-card overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-surface-subtle border-b border-default text-muted font-medium text-[11px]">
+                        <th className="py-2 px-3">Día</th>
+                        <th className="py-2 px-3">Entrada</th>
+                        <th className="py-2 px-3">Salida</th>
+                        <th className="py-2 px-3">Colación</th>
+                        <th className="py-2 px-3 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-default bg-surface">
+                      {[1, 2, 3, 4, 5, 6, 7].map(weekday => {
+                        const day = worker.schedule?.days.find(d => d.weekday === weekday);
+                        const hours = day
+                          ? calculateDayHours(day, worker.schedule?.break_counts_as_work ?? false)
+                          : 0;
+                        return (
+                          <tr key={weekday} className={day ? 'text-fg' : 'text-muted bg-surface-subtle/20'}>
+                            <td className="py-2 px-3 font-medium">{WEEKDAY_NAMES[weekday]}</td>
+                            <td className="py-2 px-3">{day ? day.start : '—'}</td>
+                            <td className="py-2 px-3">{day ? day.end : '—'}</td>
+                            <td className="py-2 px-3">
+                              {day && day.break_start && day.break_end
+                                ? `${day.break_start} - ${day.break_end}`
+                                : '—'}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono">
+                              {day ? formatMinutes(hours * 60) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {worker.schedule.disconnection && (
+                  <div className="p-3 bg-surface border border-default rounded-card text-xs space-y-1">
+                    <p className="font-semibold text-fg">Franja de Desconexión Digital:</p>
+                    <p className="text-muted">
+                      {worker.schedule.disconnection.start} a {worker.schedule.disconnection.end} (≥
+                      12 h continuas)
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-5 bg-surface border border-default rounded-card text-center space-y-2">
+                <p className="text-xs text-muted">No hay jornada configurada para este trabajador.</p>
+                {worker.status !== 'REVOKED' && (
+                  <button
+                    onClick={() => setEditingSchedule(true)}
+                    className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold rounded-control"
+                  >
+                    Configurar jornada
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          {recordsError ? (
-            <p className="text-xs text-danger">No se pudo cargar el historial: {recordsError}</p>
-          ) : records === null ? (
-            <p className="text-xs text-muted">Cargando…</p>
-          ) : records.length === 0 ? (
-            <p className="text-xs text-muted">Sin decisiones registradas.</p>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="text-muted">
-                <tr className="text-left">
-                  <th className="py-1 font-medium">Fecha</th>
-                  <th className="py-1 font-medium">Versión</th>
-                  <th className="py-1 font-medium">Decisión</th>
-                  <th className="py-1 font-medium">Categorías aceptadas</th>
-                  <th className="py-1 font-medium">IP · app</th>
-                  <th className="py-1 font-medium">Manifiesto</th>
-                </tr>
-              </thead>
-              <tbody className="text-fg">
-                {records.map(r => (
-                  <tr key={r.id} className="border-t border-default">
-                    <td className="py-1.5">{fmtDate(r.created_at)}</td>
-                    <td className="py-1.5">v{r.consent_version}</td>
-                    <td className="py-1.5">{decisionLabel(r.decision)}</td>
-                    <td className="py-1.5 text-muted">
-                      {acceptedCategoriesOf(r).map(categoryLabel).join(', ') || '—'}
-                    </td>
-                    <td className="py-1.5 font-mono">
-                      {r.ip_address ?? '—'}
-                      {r.app_version ? <span className="text-muted"> · {r.app_version}</span> : null}
-                    </td>
-                    <td className="py-1.5 font-mono" title={r.manifest_hash ?? undefined}>
-                      {r.manifest_hash ? `${r.manifest_hash.slice(0, 12)}…` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
+        )}
+
+        {/* TAB 3: TELEMETRÍA */}
+        {activeTab === 'telemetry' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
+                  Estado de Telemetría: <span className="font-bold text-accent">{worker.telemetry_status || 'NOT_REQUESTED'}</span>
+                </h4>
+                <p className="text-xs text-muted">
+                  Vigente v{worker.consent_version} · Aceptada v{worker.accepted_consent_version ?? '–'}
+                  {summary.requested > 0 && (
+                    <span> · {summary.accepted} de {summary.requested} categorías aceptadas</span>
+                  )}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onViewTelemetry(item)}
+                  className={`${btn} bg-accent hover:bg-accent-hover text-accent-fg`}
+                >
+                  <Eye className="w-3.5 h-3.5" /> Ver telemetría descifrada
+                </button>
+                {worker.telemetry_status === 'ACCEPTED' && (
+                  <button
+                    disabled={busy}
+                    onClick={() => setTelemetryStatus('PAUSED')}
+                    className={`${btn} bg-warning-subtle hover:bg-warning-subtle text-warning border border-default`}
+                  >
+                    <Pause className="w-3.5 h-3.5" /> Pausar telemetría
+                  </button>
+                )}
+                {worker.telemetry_status === 'PAUSED' && (
+                  <button
+                    disabled={busy}
+                    onClick={() => setTelemetryStatus('ACTIVE')}
+                    className={`${btn} bg-success-subtle hover:bg-success-subtle text-success border border-default`}
+                  >
+                    <Play className="w-3.5 h-3.5" /> Reanudar telemetría
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {editingConsent ? (
+              <div className="p-4 bg-surface border border-default rounded-card space-y-3">
+                <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
+                  Editar Categorías Solicitadas
+                </h4>
+                <ConsentEditor
+                  role={worker.role_type as 'OFFICE' | 'FIELD'}
+                  workMode={worker.work_mode}
+                  flags={draftFlags}
+                  descriptions={draftDescriptions}
+                  onChange={(f, d) => {
+                    setDraftFlags(f);
+                    setDraftDescriptions(d);
+                  }}
+                />
+                <div className="flex justify-end gap-2 pt-2 border-t border-default">
+                  <button
+                    type="button"
+                    onClick={() => setEditingConsent(false)}
+                    className="px-3 py-1.5 bg-surface-subtle text-fg rounded-control text-xs"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={saveConsent}
+                    className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg rounded-control text-xs font-semibold"
+                  >
+                    {busy ? 'Publicando…' : 'Publicar cambios'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-medium text-muted">Categorías y descripciones vigentes:</p>
+                  {worker.status !== 'REVOKED' && (
+                    <button
+                      onClick={() => setEditingConsent(true)}
+                      className={`${btn} bg-surface-subtle hover:bg-strong text-fg`}
+                    >
+                      Editar datos a recolectar
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {CONSENT_CATEGORIES.map(c => {
+                    const requested = worker.requested_consent_flags?.[c.key];
+                    const accepted = worker.consent_flags?.[c.key];
+                    return (
+                      <div
+                        key={c.key}
+                        className={`p-2.5 rounded-card border ${
+                          accepted
+                            ? 'bg-success-subtle/40 border-success/30 text-fg'
+                            : requested
+                              ? 'bg-surface border-default text-fg'
+                              : 'bg-surface-subtle/30 border-default text-muted'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold">{c.label}</span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded-sm font-medium ${
+                              accepted
+                                ? 'bg-success text-accent-fg'
+                                : requested
+                                  ? 'bg-info-subtle text-info'
+                                  : 'bg-surface text-muted'
+                            }`}
+                          >
+                            {accepted ? 'Aceptada' : requested ? 'Solicitada' : 'No solicitada'}
+                          </span>
+                        </div>
+                        {requested && (
+                          <p className="text-[11px] text-muted italic mt-1">
+                            “{(worker.consent_descriptions?.[c.key] || '').trim()}”
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: EVIDENCIA */}
+        {activeTab === 'evidence' && (
+          <div className="space-y-4">
+            <div className="p-3 bg-surface border border-default rounded-card text-xs flex justify-between items-center">
+              <div>
+                <span className="font-semibold text-fg">Términos y Condiciones del Trabajador:</span>
+                <p className="text-muted mt-0.5">
+                  Versión aceptada:{' '}
+                  <span className="font-medium text-fg">
+                    {worker.terms_accepted_version || 'Pendiente de aceptación'}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
+                Historial de Decisiones de Consentimiento
+              </h4>
+              {records && records.length > 0 && (
+                <button
+                  onClick={exportCsv}
+                  className={`${btn} bg-surface hover:bg-surface-subtle text-fg border border-default`}
+                >
+                  <Download className="w-3.5 h-3.5" /> Exportar CSV
+                </button>
+              )}
+            </div>
+
+            {recordsError && (
+              <div className="p-2.5 bg-danger-subtle border border-danger rounded-control text-xs text-danger">
+                {recordsError}
+              </div>
+            )}
+
+            {!records ? (
+              <p className="text-xs text-muted">Cargando registros de evidencia…</p>
+            ) : records.length === 0 ? (
+              <p className="text-xs text-muted">
+                No hay decisiones registradas aún para este trabajador.
+              </p>
+            ) : (
+              <div className="border border-default rounded-card overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-surface-subtle border-b border-default text-muted font-medium text-[11px]">
+                      <th className="py-2 px-3">Fecha</th>
+                      <th className="py-2 px-3">Decisión</th>
+                      <th className="py-2 px-3">Versión</th>
+                      <th className="py-2 px-3">Categorías Aceptadas</th>
+                      <th className="py-2 px-3">Agente</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-default bg-surface">
+                    {records.map(r => (
+                      <tr key={r.id} className="text-fg hover:bg-surface-subtle/50">
+                        <td className="py-2 px-3 whitespace-nowrap">{fmtDate(r.created_at)}</td>
+                        <td className="py-2 px-3 font-semibold">{decisionLabel(r.decision)}</td>
+                        <td className="py-2 px-3">v{r.consent_version}</td>
+                        <td className="py-2 px-3">
+                          {r.decision === 'ACCEPTED' || r.decision === 'NARROWED'
+                            ? r.accepted_consent_flags
+                              ? Object.entries(r.accepted_consent_flags)
+                                  .filter(([, v]) => v)
+                                  .map(([k]) => k)
+                                  .join(', ') || 'Ninguna'
+                              : 'Todas las solicitadas'
+                            : '—'}
+                        </td>
+                        <td className="py-2 px-3 text-muted text-[11px]">
+                          {r.app_version || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
