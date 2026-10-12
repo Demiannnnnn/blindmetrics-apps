@@ -107,7 +107,19 @@ pub enum Request {
     OpenWindowHint {
         screen: WindowScreenHint,
     },
+    /// Unsolicited stop requests are refused (`NOT_ALLOWED`): only the in-process tray may stop
+    /// the service (PROC-04, RF-AGENT-10-1). A window can only *answer* a quit request that the tray
+    /// initiated, with `ConfirmQuit`.
     Shutdown,
+    /// Window answers the tray's *Salir* confirmation dialog. Valid only for the pending quit
+    /// request identified by `nonce` (one-shot, expires after 30 s).
+    ConfirmQuit {
+        nonce: String,
+    },
+    /// Window dismissed the tray's *Salir* confirmation dialog (*Cancelar*).
+    CancelQuit {
+        nonce: String,
+    },
 }
 
 /// Responses returned by the IPC server (RF-AGENT-10-1).
@@ -142,6 +154,8 @@ pub enum Response {
     },
     OpenWindowHint,
     Shutdown,
+    ConfirmQuit,
+    CancelQuit,
     Error {
         code: String,
         message: String,
@@ -166,6 +180,14 @@ impl Response {
 #[serde(deny_unknown_fields)]
 pub enum Event {
     Snapshot(Box<AppSnapshot>),
+    /// The tray's *Salir* asks the window to show the confirmation dialog (PROC-04). `nonce`
+    /// must be echoed in `Request::ConfirmQuit` within `expires_in_secs`.
+    QuitRequested {
+        nonce: String,
+        expires_in_secs: u64,
+    },
+    /// The pending quit request was cancelled or expired; the dialog must close.
+    QuitCancelled,
 }
 
 /// Category state representation in the observable snapshot.

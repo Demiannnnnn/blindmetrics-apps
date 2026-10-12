@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-11` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `agent-ui/` (nuevo: `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`, `src/**`, `src-tauri/**`, `test/**`), `Cargo.toml` (workspace member `agent-ui/src-tauri`) |
 | **Dependencias** | `TASK-AGENT-10` |
 | **Paralela con** | `TASK-ADMIN-14` |
@@ -85,4 +85,23 @@ design system para no implementado, sin datos falsos) y el resto funcional.
 
 ## Reporte
 
-_(pendiente)_
+- **Resumen:** Se implementó la ventana del trabajador `agent-ui` en Tauri 2 + React 18 + TypeScript + Tailwind 4, conectada exclusivamente al servicio en segundo plano mediante `agent-ipc`. Ofrece paridad completa con las vistas de la app previa (desconexión X, vinculación E1, verificación E2, alerta de manipulación E3, revocación U, riel de navegación con Asistencia y Registros "Disponible próximamente", Telemetría con C1, estados por categoría y retiro W, Mis datos con copia y supresión, y Ajustes con diagnóstico y desvinculación). Se integró además el mecanismo seguro de confirmación de salida iniciado por la bandeja del sistema (one-shot nonce de 30 s) sin permitir que ningún cliente IPC apague el servicio unilateralmente.
+- **Archivos:**
+  - `agent-ipc/src/lib.rs`, `agent-ipc/tests/ipc_tests.rs`: agregados mensajes `Request::ConfirmQuit`, `Request::CancelQuit`, `Event::QuitRequested`, `Event::QuitCancelled`.
+  - `agent/src/ipc_server.rs`, `agent/src/main.rs`: manejo de solicitud de salida iniciada por la bandeja con broadcast de evento, nonce de un solo uso con expiración de 30 s y rechazo con `NOT_ALLOWED` para solicitudes de shutdown no solicitadas.
+  - `Cargo.toml`, `Cargo.lock`, `.gitignore`: miembro `agent-ui/src-tauri` en workspace, exclusión de binarios copiados para sidecar.
+  - `agent-ui/src-tauri/**`: crate `agent-ui-core` con comandos Tauri async 1:1, retransmisión de snapshots y eventos, script de compilación y empaquetado de sidecar (`prepare-sidecar.mjs`), pruebas de no-dependencia (`reqwest`/`keyring`) y mock server.
+  - `agent-ui/src/**`: frontend React con tokens del sistema de diseño (IBM Plex, `ink`, rojo de acento), puente `tauri-bridge.ts`, `types.ts`, context y vistas completas accesibles por teclado.
+  - `agent-ui/test/helpers.test.mjs`: pruebas unitarias de helpers puros ejecutadas con `node --test`.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ en verde.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ en verde (0 advertencias).
+  - `cargo test --workspace`: ✅ en verde (177 pruebas pasadas en total: `agent` 100 unit + 1 cli, `agent-ipc` 13 unit + 6 integration, `agent-ui-core` 6 unit, `telemetry-crypto-core` 51 unit).
+  - `cd agent-ui && npm ci && npm run build && npm test`: ✅ en verde (6/6 pruebas pasadas; build Vite/TS exitoso).
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ en verde (39/39 pruebas pasadas; build Vite/TS exitoso).
+- **Decisiones:**
+  - *Confirmación de salida (PROC-04 / RF-AGENT-11-7):* En línea con la revisión de TASK-AGENT-10 y la nota del orquestador, el servicio rechaza `Request::Shutdown` con `NOT_ALLOWED` para evitar que cualquier proceso en el socket detenga el servicio de forma unilateral. Cuando el usuario pulsa *Salir* en la bandeja del sistema, el servicio genera un nonce criptográfico de un solo uso con TTL de 30 s y emite `Event::QuitRequested`. La ventana escucha este evento y muestra el diálogo modal de confirmación con el texto de la especificación §0 ("Si sales, la telemetría se detiene y no podrás marcar asistencia..."). La confirmación envía `Request::ConfirmQuit { nonce }` que detiene el servicio únicamente si coincide con el nonce activo pendiente. En Ajustes se informa al usuario de este mecanismo sin ofrecer un comando de apagado directo no autorizado.
+  - *Sidecar packaging (RF-AGENT-11-2):* Se creó el script `agent-ui/scripts/prepare-sidecar.mjs` que compila `telemetry-agent` en modo release (con `TELEMETRY_API_URL` requerida por `agent/build.rs`) y copia el artefacto al directorio `src-tauri/binaries/telemetry-agent-<target-triple>`. En desarrollo, `client::find_service_binary` busca el binario local en `target/debug/telemetry-agent`.
+  - *Paridad y estados pendientes:* Las secciones Asistencia y Registros muestran el estado "Disponible próximamente" conforme a los requerimientos de TASK-AGENT-11 (dejando la implementación de marcación, PIN y términos para AGENT-12/13), sin datos ficticios.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna. Se respetaron todas las restricciones de `constraints.md` (DP-*, ATT-*, PROC-*, SEC-*).

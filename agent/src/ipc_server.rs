@@ -26,6 +26,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 
+/// How long a tray-initiated *Salir* confirmation stays valid (PROC-04).
+pub const QUIT_CONFIRM_TTL: Duration = Duration::from_secs(30);
+
+/// A quit request initiated by the in-process tray and awaiting the window's confirmation.
+/// One-shot: consumed by the first valid `ConfirmQuit`, or dropped on cancel/expiry.
+struct PendingQuit {
+    nonce: String,
+    expires_at: Instant,
+}
+
 pub struct IpcServerContext {
     pub config: WorkerConfig,
     pub cred_store: Arc<dyn CredentialStore>,
@@ -38,6 +48,7 @@ pub struct IpcServerContext {
     pub pending_enrollment: Arc<Mutex<Option<PendingEnrollment>>>,
     pub subscribers: Arc<Mutex<Vec<mpsc::Sender<Event>>>>,
     pub shutdown_notify: Arc<Notify>,
+    pending_quit: Arc<Mutex<Option<PendingQuit>>>,
 }
 
 impl IpcServerContext {
@@ -157,6 +168,115 @@ impl IpcServerContext {
     pub async fn has_subscribers(&self) -> bool {
         !self.subscribers.lock().await.is_empty()
     }
+
+    async fn broadcast_event(&self, event: Event) {
+        let mut subs = self.subscribers.lock().await;
+        let mut active = Vec::new();
+        for tx in subs.drain(..) {
+            if tx.send(event.clone()).await.is_ok() {
+                active.push(tx);
+            }
+        }
+        *subs = active;
+    }
+
+    /// Called ONLY by the in-process tray when the user picks *Salir* (PROC-04). Asks the
+    /// subscribed window to show the confirmation dialog by pushing `Event::QuitRequested` with a
+    /// fresh one-shot nonce valid for [`QUIT_CONFIRM_TTL`]. Returns `false` (nothing pending) when
+    /// no window is subscribed, so the tray can fall back to its own confirmation.
+    pub async fn request_quit(self: &Arc<Self>) -> bool {
+        self.request_quit_with_ttl(QUIT_CONFIRM_TTL).await
+    }
+
+    async fn request_quit_with_ttl(self: &Arc<Self>, ttl: Duration) -> bool {
+        if !self.has_subscribers().await {
+            return false;
+        }
+        let nonce = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        *self.pending_quit.lock().await = Some(PendingQuit {
+            nonce: nonce.clone(),
+            expires_at: Instant::now() + ttl,
+        });
+        self.broadcast_event(Event::QuitRequested {
+            nonce: nonce.clone(),
+            expires_in_secs: ttl.as_secs(),
+        })
+        .await;
+
+        // Expire the request so a stale dialog can never stop the service later.
+        let ctx = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(ttl).await;
+            let mut pending = ctx.pending_quit.lock().await;
+            if pending.as_ref().is_some_and(|p| p.nonce == nonce) {
+                *pending = None;
+                drop(pending);
+                ctx.broadcast_event(Event::QuitCancelled).await;
+            }
+        });
+        true
+    }
+
+    /// Validates the window's answer to a tray-initiated quit request. Only a pending, unexpired
+    /// request with a matching nonce stops the service; the request is consumed (one-shot).
+    async fn confirm_quit(&self, nonce: &str) -> Response {
+        let mut pending = self.pending_quit.lock().await;
+        let Some(current) = pending.as_ref() else {
+            return not_allowed(
+                "No hay una solicitud de salida pendiente iniciada desde la bandeja",
+            );
+        };
+        if Instant::now() >= current.expires_at {
+            *pending = None;
+            return not_allowed(
+                "La solicitud de salida expiró; vuelve a elegir Salir en la bandeja",
+            );
+        }
+        if !verify_token(&current.nonce, nonce) {
+            return not_allowed("Código de confirmación de salida inválido");
+        }
+        *pending = None;
+        drop(pending);
+        tracing::info!("Quit confirmed by window for a tray-initiated request");
+        self.shutdown_notify.notify_waiters();
+        Response::ConfirmQuit
+    }
+
+    async fn cancel_quit(&self, nonce: &str) -> Response {
+        let mut pending = self.pending_quit.lock().await;
+        if pending
+            .as_ref()
+            .is_some_and(|p| verify_token(&p.nonce, nonce))
+        {
+            *pending = None;
+            drop(pending);
+            self.broadcast_event(Event::QuitCancelled).await;
+        }
+        Response::CancelQuit
+    }
+
+    /// Remaining validity of the pending quit request, if any (for late-subscribing windows).
+    async fn pending_quit_event(&self) -> Option<Event> {
+        let pending = self.pending_quit.lock().await;
+        let p = pending.as_ref()?;
+        let remaining = p.expires_at.checked_duration_since(Instant::now())?;
+        Some(Event::QuitRequested {
+            nonce: p.nonce.clone(),
+            expires_in_secs: remaining.as_secs().max(1),
+        })
+    }
+}
+
+fn not_allowed(message: &str) -> Response {
+    Response::Error {
+        code: "NOT_ALLOWED".into(),
+        message: message.into(),
+        retry_after_secs: None,
+    }
 }
 
 fn compute_category_states(
@@ -227,6 +347,7 @@ impl IpcServer {
             pending_enrollment: Arc::new(Mutex::new(None)),
             subscribers: Arc::new(Mutex::new(Vec::new())),
             shutdown_notify,
+            pending_quit: Arc::new(Mutex::new(None)),
         });
 
         Ok(Self {
@@ -399,6 +520,11 @@ impl IpcServer {
                             // Send initial snapshot immediately
                             let initial = self.context.build_snapshot().await;
                             write_frame(&mut stream, &ServerFrame::Event(Event::Snapshot(Box::new(initial)))).await?;
+
+                            // A window opened while a tray quit request is pending still sees it.
+                            if let Some(ev) = self.context.pending_quit_event().await {
+                                write_frame(&mut stream, &ServerFrame::Event(ev)).await?;
+                            }
 
                             // Forward events until client disconnects
                             while let Some(ev) = rx.recv().await {
@@ -767,6 +893,8 @@ impl IpcServer {
                 self.context.broadcast_snapshot().await;
                 Response::OpenWindowHint
             }
+            Request::ConfirmQuit { nonce } => self.context.confirm_quit(&nonce).await,
+            Request::CancelQuit { nonce } => self.context.cancel_quit(&nonce).await,
             Request::Shutdown => Response::Error {
                 code: "NOT_ALLOWED".into(),
                 message:
@@ -917,6 +1045,213 @@ mod tests {
         if let SocketEndpoint::Path(p) = socket_endpoint(&runtime_dir) {
             assert!(!p.exists());
         }
+    }
+
+    struct TestServer {
+        server: Arc<IpcServer>,
+        runtime_dir: PathBuf,
+        server_task: tokio::task::JoinHandle<()>,
+        _dir: tempfile::TempDir,
+    }
+
+    async fn start_test_server() -> TestServer {
+        let dir = tempdir().expect("tempdir");
+        let runtime_dir = dir.path().to_path_buf();
+        let config = WorkerConfig::load_or_init_at(runtime_dir.join("config.json"));
+        let cred_store: Arc<dyn CredentialStore> = Arc::new(InMemoryCredentialStore::new());
+        let buffer = Arc::new(MetricsBuffer::new(10));
+        let engine = BackgroundEngine::new(config.clone(), buffer.clone(), cred_store.clone())
+            .expect("engine");
+        let engine_handle = engine.handle(tokio::runtime::Handle::current());
+        let server = Arc::new(
+            IpcServer::new(
+                config,
+                cred_store,
+                buffer,
+                engine_handle,
+                runtime_dir.clone(),
+                Arc::new(AtomicBool::new(true)),
+                Arc::new(Notify::new()),
+            )
+            .expect("server new"),
+        );
+        let server_clone = server.clone();
+        let server_task = tokio::spawn(async move {
+            let _ = server_clone.run().await;
+        });
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        TestServer {
+            server,
+            runtime_dir,
+            server_task,
+            _dir: dir,
+        }
+    }
+
+    async fn next_non_snapshot<S: agent_ipc::EventStream<Item = Event> + Unpin>(
+        sub: &mut S,
+    ) -> Event {
+        loop {
+            let ev = tokio::time::timeout(Duration::from_secs(2), sub.next())
+                .await
+                .expect("event in time")
+                .expect("event");
+            if !matches!(ev, Event::Snapshot(_)) {
+                return ev;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_quit_unsolicited_confirm_is_not_allowed() {
+        // PROC-04: no IPC client can stop the service unless the tray started a quit request.
+        let ts = start_test_server().await;
+        let client = IpcClient::connect(&ts.runtime_dir).await.expect("connect");
+
+        let res = client
+            .call(Request::ConfirmQuit {
+                nonce: "guess".into(),
+            })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ALLOWED"));
+
+        // Still running.
+        assert!(matches!(
+            client.call(Request::Snapshot).await.expect("snapshot"),
+            Response::Snapshot { .. }
+        ));
+        assert!(!ts.server_task.is_finished());
+
+        // No window subscribed: the tray gets `false` and nothing becomes pending.
+        assert!(!ts.server.context.request_quit().await);
+        let res = client
+            .call(Request::ConfirmQuit {
+                nonce: "guess".into(),
+            })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ALLOWED"));
+
+        ts.server.context.shutdown_notify.notify_waiters();
+        let _ = ts.server_task.await;
+    }
+
+    #[tokio::test]
+    async fn test_quit_tray_request_confirmed_once_by_window() {
+        let ts = start_test_server().await;
+        let client = IpcClient::connect(&ts.runtime_dir).await.expect("connect");
+        let mut sub = IpcClient::subscribe(&ts.runtime_dir)
+            .await
+            .expect("subscribe");
+        let _ = sub.next().await.expect("initial snapshot");
+
+        assert!(ts.server.context.request_quit().await);
+        let nonce = match next_non_snapshot(&mut sub).await {
+            Event::QuitRequested {
+                nonce,
+                expires_in_secs,
+            } => {
+                assert_eq!(expires_in_secs, 30);
+                nonce
+            }
+            other => panic!("Expected QuitRequested, got {:?}", other),
+        };
+
+        // Wrong nonce: refused, request stays pending.
+        let res = client
+            .call(Request::ConfirmQuit {
+                nonce: "wrong".into(),
+            })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ALLOWED"));
+        assert!(!ts.server_task.is_finished());
+
+        // Plain SHUTDOWN stays refused even while a quit request is pending.
+        let res = client.call(Request::Shutdown).await.expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ALLOWED"));
+
+        // Correct nonce: the service stops.
+        let res = client
+            .call(Request::ConfirmQuit {
+                nonce: nonce.clone(),
+            })
+            .await
+            .expect("call");
+        assert_eq!(res, Response::ConfirmQuit);
+        let _ = tokio::time::timeout(Duration::from_secs(2), ts.server_task).await;
+
+        // One-shot: the nonce cannot be replayed.
+        assert!(matches!(
+            ts.server.context.confirm_quit(&nonce).await,
+            Response::Error { ref code, .. } if code == "NOT_ALLOWED"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_quit_request_expires() {
+        let ts = start_test_server().await;
+        let client = IpcClient::connect(&ts.runtime_dir).await.expect("connect");
+        let mut sub = IpcClient::subscribe(&ts.runtime_dir)
+            .await
+            .expect("subscribe");
+        let _ = sub.next().await.expect("initial snapshot");
+
+        assert!(
+            ts.server
+                .context
+                .request_quit_with_ttl(Duration::from_millis(200))
+                .await
+        );
+        let nonce = match next_non_snapshot(&mut sub).await {
+            Event::QuitRequested { nonce, .. } => nonce,
+            other => panic!("Expected QuitRequested, got {:?}", other),
+        };
+        assert_eq!(next_non_snapshot(&mut sub).await, Event::QuitCancelled);
+
+        let res = client
+            .call(Request::ConfirmQuit { nonce })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ALLOWED"));
+        assert!(!ts.server_task.is_finished());
+
+        ts.server.context.shutdown_notify.notify_waiters();
+        let _ = ts.server_task.await;
+    }
+
+    #[tokio::test]
+    async fn test_quit_request_cancelled_by_window() {
+        let ts = start_test_server().await;
+        let client = IpcClient::connect(&ts.runtime_dir).await.expect("connect");
+        let mut sub = IpcClient::subscribe(&ts.runtime_dir)
+            .await
+            .expect("subscribe");
+        let _ = sub.next().await.expect("initial snapshot");
+
+        assert!(ts.server.context.request_quit().await);
+        let nonce = match next_non_snapshot(&mut sub).await {
+            Event::QuitRequested { nonce, .. } => nonce,
+            other => panic!("Expected QuitRequested, got {:?}", other),
+        };
+        let res = client
+            .call(Request::CancelQuit {
+                nonce: nonce.clone(),
+            })
+            .await
+            .expect("call");
+        assert_eq!(res, Response::CancelQuit);
+        assert_eq!(next_non_snapshot(&mut sub).await, Event::QuitCancelled);
+
+        let res = client
+            .call(Request::ConfirmQuit { nonce })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ALLOWED"));
+
+        ts.server.context.shutdown_notify.notify_waiters();
+        let _ = ts.server_task.await;
     }
 
     #[tokio::test]
