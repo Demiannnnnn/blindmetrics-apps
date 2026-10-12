@@ -117,7 +117,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Window: terms, PIN, attendance home, receipts, records, corrections | ❌ | AGENT-13 |
 | Admin: employer terms, employer legal profile, workplaces, legal docs; biometric button removed | ✅ | ADMIN-13 |
 | Admin: workers v3 (legal data, agreed schedule, optional telemetry, telemetry pause) | ✅ | ADMIN-14 |
-| Admin: attendance board, days/marks, corrections | ❌ | ADMIN-15 |
+| Admin: attendance board, days/marks, corrections | ✅ | ADMIN-15 |
 | Admin: R38 reports, exports, read-only reports while blocked | ❌ | ADMIN-16 |
 | `telemetry-api` contract v3 (attendance, legal, employer, emails, reports/exports) | ❌ | API TASK-18..23 (to be written) |
 | `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ❌ | web tasks (to be written) |

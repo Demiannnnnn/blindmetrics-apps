@@ -201,7 +201,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **AGENT-13** | [`agent/task-13-attendance-ui.md`](agent/task-13-attendance-ui.md) | Ventana: T1 términos, P1 PIN, A Asistencia + comprobante, Registros, correcciones, banners. | 🔴 |
 | **ADMIN-13** | [`admin-client/task-13-legal-and-employer.md`](admin-client/task-13-legal-and-employer.md) | T1 términos del empleador, Empresa (perfil legal, lugares, alertas, incidentes), documentos legales, se quita la biometría falsa. | 🟢 |
 | **ADMIN-14** | [`admin-client/task-14-workers-v3-schedule.md`](admin-client/task-14-workers-v3-schedule.md) | Trabajadores v3: datos legales, jornada pactada con advertencias legales, modalidad, telemetría opcional y restringida, pausa de telemetría. | 🟢 |
-| **ADMIN-15** | [`admin-client/task-15-attendance-console.md`](admin-client/task-15-attendance-console.md) | Riel agrupado, asistencia en vivo, días y marcas con verificación de hash, correcciones (R38 art. 40), KPIs. | 🔴 |
+| **ADMIN-15** | [`admin-client/task-15-attendance-console.md`](admin-client/task-15-attendance-console.md) | Riel agrupado, asistencia en vivo, días y marcas con verificación de hash, correcciones (R38 art. 40), KPIs. | 🟢 |
 | **ADMIN-16** | [`admin-client/task-16-legal-reports.md`](admin-client/task-16-legal-reports.md) | Seis reportes R38 con filtros del art. 25, vista previa fiel, exportar Excel/PDF/Word, acceso de solo lectura con suscripción bloqueada. | 🔴 |
 
 ### 6.2 Orden y paralelismo
