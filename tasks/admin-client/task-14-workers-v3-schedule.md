@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-14` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `admin-client/src-tauri/src/commands/workers.rs`, `client.rs`, `admin-client/src/components/{CreateWorkerModal,WorkerEditModal,WorkerDetailModal,ConsentEditor,ConsentSettings,EmployeeCard,Dashboard,ScheduleEditor}.tsx` (`ScheduleEditor` nuevo), `src/lib/schedule.ts` (nuevo), `src/api/{tauri-bridge,types}.ts`, `test/*.test.mjs` |
 | **Dependencias** | `TASK-ADMIN-13` |
 | **Paralela con** | `TASK-AGENT-11` |
@@ -68,10 +68,38 @@ Leer `docs/admin-app-spec.md` §5.3 (W1, W2, W4, D), §5.4 (workers v3); `domain
 
 ## 5. DoD
 
-- [ ] RF-ADMIN-14-1..7.
-- [ ] DoD AGENTS.md §9 en verde.
-- [ ] Reporte completo.
+- [x] RF-ADMIN-14-1..7.
+- [x] DoD AGENTS.md §9 en verde.
+- [x] Reporte completo.
 
 ## Reporte
 
-_(pendiente)_
+- **Resumen:** Se implementó la totalidad de la tarea 14 de trabajadores v3 para `admin-client`: DTOs en Rust y TS con tipos v3 (RUN módulo 11, personal_email, job_title, workplace, work_mode, art22_exempt, schedule, telemetry_status, terms_accepted_version, status v3); grilla y cálculos de jornada en `src/lib/schedule.ts` y componente `ScheduleEditor`; validaciones W2 completas (DP-04 causa de ubicación 20–500 chars para FIELD, DP-05 capturas deshabilitadas para no-ON_SITE, desconexión ≥ 12 h); W1 con filtros de lugar y modalidad y asistencia hoy en "—"; W4 con 4 pestañas (Asistencia, Jornada, Telemetría, Evidencia) y acciones de ciclo de vida (Revocar con PATCH status REVOKED, Pausar/Reanudar telemetría con PATCH telemetry-status); comandos Tauri registrados; y KPIs del Tablero por estado v3 y por telemetría.
+- **Archivos:**
+  - `admin-client/src-tauri/src/commands/workers.rs`
+  - `admin-client/src-tauri/src/main.rs`
+  - `admin-client/src/api/types.ts`
+  - `admin-client/src/api/tauri-bridge.ts`
+  - `admin-client/src/lib/schedule.ts`
+  - `admin-client/src/components/ScheduleEditor.tsx`
+  - `admin-client/src/components/ConsentEditor.tsx`
+  - `admin-client/src/components/CreateWorkerModal.tsx`
+  - `admin-client/src/components/WorkerEditModal.tsx`
+  - `admin-client/src/components/WorkerDetailModal.tsx`
+  - `admin-client/src/components/EmployeeCard.tsx`
+  - `admin-client/src/components/Dashboard.tsx`
+  - `admin-client/src/components/consentCategories.ts`
+  - `admin-client/test/schedule.test.mjs`
+  - `admin-client/test/workers.test.mjs`
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ en verde sin diferencias.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ en verde sin advertencias ni errores.
+  - `cargo test --workspace`: ✅ 250 tests pasando (admin-client-core: 113, agent: 86, telemetry_crypto_core: 51).
+  - `cd admin-client && npm run build`: ✅ en verde (tsc + vite build exitoso).
+  - `cd admin-client && npm test`: ✅ 51 tests pasando (100% pass).
+- **Decisiones:**
+  - En `workers_set_status`, se rechaza cualquier estado distinto a `"REVOKED"` con `CommandError` de tipo `VALIDATION_ERROR` localmente sin llamar a la API, forzando a que las pausas/reanudaciones de telemetría pasen por `workers_set_telemetry_status` (`PATCH /workers/:id/telemetry-status`).
+  - En `workers_update_schedule`, se consulta previamente `GET /workers/:id` para comprobar que el trabajador no esté exento por art. 22 y obtener su modalidad de trabajo (`work_mode`) para validar la desconexión mínima de 12 horas en teletrabajo o modalidad mixta.
+  - Las funciones de validación W2 y mapeo de badges de estado y telemetría se consolidaron en `src/components/consentCategories.ts` usando únicamente importaciones de tipo de `types.ts`, garantizando compatibilidad total tanto en el bundle empaquetado de TypeScript/Vite como en `node --test`.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.
