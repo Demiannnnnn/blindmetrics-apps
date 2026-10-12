@@ -270,18 +270,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 TrayAction::Quit => {
-                    let now = Instant::now();
-                    if let Some(deadline) = quit_deadline {
-                        if now <= deadline {
-                            tracing::info!("Tray action: Salir confirmed.");
-                            break;
+                    // PROC-04: with a window open, ask it to show the confirmation dialog. The
+                    // window answers with a one-shot nonce valid for 30 s; only then does the
+                    // IPC server notify the shutdown (no IPC client can stop the service alone).
+                    if rt.block_on(ipc_server.context.request_quit()) {
+                        tracing::info!(
+                            "Tray action: Salir requested. Awaiting confirmation in the window."
+                        );
+                        quit_deadline = None;
+                    } else {
+                        // No window: fall back to pressing Salir twice within 10 s.
+                        let now = Instant::now();
+                        if let Some(deadline) = quit_deadline {
+                            if now <= deadline {
+                                tracing::info!("Tray action: Salir confirmed.");
+                                break;
+                            }
                         }
+                        tracing::info!(
+                            "Tray action: Salir requested. Awaiting confirmation within 10s."
+                        );
+                        NotificationDispatcher::notify_confirm_quit();
+                        quit_deadline = Some(now + Duration::from_secs(10));
                     }
-                    tracing::info!(
-                        "Tray action: Salir requested. Awaiting confirmation within 10s."
-                    );
-                    NotificationDispatcher::notify_confirm_quit();
-                    quit_deadline = Some(now + Duration::from_secs(10));
                 }
             }
         }

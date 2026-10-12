@@ -228,6 +228,7 @@ async fn test_ipc_subscribe_events() {
             assert_eq!(snapshot.run_mode, "PAUSED");
             assert!(snapshot.is_enrolled);
         }
+        other => panic!("Expected Snapshot event, got {:?}", other),
     }
 
     server_task.await.unwrap();
@@ -288,4 +289,35 @@ async fn test_snapshot_no_secrets() {
         !lower.contains("manifest_hash"),
         "Snapshot must not contain manifest hash"
     );
+}
+
+#[test]
+fn test_quit_confirmation_frames_roundtrip() {
+    // PROC-04: the tray asks the window to confirm; the window answers with the echoed nonce.
+    let ev = Event::QuitRequested {
+        nonce: "abc".into(),
+        expires_in_secs: 30,
+    };
+    let json = serde_json::to_string(&ev).unwrap();
+    assert!(json.contains("QUIT_REQUESTED"));
+    assert_eq!(serde_json::from_str::<Event>(&json).unwrap(), ev);
+
+    let json = serde_json::to_string(&Event::QuitCancelled).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Event>(&json).unwrap(),
+        Event::QuitCancelled
+    );
+
+    let req = Request::ConfirmQuit {
+        nonce: "abc".into(),
+    };
+    let json = serde_json::to_string(&req).unwrap();
+    assert!(json.contains("CONFIRM_QUIT"));
+    assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), req);
+
+    let req = Request::CancelQuit {
+        nonce: "abc".into(),
+    };
+    let json = serde_json::to_string(&req).unwrap();
+    assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), req);
 }
