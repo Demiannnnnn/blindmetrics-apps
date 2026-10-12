@@ -19,7 +19,10 @@ import {
   AdminProfile,
   employerGet,
   workplacesList,
+  attendanceBoard,
+  attendanceCorrections,
 } from '../api/tauri-bridge';
+import type { AttendanceState } from '../api/types';
 import { describeError, errorIs } from '../lib/errors';
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
@@ -43,6 +46,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
+  Clock,
+  AlertTriangle,
+  FileCheck,
 } from 'lucide-react';
 
 const PER_PAGE = 12;
@@ -54,6 +60,7 @@ interface DashboardProps {
   onOpenVault: () => void;
   onProfileChanged: (profile: AdminProfile) => void;
   onNavigateToEmployer?: () => void;
+  onNavigateToAttendance?: (workerId?: string) => void;
 }
 
 /** RF-ADMIN-09-4: the worker accepted consent on a device; revoke it before a new code. */
@@ -117,6 +124,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenVault,
   onProfileChanged,
   onNavigateToEmployer,
+  onNavigateToAttendance,
 }) => {
   const [kpis, setKpis] = useState<KpiSummary | null>(null);
   const [workers, setWorkers] = useState<WorkerItem[]>([]);
@@ -135,6 +143,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [listError, setListError] = useState<string | null>(null);
   const [hasEmployerProfile, setHasEmployerProfile] = useState<boolean>(true);
+
+  // Attendance KPIs & States (RF-ADMIN-15-7)
+  const [attendanceStates, setAttendanceStates] = useState<Record<string, AttendanceState>>({});
+  const [workingNowCount, setWorkingNowCount] = useState<number>(0);
+  const [unmarkedTodayCount, setUnmarkedTodayCount] = useState<number>(0);
+  const [pendingCorrectionsCount, setPendingCorrectionsCount] = useState<number>(0);
 
   // Master Crypto Key State (read-only here; managed in Bóveda, TASK-ADMIN-11)
   const [masterPubKey, setMasterPubKey] = useState<string>('Cargando clave...');
@@ -165,6 +179,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
       workplacesList()
         .then(setWorkplaces)
         .catch(e => console.warn('Failed to load workplaces', e));
+      attendanceBoard()
+        .then(workers => {
+          const map: Record<string, AttendanceState> = {};
+          let working = 0;
+          let unmarked = 0;
+          for (const bw of workers) {
+            map[bw.worker_id] = bw.state;
+            if (bw.state === 'WORKING') working++;
+            if (bw.state === 'UNMARKED') unmarked++;
+          }
+          setAttendanceStates(map);
+          setWorkingNowCount(working);
+          setUnmarkedTodayCount(unmarked);
+        })
+        .catch(e => console.warn('Failed to load attendance board', e));
+      attendanceCorrections({ status: 'PENDING' })
+        .then(res => setPendingCorrectionsCount(res.pagination?.total ?? res.data.length))
+        .catch(e => console.warn('Failed to load pending corrections', e));
       const [k, result] = await Promise.all([
         fetchKpiSummary(),
         getWorkersPage({
@@ -470,6 +502,66 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
+      {/* Attendance KPI Cards (RF-ADMIN-15-7) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div
+          onClick={() => onNavigateToAttendance?.()}
+          className={`bg-surface-subtle border border-default rounded-card p-4 flex items-center justify-between gap-4 ${
+            onNavigateToAttendance ? 'cursor-pointer hover:border-brand/40 transition' : ''
+          }`}
+          title="Ver Asistencia en vivo"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-card bg-success-subtle text-success flex items-center justify-center">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs text-muted font-medium">En jornada ahora</p>
+              <h3 className="text-2xl font-bold text-fg">{workingNowCount}</h3>
+            </div>
+          </div>
+          <span className="text-[11px] text-muted font-medium">Asistencia AS1</span>
+        </div>
+
+        <div
+          onClick={() => onNavigateToAttendance?.()}
+          className={`bg-surface-subtle border border-default rounded-card p-4 flex items-center justify-between gap-4 ${
+            onNavigateToAttendance ? 'cursor-pointer hover:border-brand/40 transition' : ''
+          }`}
+          title="Ver Asistencia en vivo"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-card bg-danger-subtle text-danger flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs text-muted font-medium">Sin marcar hoy</p>
+              <h3 className="text-2xl font-bold text-fg">{unmarkedTodayCount}</h3>
+            </div>
+          </div>
+          <span className="text-[11px] text-muted font-medium">Turnos iniciados</span>
+        </div>
+
+        <div
+          onClick={() => onNavigateToAttendance?.()}
+          className={`bg-surface-subtle border border-default rounded-card p-4 flex items-center justify-between gap-4 ${
+            onNavigateToAttendance ? 'cursor-pointer hover:border-brand/40 transition' : ''
+          }`}
+          title="Ver Marcas y correcciones"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-card bg-warning-subtle text-warning flex items-center justify-center">
+              <FileCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs text-muted font-medium">Correcciones pendientes</p>
+              <h3 className="text-2xl font-bold text-fg">{pendingCorrectionsCount}</h3>
+            </div>
+          </div>
+          <span className="text-[11px] text-muted font-medium">Plazo 48 h</span>
+        </div>
+      </div>
+
       {/* Deep Filtering & Action Bar */}
       <div className="bg-surface-subtle border border-default rounded-card p-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[320px]">
@@ -581,6 +673,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <EmployeeCard
               key={w.id}
               worker={w}
+              todayAttendanceState={attendanceStates[w.id]}
               onSelect={onSelectWorker}
               onToggleStatus={handleToggle}
               onShowEnrollment={handleShowEnrollment}
@@ -639,6 +732,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
             setDetailWorker(null);
             onSelectWorker(worker);
           }}
+          onNavigateToAttendance={
+            onNavigateToAttendance
+              ? workerId => {
+                  setDetailWorker(null);
+                  onNavigateToAttendance(workerId);
+                }
+              : undefined
+          }
         />
       )}
 

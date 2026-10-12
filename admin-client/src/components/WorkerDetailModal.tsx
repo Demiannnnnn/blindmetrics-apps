@@ -29,7 +29,10 @@ import {
   workersSetTelemetryStatus,
   workersUpdateConsentConfig,
   workersUpdateSchedule,
+  attendanceDays,
 } from '../api/tauri-bridge';
+import type { DaySummary } from '../api/types';
+import { formatR38Date, describeAnomaly } from '../lib/attendance';
 import { STATUS_BADGES } from './EmployeeCard';
 import { ConsentEditor } from './ConsentEditor';
 import { ScheduleEditor } from './ScheduleEditor';
@@ -58,7 +61,7 @@ interface WorkerDetailModalProps {
   onRegenerate: (worker: WorkerItem) => void;
   onDelete: (worker: WorkerItem) => void;
   onViewTelemetry: (worker: WorkerItem) => void;
-  onNavigateToAttendance?: () => void;
+  onNavigateToAttendance?: (workerId?: string) => void;
 }
 
 type TabType = 'attendance' | 'schedule' | 'telemetry' | 'evidence';
@@ -85,6 +88,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Attendance 7-day summary (RF-ADMIN-15-7)
+  const [attendanceDaysList, setAttendanceDaysList] = useState<DaySummary[] | null>(null);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
   // Lifecycle
   const [reason, setReason] = useState('');
@@ -156,6 +164,19 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       .then(setRecords)
       .catch(e => setRecordsError(describeError(e)));
   }, [initial.id]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance' && !initial.art22Exempt) {
+      setAttendanceLoading(true);
+      setAttendanceError(null);
+      const to = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      attendanceDays(initial.id, from, to)
+        .then(setAttendanceDaysList)
+        .catch(e => setAttendanceError(describeError(e)))
+        .finally(() => setAttendanceLoading(false));
+    }
+  }, [activeTab, initial.id, initial.art22Exempt]);
 
   const apply = (updated: WorkerResponse, message?: string) => {
     setWorker(updated);
@@ -413,25 +434,135 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           </button>
         </div>
 
-        {/* TAB 1: ASISTENCIA */}
+        {/* TAB 1: ASISTENCIA (RF-ADMIN-15-7) */}
         {activeTab === 'attendance' && (
-          <div className="p-6 bg-surface border border-default rounded-card text-center space-y-3">
-            <Clock className="w-8 h-8 text-accent mx-auto" />
-            <h4 className="text-sm font-semibold text-fg">Registro de Asistencia en Tiempo Real</h4>
-            <p className="text-xs text-muted max-w-md mx-auto">
-              Las marcas diarias, el balance de horas y la proposición de correcciones están
-              disponibles en la consola de asistencia (AS1 / AS2).
-            </p>
-            {onNavigateToAttendance && (
-              <button
-                onClick={() => {
-                  onClose();
-                  onNavigateToAttendance();
-                }}
-                className="px-4 py-2 bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold rounded-control transition"
-              >
-                Ir a Asistencia en Vivo
-              </button>
+          <div className="space-y-4">
+            {worker.art22_exempt ? (
+              <div className="p-5 bg-surface border border-default rounded-card space-y-2">
+                <h4 className="text-sm font-semibold text-fg">
+                  Excluido de limitación de jornada (art. 22 inc. 2°)
+                </h4>
+                <p className="text-xs text-muted leading-relaxed">
+                  Este trabajador está exento de control de asistencia de acuerdo con la legislación laboral chilena (ATT-12).
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-semibold text-fg uppercase tracking-wide">
+                      Últimos 7 Días de Asistencia
+                    </h4>
+                    <p className="text-xs text-muted">
+                      Resumen legal según R38 (marcas, jornada pactada y balance de horas).
+                    </p>
+                  </div>
+                  {onNavigateToAttendance && (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onNavigateToAttendance(initial.id);
+                      }}
+                      className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold rounded-control flex items-center gap-1.5 transition"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Ver marcas y correcciones (AS2)</span>
+                    </button>
+                  )}
+                </div>
+
+                {attendanceLoading && (
+                  <div className="p-8 text-center text-xs text-muted">
+                    Cargando registros de los últimos 7 días...
+                  </div>
+                )}
+
+                {attendanceError && (
+                  <div className="p-3 bg-danger-subtle text-danger border border-default rounded-card text-xs">
+                    {attendanceError}
+                  </div>
+                )}
+
+                {!attendanceLoading && !attendanceError && attendanceDaysList && (
+                  attendanceDaysList.length === 0 ? (
+                    <div className="p-6 bg-surface border border-default rounded-card text-center text-xs text-muted">
+                      Sin registros de asistencia en los últimos 7 días.
+                    </div>
+                  ) : (
+                    <div className="border border-default rounded-card overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-surface-subtle border-b border-default text-muted font-medium text-[11px]">
+                            <th className="py-2 px-3">Fecha</th>
+                            <th className="py-2 px-3">Marcas</th>
+                            <th className="py-2 px-3">Jornada Pactada</th>
+                            <th className="py-2 px-3">Trabajado</th>
+                            <th className="py-2 px-3">Faltante / Extra</th>
+                            <th className="py-2 px-3">Observaciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-default bg-surface">
+                          {attendanceDaysList.map(d => {
+                            const hasOffline = d.marks.some(m => m.offline);
+                            const hasCorrections = d.marks.some(m => m.source === 'CORRECTION' || m.corrected_by);
+                            const hasMismatch = d.marks.some(m => m.hash_verified === false);
+
+                            return (
+                              <tr key={d.date} className="hover:bg-surface-subtle/40">
+                                <td className="py-2 px-3 font-medium text-fg">
+                                  {formatR38Date(d.date)}
+                                </td>
+                                <td className="py-2 px-3">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-mono text-fg">{d.marks.length}</span>
+                                    {hasOffline && (
+                                      <span className="px-1.5 py-0.2 bg-warning-subtle text-warning border border-warning/30 rounded text-[10px]">
+                                        Sin conexión
+                                      </span>
+                                    )}
+                                    {hasCorrections && (
+                                      <span className="px-1.5 py-0.2 bg-info-subtle text-info border border-info/30 rounded text-[10px]">
+                                        Corregida
+                                      </span>
+                                    )}
+                                    {hasMismatch && (
+                                      <span className="px-1.5 py-0.2 bg-danger-subtle text-danger border border-danger/30 rounded text-[10px] font-semibold">
+                                        Integridad: no coincide
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-2 px-3 font-mono text-muted">
+                                  {d.agreed ? `${d.agreed.start.slice(0, 5)} - ${d.agreed.end.slice(0, 5)}` : 'Libre'}
+                                </td>
+                                <td className="py-2 px-3 font-mono font-medium text-fg">
+                                  {d.attended ? 'Asistió' : 'Ausente'}
+                                </td>
+                                <td className="py-2 px-3 font-mono text-[11px]">
+                                  {d.missing && d.missing !== '-00:00:00' && (
+                                    <span className="text-danger mr-1.5">{d.missing}</span>
+                                  )}
+                                  {d.extra && d.extra !== '+00:00:00' && (
+                                    <span className="text-success">{d.extra}</span>
+                                  )}
+                                  {(!d.missing || d.missing === '-00:00:00') && (!d.extra || d.extra === '+00:00:00') && (
+                                    <span className="text-muted">0 min</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-[11px] text-muted">
+                                  {d.anomalies.length > 0
+                                    ? d.anomalies.map(describeAnomaly).join(', ')
+                                    : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
+              </div>
             )}
           </div>
         )}
