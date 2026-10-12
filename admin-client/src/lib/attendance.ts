@@ -205,6 +205,7 @@ export interface CorrectionValidationInput {
   proposedTs: string;
   reason: string;
   confirmNoHarm: boolean;
+  timezone?: string | null;
 }
 
 export interface CorrectionValidationResult {
@@ -214,12 +215,37 @@ export interface CorrectionValidationResult {
 }
 
 /**
+ * Extracts YYYY-MM-DD date string for a given Date or ISO string in a specific timezone.
+ */
+export function getDateStringInTimezone(
+  dateOrIso: Date | string,
+  timezone = 'America/Santiago',
+): string {
+  try {
+    const d = typeof dateOrIso === 'string' ? new Date(dateOrIso) : dateOrIso;
+    if (isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const year = parts.find(p => p.type === 'year')?.value ?? '';
+    const month = parts.find(p => p.type === 'month')?.value ?? '';
+    const day = parts.find(p => p.type === 'day')?.value ?? '';
+    return `${year}-${month}-${day}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Validates a proposed correction locally before calling Tauri invoke (RF-ADMIN-15-5).
  * Mirrors server rules:
  * 1. `confirmNoHarm` is required.
  * 2. `reason` length 5-500.
  * 3. MODIFY requires `originalMarkId`.
- * 4. Not same day or future (`CORRECTION_TOO_EARLY`).
+ * 4. Not same day or future in worker's timezone (`CORRECTION_TOO_EARLY`).
  * 5. Does not harm the worker (`CORRECTION_HARMS_WORKER`):
  *    - Start can only move earlier.
  *    - End can only move later.
@@ -227,9 +253,12 @@ export interface CorrectionValidationResult {
 export function validateCorrectionForm(
   input: CorrectionValidationInput,
   now = new Date(),
+  timezone = 'America/Santiago',
 ): CorrectionValidationResult {
   const errors: Record<string, string> = {};
   let reasonCode: string | undefined;
+
+  const tz = input.timezone || timezone || 'America/Santiago';
 
   if (!input.confirmNoHarm) {
     errors.confirmNoHarm = 'Debes confirmar que la corrección no perjudica al trabajador.';
@@ -252,9 +281,9 @@ export function validateCorrectionForm(
     if (isNaN(proposedDate.getTime())) {
       errors.proposedTs = 'La fecha y hora propuesta no es válida.';
     } else {
-      // Check date: cannot be today or future (only from next business day)
-      const proposedDayString = proposedDate.toISOString().slice(0, 10);
-      const todayDayString = now.toISOString().slice(0, 10);
+      // Check date in worker's timezone: cannot be today or future (only from next business day)
+      const proposedDayString = getDateStringInTimezone(proposedDate, tz);
+      const todayDayString = getDateStringInTimezone(now, tz);
       if (proposedDayString >= todayDayString) {
         errors.proposedTs =
           'Solo puedes proponer correcciones desde el día hábil siguiente a la jornada corregida.';

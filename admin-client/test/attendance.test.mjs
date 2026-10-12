@@ -9,6 +9,7 @@ import {
   MARK_TYPE_LABELS,
   CORRECTION_STATUS_LABELS,
   describeAnomaly,
+  getDateStringInTimezone,
   validateCorrectionForm,
   describeCorrectionError,
 } from '../src/lib/attendance.ts';
@@ -200,3 +201,48 @@ test('attendance: describeCorrectionError maps all R38 reasons', () => {
   assert.ok(describeCorrectionError('ORIGINAL_MARK_REQUIRED').includes('original'));
   assert.ok(describeCorrectionError('AUTOMATED_WORKDAY_MARK_FORBIDDEN').includes('automatizada'));
 });
+
+test('attendance: getDateStringInTimezone extracts local date in worker timezone', () => {
+  // 2026-10-12 01:30:00Z UTC is 2026-10-11 22:30:00 -03:00 in America/Santiago
+  const d = new Date('2026-10-12T01:30:00Z');
+  assert.equal(getDateStringInTimezone(d, 'America/Santiago'), '2026-10-11');
+  assert.equal(getDateStringInTimezone(d, 'UTC'), '2026-10-12');
+});
+
+test('attendance: validateCorrectionForm compares dates in worker timezone (22:30 Chile time same day rejected, next day accepted)', () => {
+  // At 22:30 Chile time on 2026-10-11, UTC is 2026-10-12 01:30:00Z (next day in UTC).
+  // In Chile (America/Santiago) it is still 2026-10-11.
+  const chileLateNightNow = new Date('2026-10-12T01:30:00Z');
+
+  // Same day in Chile (22:30): proposed for 2026-10-11 must be rejected
+  const sameDayResult = validateCorrectionForm(
+    {
+      kind: 'ADD',
+      markType: 'WORKDAY_START',
+      proposedTs: '2026-10-11T22:30:00-03:00',
+      reason: 'Marca olvidada por corte de energía',
+      confirmNoHarm: true,
+      timezone: 'America/Santiago',
+    },
+    chileLateNightNow,
+  );
+  assert.equal(sameDayResult.valid, false);
+  assert.equal(sameDayResult.reasonCode, 'CORRECTION_TOO_EARLY');
+
+  // Next day in Chile: e.g. 2026-10-12 09:00:00 Chile time (2026-10-12T12:00:00Z UTC),
+  // the correction for 2026-10-11 must be accepted.
+  const nextDayNow = new Date('2026-10-12T12:00:00Z');
+  const nextDayResult = validateCorrectionForm(
+    {
+      kind: 'ADD',
+      markType: 'WORKDAY_START',
+      proposedTs: '2026-10-11T22:30:00-03:00',
+      reason: 'Marca olvidada por corte de energía',
+      confirmNoHarm: true,
+      timezone: 'America/Santiago',
+    },
+    nextDayNow,
+  );
+  assert.equal(nextDayResult.valid, true);
+});
+

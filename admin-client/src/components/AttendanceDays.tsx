@@ -467,9 +467,10 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
         onSuccess={() => {
           loadDays();
         }}
-        initialWorker={selectedWorker ? { id: selectedWorker.id, name: selectedWorker.name } : null}
+        initialWorker={selectedWorker ? { id: selectedWorker.id, name: selectedWorker.name, timezone: selectedWorker.timezone } : null}
         initialMark={correctionTargetMark}
-        allWorkers={workers.map(w => ({ id: w.id, name: w.name, run: w.run }))}
+        allWorkers={workers.map(w => ({ id: w.id, name: w.name, run: w.run, timezone: w.timezone }))}
+        workerTimezone={selectedWorker?.timezone}
       />
     </div>
   );

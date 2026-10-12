@@ -9,6 +9,7 @@
 use crate::client::{get_api_client, AdminApiClient, CollectionResponse};
 use crate::commands::CommandError;
 use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use telemetry_crypto_core::attendance::{
     is_canonical_uuid, verify_mark_hash, CanonicalMark, MarkLocation, MarkSource, MarkType,
@@ -170,6 +171,8 @@ pub enum AbsenceType {
 pub struct DaySummary {
     pub date: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agreed: Option<AgreedDaySchedule>,
     #[serde(default)]
     pub marks: Vec<AttendanceMark>,
@@ -262,6 +265,9 @@ pub struct ProposeCorrectionInput {
     /// Original mark timestamp for local validation of harm.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original_mark_ts: Option<String>,
+    /// Worker's time zone (e.g. "America/Santiago"). Defaults to "America/Santiago".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
 }
 
 /// Query parameters for fetching corrections.
@@ -320,8 +326,11 @@ pub fn validate_days_range(
     Ok((from, to))
 }
 
-/// Validates correction form fields in Rust (RF-ADMIN-15-5).
-pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), CommandError> {
+/// Validates correction form fields in Rust with injected `now` parameter (RF-ADMIN-15-5).
+pub fn validate_correction_input_at(
+    form: &ProposeCorrectionInput,
+    now: DateTime<Utc>,
+) -> Result<(), CommandError> {
     if !form.confirm_no_harm {
         return Err(CommandError::validation(
             "Debes confirmar que esta corrección no perjudica al trabajador.",
@@ -363,6 +372,14 @@ pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), Co
         }
     }
 
+    // Worker's time zone (defaults to America/Santiago)
+    let tz: Tz = form
+        .timezone
+        .as_deref()
+        .unwrap_or("America/Santiago")
+        .parse()
+        .unwrap_or(chrono_tz::America::Santiago);
+
     // Proposed timestamp must be valid RFC 3339
     let proposed_dt = DateTime::parse_from_rfc3339(form.proposed_ts.trim()).map_err(|_| {
         CommandError::validation(
@@ -370,9 +387,14 @@ pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), Co
         )
     })?;
 
+    // Convert proposed_dt and now to worker's time zone before comparing dates
+    let proposed_in_tz = proposed_dt.with_timezone(&tz);
+    let now_in_tz = now.with_timezone(&tz);
+
     // R38 art. 41: Corrections are allowed only from the next business day (not same day or future)
-    let today = Utc::now().date_naive();
-    if proposed_dt.date_naive() >= today {
+    let proposed_date = proposed_in_tz.date_naive();
+    let today_date = now_in_tz.date_naive();
+    if proposed_date >= today_date {
         return Err(CommandError {
             code: "VALIDATION_ERROR".to_string(),
             message: "Solo puedes proponer correcciones desde el día hábil siguiente a la jornada corregida.".to_string(),
@@ -382,13 +404,15 @@ pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), Co
     }
 
     // Check that correction does not harm the worker (CORRECTION_HARMS_WORKER):
+    // The same zone must be used for the WORKDAY_START/END ordering check.
     // For WORKDAY_START: proposed start can only be earlier (proposed_ts <= original_ts).
     // For WORKDAY_END: proposed end can only be later (proposed_ts >= original_ts).
     if form.kind == CorrectionKind::Modify {
         if let Some(orig_ts_str) = &form.original_mark_ts {
             if let Ok(orig_dt) = DateTime::parse_from_rfc3339(orig_ts_str.trim()) {
+                let orig_in_tz = orig_dt.with_timezone(&tz);
                 match form.r#type {
-                    MarkType::WorkdayStart if proposed_dt > orig_dt => {
+                    MarkType::WorkdayStart if proposed_in_tz > orig_in_tz => {
                         return Err(CommandError {
                             code: "VALIDATION_ERROR".to_string(),
                             message: "La corrección de inicio de jornada solo puede adelantar la entrada; postergarla perjudica al trabajador.".to_string(),
@@ -396,7 +420,7 @@ pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), Co
                             details: None,
                         });
                     }
-                    MarkType::WorkdayEnd if proposed_dt < orig_dt => {
+                    MarkType::WorkdayEnd if proposed_in_tz < orig_in_tz => {
                         return Err(CommandError {
                             code: "VALIDATION_ERROR".to_string(),
                             message: "La corrección de término de jornada solo puede postergar la salida; adelantarla perjudica al trabajador.".to_string(),
@@ -411,6 +435,11 @@ pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), Co
     }
 
     Ok(())
+}
+
+/// Validates correction form fields using current UTC time (RF-ADMIN-15-5).
+pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), CommandError> {
+    validate_correction_input_at(form, Utc::now())
 }
 
 // ============================================================================
@@ -687,6 +716,7 @@ mod tests {
             reason: "Olvidó marcar entrada".to_string(),
             confirm_no_harm: false,
             original_mark_ts: None,
+            timezone: None,
         };
         let err = validate_correction_input(&input).unwrap_err();
         assert!(err.message.contains("no perjudica al trabajador"));
@@ -703,6 +733,7 @@ mod tests {
             reason: "Elimina atraso".to_string(),
             confirm_no_harm: true,
             original_mark_ts: None,
+            timezone: None,
         };
         let err = validate_correction_input(&input).unwrap_err();
         assert_eq!(err.reason.as_deref(), Some("ORIGINAL_MARK_REQUIRED"));
@@ -710,20 +741,125 @@ mod tests {
 
     #[test]
     fn test_validate_correction_input_rejects_too_early() {
-        // Today or future date is too early (must be from next business day)
-        let future_ts = format!("{}T08:00:00Z", Utc::now().date_naive());
+        // Today or future date in Chile time is too early (must be from next business day)
+        let chile_today = Utc::now()
+            .with_timezone(&chrono_tz::America::Santiago)
+            .date_naive();
+        let today_ts = format!("{}T08:00:00-03:00", chile_today);
         let input = ProposeCorrectionInput {
             worker_ids: vec!["01927d3b-65e1-7000-8000-0000000000aa".to_string()],
             kind: CorrectionKind::Add,
             original_mark_id: None,
             r#type: MarkType::WorkdayStart,
-            proposed_ts: future_ts,
+            proposed_ts: today_ts,
             reason: "Olvidó marcar entrada".to_string(),
             confirm_no_harm: true,
             original_mark_ts: None,
+            timezone: Some("America/Santiago".to_string()),
         };
         let err = validate_correction_input(&input).unwrap_err();
         assert_eq!(err.reason.as_deref(), Some("CORRECTION_TOO_EARLY"));
+    }
+
+    #[test]
+    fn test_validate_correction_input_timezone_chile_late_night() {
+        // At 22:30 Chile time on 2026-10-11, UTC time is 2026-10-12 01:30:00Z (next day in UTC).
+        // In Chile it is still 2026-10-11, so a same-day correction for 2026-10-11 must be REJECTED.
+        let fixed_now_late_night: DateTime<Utc> =
+            DateTime::parse_from_rfc3339("2026-10-12T01:30:00Z")
+                .unwrap()
+                .with_timezone(&Utc);
+
+        let input_same_day = ProposeCorrectionInput {
+            worker_ids: vec!["01927d3b-65e1-7000-8000-0000000000aa".to_string()],
+            kind: CorrectionKind::Add,
+            original_mark_id: None,
+            r#type: MarkType::WorkdayStart,
+            proposed_ts: "2026-10-11T22:30:00-03:00".to_string(),
+            reason: "Marca olvidada por corte de energía".to_string(),
+            confirm_no_harm: true,
+            original_mark_ts: None,
+            timezone: Some("America/Santiago".to_string()),
+        };
+
+        // Same day: must be rejected with CORRECTION_TOO_EARLY
+        let err = validate_correction_input_at(&input_same_day, fixed_now_late_night).unwrap_err();
+        assert_eq!(err.reason.as_deref(), Some("CORRECTION_TOO_EARLY"));
+
+        // Next day in Chile (e.g. 2026-10-12 09:00 Chile time = 12:00:00Z UTC):
+        // The correction for 2026-10-11 must be ACCEPTED.
+        let fixed_now_next_day: DateTime<Utc> =
+            DateTime::parse_from_rfc3339("2026-10-12T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc);
+
+        let ok_res = validate_correction_input_at(&input_same_day, fixed_now_next_day);
+        assert!(ok_res.is_ok());
+    }
+
+    #[test]
+    fn test_validate_correction_input_timezone_harm_ordering() {
+        let fixed_now: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-10-15T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        // Modifying workday start later (harmful)
+        let harmful_start = ProposeCorrectionInput {
+            worker_ids: vec!["01927d3b-65e1-7000-8000-0000000000aa".to_string()],
+            kind: CorrectionKind::Modify,
+            original_mark_id: Some("01927d3b-65e1-7000-8000-000000000001".to_string()),
+            r#type: MarkType::WorkdayStart,
+            proposed_ts: "2026-10-11T09:15:00-03:00".to_string(),
+            reason: "Intento de atraso".to_string(),
+            confirm_no_harm: true,
+            original_mark_ts: Some("2026-10-11T09:00:00-03:00".to_string()),
+            timezone: Some("America/Santiago".to_string()),
+        };
+        let err = validate_correction_input_at(&harmful_start, fixed_now).unwrap_err();
+        assert_eq!(err.reason.as_deref(), Some("CORRECTION_HARMS_WORKER"));
+
+        // Modifying workday start earlier (valid)
+        let valid_start = ProposeCorrectionInput {
+            worker_ids: vec!["01927d3b-65e1-7000-8000-0000000000aa".to_string()],
+            kind: CorrectionKind::Modify,
+            original_mark_id: Some("01927d3b-65e1-7000-8000-000000000001".to_string()),
+            r#type: MarkType::WorkdayStart,
+            proposed_ts: "2026-10-11T08:45:00-03:00".to_string(),
+            reason: "Elimina atraso justificado".to_string(),
+            confirm_no_harm: true,
+            original_mark_ts: Some("2026-10-11T09:00:00-03:00".to_string()),
+            timezone: Some("America/Santiago".to_string()),
+        };
+        assert!(validate_correction_input_at(&valid_start, fixed_now).is_ok());
+
+        // Modifying workday end earlier (harmful)
+        let harmful_end = ProposeCorrectionInput {
+            worker_ids: vec!["01927d3b-65e1-7000-8000-0000000000aa".to_string()],
+            kind: CorrectionKind::Modify,
+            original_mark_id: Some("01927d3b-65e1-7000-8000-000000000002".to_string()),
+            r#type: MarkType::WorkdayEnd,
+            proposed_ts: "2026-10-11T17:30:00-03:00".to_string(),
+            reason: "Salida antes".to_string(),
+            confirm_no_harm: true,
+            original_mark_ts: Some("2026-10-11T18:00:00-03:00".to_string()),
+            timezone: Some("America/Santiago".to_string()),
+        };
+        let err_end = validate_correction_input_at(&harmful_end, fixed_now).unwrap_err();
+        assert_eq!(err_end.reason.as_deref(), Some("CORRECTION_HARMS_WORKER"));
+
+        // Modifying workday end later (valid)
+        let valid_end = ProposeCorrectionInput {
+            worker_ids: vec!["01927d3b-65e1-7000-8000-0000000000aa".to_string()],
+            kind: CorrectionKind::Modify,
+            original_mark_id: Some("01927d3b-65e1-7000-8000-000000000002".to_string()),
+            r#type: MarkType::WorkdayEnd,
+            proposed_ts: "2026-10-11T19:00:00-03:00".to_string(),
+            reason: "Reconocimiento de sobretiempo".to_string(),
+            confirm_no_harm: true,
+            original_mark_ts: Some("2026-10-11T18:00:00-03:00".to_string()),
+            timezone: Some("America/Santiago".to_string()),
+        };
+        assert!(validate_correction_input_at(&valid_end, fixed_now).is_ok());
     }
 
     #[test]
@@ -738,6 +874,7 @@ mod tests {
             reason: "Intenta registrar llegada más tarde".to_string(),
             confirm_no_harm: true,
             original_mark_ts: Some("2026-10-01T09:00:00Z".to_string()),
+            timezone: None,
         };
         let err = validate_correction_input(&input).unwrap_err();
         assert_eq!(err.reason.as_deref(), Some("CORRECTION_HARMS_WORKER"));
@@ -917,6 +1054,7 @@ mod tests {
             reason: "Marca olvidada por corte de luz".to_string(),
             confirm_no_harm: true,
             original_mark_ts: None,
+            timezone: None,
         };
 
         let proposed = attendance_propose_correction_with_client(&client, input).await;

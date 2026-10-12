@@ -502,6 +502,7 @@ export interface DaySummary {
   extra: string;
   anomalies: string[];
   altered: boolean;
+  timezone?: string | null;
 }
 
 export interface AttendanceMarksQuery {
@@ -547,6 +548,7 @@ export interface ProposeCorrectionInput {
   reason: string;
   confirm_no_harm: boolean;
   original_mark_ts?: string | null;
+  timezone?: string | null;
 }
 
 export interface AttendanceCorrectionsQuery {

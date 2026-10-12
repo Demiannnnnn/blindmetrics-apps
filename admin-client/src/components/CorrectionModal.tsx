@@ -15,6 +15,8 @@ import {
 import {
   MARK_TYPE_LABELS,
   formatR38DateTime,
+  formatR38Time,
+  getDateStringInTimezone,
   validateCorrectionForm,
   describeCorrectionError,
 } from '../lib/attendance';
@@ -24,9 +26,10 @@ interface CorrectionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  initialWorker?: { id: string; name: string } | null;
+  initialWorker?: { id: string; name: string; timezone?: string } | null;
   initialMark?: AttendanceMark | null;
-  allWorkers?: Array<{ id: string; name: string; run?: string | null }>;
+  allWorkers?: Array<{ id: string; name: string; run?: string | null; timezone?: string }>;
+  workerTimezone?: string;
 }
 
 export const CorrectionModal: React.FC<CorrectionModalProps> = ({
@@ -36,6 +39,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
   initialWorker,
   initialMark,
   allWorkers = [],
+  workerTimezone,
 }) => {
   const [kind, setKind] = useState<CorrectionKind>('MODIFY');
   const [workerId, setWorkerId] = useState<string>(initialWorker?.id || '');
@@ -46,6 +50,10 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
   const [confirmNoHarm, setConfirmNoHarm] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  const currentWorker = allWorkers.find(w => w.id === workerId);
+  const effectiveTimezone =
+    currentWorker?.timezone || initialWorker?.timezone || workerTimezone || 'America/Santiago';
 
   // Initialize form when opening
   useEffect(() => {
@@ -59,21 +67,20 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
       setWorkerId(initialMark.worker_id);
       setMarkType(initialMark.type);
       try {
-        const d = new Date(initialMark.server_ts);
-        setDateStr(d.toISOString().slice(0, 10));
-        setTimeStr(d.toISOString().slice(11, 19));
+        setDateStr(getDateStringInTimezone(initialMark.server_ts, effectiveTimezone));
+        setTimeStr(formatR38Time(initialMark.server_ts, effectiveTimezone));
       } catch {
         setDateStr('');
         setTimeStr('09:00:00');
       }
     } else {
       if (initialWorker?.id) setWorkerId(initialWorker.id);
-      // Default to yesterday
+      // Default to yesterday in worker's timezone
       const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
-      setDateStr(yesterday.toISOString().slice(0, 10));
+      setDateStr(getDateStringInTimezone(yesterday, effectiveTimezone));
       setTimeStr('09:00:00');
     }
-  }, [isOpen, initialMark, initialWorker]);
+  }, [isOpen, initialMark, initialWorker, effectiveTimezone]);
 
   if (!isOpen) return null;
 
@@ -103,6 +110,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
       proposedTs: proposedIso,
       reason,
       confirmNoHarm,
+      timezone: effectiveTimezone,
     });
 
     if (!validation.valid) {
@@ -120,6 +128,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
       reason: reason.trim(),
       confirm_no_harm: confirmNoHarm,
       original_mark_ts: kind === 'MODIFY' ? initialMark?.server_ts ?? null : null,
+      timezone: effectiveTimezone,
     };
 
     setSubmitting(true);
@@ -337,7 +346,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
               <ShieldCheck className="w-3.5 h-3.5" /> Plazo de 48 horas (R38 art. 40)
             </p>
             <p className="text-[11px] leading-relaxed">
-              El trabajador recibirá un correo con esta propuesta y tendrá 48 horas hábiles para
+              El trabajador recibirá un correo con esta propuesta y tendrá 48 horas contadas desde el envío del correo para
               oponerse. Si no se opone, la corrección se consolidará; si se opone, la marca original
               se mantiene inalterada.
             </p>
