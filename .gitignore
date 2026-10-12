@@ -20,3 +20,6 @@ dist-ssr/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Sidecar binary copied at build time (see agent-ui/src-tauri/build.rs / task report)
+agent-ui/src-tauri/binaries/

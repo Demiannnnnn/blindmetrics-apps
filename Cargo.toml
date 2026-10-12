@@ -4,6 +4,7 @@ members = [
     "telemetry-crypto-core",
     "agent-ipc",
     "agent",
+    "agent-ui/src-tauri",
     "admin-client/src-tauri",
 ]
 

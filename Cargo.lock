@@ -131,6 +131,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-ui-core"
+version = "0.1.0"
+dependencies = [
+ "agent-ipc",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "telemetry-crypto-core",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
