@@ -112,7 +112,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Green clippy baseline | ✅ | INT-03 |
 | Attendance mark hash + vector, legal hash/placeholders, PIN verifier, RUT | ✅ | CRYPTO-04 |
 | Worker app split: `agent` service + `agent-ipc` + tray-only, no egui | ✅ | AGENT-10 |
-| Worker window `agent-ui` (Tauri) with parity | ❌ | AGENT-11 |
+| Worker window `agent-ui` (Tauri) with parity | ✅ (not yet driven interactively) | AGENT-11 |
 | Service: contract v3 lifecycle, terms, PIN, marks + offline queue, corrections, local alerts | ❌ | AGENT-12 |
 | Window: terms, PIN, attendance home, receipts, records, corrections | ❌ | AGENT-13 |
 | Admin: employer terms, employer legal profile, workplaces, legal docs; biometric button removed | ✅ | ADMIN-13 |
