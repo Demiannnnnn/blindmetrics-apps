@@ -3,9 +3,7 @@
 Context to resume work without losing what is not in the code. The orchestrator updates it whenever
 work pauses.
 
-Last update: 2026-10-11 23:50 — stages 0–2 merged (INT-03, CRYPTO-04, AGENT-10/11, ADMIN-13/14/15);
-AGENT-12 and ADMIN-16 in progress; ADMIN-17 added (contract v3.1). `telemetry-api` v3 designed
-(`telemetry-api/ATTENDANCE.md`, TASK-18..23, branch `develop-AGENTS` there).
+Last update: 2026-10-15 05:00 — ADMIN-16 merged (legal reports R38). AGENT-12 and ADMIN-17 in progress (Claude subagents; remote branches `dev-agent/agent-12-attendance-service`, `dev-admin/admin-17-absences-effective-time`). Remote branch naming: the remote has a `dev` branch, so `dev/*` refs can't be pushed; local `dev/*` branches are pushed as `dev-agent/*` / `dev-admin/*` (AGENTS.md §5 should be reconciled by the owner).
 
 ## 1. State
 
