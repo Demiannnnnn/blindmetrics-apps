@@ -114,7 +114,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Worker app split: `agent` service + `agent-ipc` + tray-only, no egui | ✅ | AGENT-10 |
 | Worker window `agent-ui` (Tauri) with parity | ✅ (not yet driven interactively) | AGENT-11 |
 | Service: contract v3 lifecycle, terms, PIN, marks + offline queue, corrections, local alerts | ✅ | AGENT-12 (2026-10-15; location at mark not sent until a real OS location backend exists) |
-| Window: terms, PIN, attendance home, receipts, records, corrections | ❌ | AGENT-13 |
+| Window: terms, PIN, attendance home, receipts, records, corrections | ✅ | AGENT-13 (2026-10-15; not run interactively — no display) |
 | Admin: employer terms, employer legal profile, workplaces, legal docs; biometric button removed | ✅ | ADMIN-13 |
 | Admin: workers v3 (legal data, agreed schedule, optional telemetry, telemetry pause) | ✅ | ADMIN-14 |
 | Admin: attendance board, days/marks, corrections | ✅ | ADMIN-15 |
