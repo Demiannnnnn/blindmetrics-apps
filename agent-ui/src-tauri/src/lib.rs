@@ -91,6 +91,18 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::set_window_screen_hint,
             commands::confirm_quit,
             commands::cancel_quit,
+            commands::legal_documents,
+            commands::accept_terms,
+            commands::set_pin,
+            commands::change_pin,
+            commands::request_pin_reset,
+            commands::verify_pin_reset,
+            commands::mark_attendance,
+            commands::attendance_today,
+            commands::attendance_days,
+            commands::attendance_marks,
+            commands::list_corrections,
+            commands::respond_correction,
         ])
         .run(tauri::generate_context!())
 }
@@ -101,10 +113,13 @@ mod tests {
     use agent_ipc::framing::{read_frame, write_frame};
     use agent_ipc::transport::{bind_listener, socket_endpoint, token_path, write_ipc_token};
     use agent_ipc::{
-        AppSnapshot, CategoryState, CategoryStates, ClientFrame, ListenerTrait, ServerFrame,
+        AppSnapshot, CategoryState, CategoryStates, ClientFrame, Correction, CorrectionStatus,
+        DataSource, LegalDocument, LegalDocumentKind, ListenerTrait, LocalMarkStatus, MarkRecord,
+        MarkType, Pagination, Request, Response, SecretPin, ServerFrame, ServerMark, TodayView,
         PROTOCOL_VERSION,
     };
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
 
     fn dummy_snapshot() -> AppSnapshot {
@@ -144,6 +159,7 @@ mod tests {
             legal: Default::default(),
             work_mode: None,
             location_at_mark: false,
+            personal_email: None,
         }
     }
 
@@ -195,6 +211,285 @@ mod tests {
                 });
             }
         });
+    }
+
+    type Handler = Arc<dyn Fn(&Request) -> Response + Send + Sync>;
+
+    /// Fake service answering `Call` frames with `handler` and recording every request.
+    fn spawn_fake_call_server(runtime_dir: &Path, handler: Handler) -> Arc<Mutex<Vec<Request>>> {
+        let seen: Arc<Mutex<Vec<Request>>> = Arc::new(Mutex::new(Vec::new()));
+        let runtime_dir = runtime_dir.to_path_buf();
+        let recorded = seen.clone();
+        let token = write_ipc_token(&token_path(&runtime_dir)).expect("write token");
+        tokio::spawn(async move {
+            let listener = bind_listener(&socket_endpoint(&runtime_dir))
+                .await
+                .expect("bind listener");
+            loop {
+                let Ok(mut stream) = listener.accept().await else {
+                    return;
+                };
+                let token = token.clone();
+                let handler = handler.clone();
+                let recorded = recorded.clone();
+                tokio::spawn(async move {
+                    let Ok(Some(ClientFrame::Hello { token: t, .. })) =
+                        read_frame::<_, ClientFrame>(&mut stream).await
+                    else {
+                        return;
+                    };
+                    assert_eq!(t, token);
+                    let welcome = ServerFrame::Welcome {
+                        service_version: "0.1.0-test".into(),
+                        protocol_version: PROTOCOL_VERSION,
+                    };
+                    if write_frame(&mut stream, &welcome).await.is_err() {
+                        return;
+                    }
+                    while let Ok(Some(ClientFrame::Call { id, request })) =
+                        read_frame::<_, ClientFrame>(&mut stream).await
+                    {
+                        let response = handler(&request);
+                        recorded.lock().expect("lock").push(request);
+                        let reply = ServerFrame::Reply { id, response };
+                        if write_frame(&mut stream, &reply).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        seen
+    }
+
+    fn server_mark() -> ServerMark {
+        serde_json::from_value(json!({
+            "id": "01927d3b-65e1-7000-8000-000000000001",
+            "client_mark_id": "01927d3b-65e1-7000-8000-0000000000c1",
+            "worker_id": "01927d3b-65e1-7000-8000-0000000000aa",
+            "type": "WORKDAY_START",
+            "server_ts": "2026-10-11T12:00:05Z", "device_ts": "2026-10-11T12:00:04Z",
+            "offline": false, "source": "AGENT", "identification": "DEVICE_PIN",
+            "location": null, "hash": "a".repeat(64), "prev_hash": "b".repeat(64),
+            "effective_ts": "2026-10-11T12:00:05Z"
+        }))
+        .expect("server mark")
+    }
+
+    fn correction() -> Correction {
+        serde_json::from_value(json!({
+            "id": "01927d3b-65e1-7000-8000-0000000000d1",
+            "kind": "MODIFY", "original_mark": null, "type": "WORKDAY_START",
+            "proposed_ts": "2026-10-11T12:00:00Z", "reason": "Ajuste de hora",
+            "status": "OPPOSED", "respond_before": "2026-10-13T12:00:00Z"
+        }))
+        .expect("correction")
+    }
+
+    /// Answers every attendance op like the service would (shapes of `agent-ipc`).
+    fn attendance_handler(request: &Request) -> Response {
+        match request {
+            Request::LegalDocuments => Response::LegalDocuments {
+                documents: vec![LegalDocument {
+                    document: LegalDocumentKind::WorkerTerms,
+                    version: "2026-10-11".into(),
+                    hash: "c".repeat(64),
+                    text: "# Términos".into(),
+                }],
+            },
+            Request::AcceptTerms { version, .. } => Response::AcceptTerms {
+                terms_accepted_version: version.clone(),
+            },
+            Request::SetPin { .. } => Response::SetPin,
+            Request::ChangePin { .. } => Response::ChangePin,
+            Request::RequestPinReset => Response::RequestPinReset,
+            Request::VerifyPinReset { .. } => Response::VerifyPinReset {
+                set_pin_window_secs: 600,
+            },
+            Request::Mark { pin, .. } if pin.expose().as_str() == "000000" => Response::Error {
+                code: "PIN_INCORRECT".into(),
+                message: "PIN incorrecto. Espera 2 s para reintentar.".into(),
+                retry_after_secs: Some(2),
+            },
+            Request::Mark { r#type, .. } => Response::Mark {
+                mark: Box::new(MarkRecord {
+                    client_mark_id: "01927d3b-65e1-7000-8000-0000000000c1".into(),
+                    r#type: *r#type,
+                    device_ts: "2026-10-11T12:00:04Z".into(),
+                    offline: false,
+                    status: LocalMarkStatus::Confirmed,
+                    server_mark: Some(server_mark()),
+                    duplicate_of: None,
+                    rejection_reason: None,
+                }),
+            },
+            Request::Today => Response::Today {
+                today: Box::new(TodayView {
+                    source: DataSource::Local,
+                    server: None,
+                    local_marks: Vec::new(),
+                    server_time_offset_secs: Some(3),
+                }),
+            },
+            Request::Days { .. } => Response::Error {
+                code: "OFFLINE".into(),
+                message: "Sin conexión".into(),
+                retry_after_secs: None,
+            },
+            Request::Marks { .. } => Response::Marks {
+                source: DataSource::Server,
+                marks: vec![server_mark()],
+                local: Vec::new(),
+                pagination: Some(Pagination {
+                    total: 1,
+                    page: 1,
+                    per_page: 50,
+                    total_pages: 1,
+                }),
+            },
+            Request::Corrections => Response::Corrections {
+                corrections: vec![correction()],
+            },
+            Request::RespondCorrection { .. } => Response::RespondCorrection {
+                correction: Box::new(correction()),
+            },
+            _ => Response::Error {
+                code: "UNEXPECTED".into(),
+                message: "not handled".into(),
+                retry_after_secs: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_attendance_ops_are_forwarded_to_the_service() {
+        let dir = tempdir().expect("tempdir");
+        let rt = dir.path().to_path_buf();
+        let seen = spawn_fake_call_server(&rt, Arc::new(attendance_handler));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let docs = client::legal_documents(&rt).await.expect("legal");
+        assert_eq!(docs[0].version, "2026-10-11");
+        let accepted = client::accept_terms(
+            &rt,
+            "2026-10-11".into(),
+            "c".repeat(64),
+            "2026-10-11".into(),
+            "d".repeat(64),
+        )
+        .await
+        .expect("accept");
+        assert_eq!(accepted, "2026-10-11");
+        client::set_pin(&rt, SecretPin::new("975318"))
+            .await
+            .expect("set pin");
+        client::change_pin(&rt, SecretPin::new("975318"), SecretPin::new("482916"))
+            .await
+            .expect("change pin");
+        client::request_pin_reset(&rt).await.expect("reset");
+        assert_eq!(
+            client::verify_pin_reset(&rt, "123456".into())
+                .await
+                .expect("verify"),
+            600
+        );
+        let mark = client::mark(&rt, MarkType::BreakStart, SecretPin::new("975318"))
+            .await
+            .expect("mark");
+        assert_eq!(mark.r#type, MarkType::BreakStart);
+        assert_eq!(mark.status, LocalMarkStatus::Confirmed);
+        let today = client::today(&rt).await.expect("today");
+        assert_eq!(today.server_time_offset_secs, Some(3));
+        let page = client::marks(&rt, "2026-10-01".into(), "2026-10-12".into(), Some(2))
+            .await
+            .expect("marks");
+        assert_eq!(page.source, DataSource::Server);
+        assert_eq!(page.marks.len(), 1);
+        assert_eq!(
+            client::corrections(&rt).await.expect("corrections").len(),
+            1
+        );
+        let answered =
+            client::respond_correction(&rt, "01927d3b-65e1-7000-8000-0000000000d1".into(), false)
+                .await
+                .expect("respond");
+        assert_eq!(answered.status, CorrectionStatus::Opposed);
+
+        let seen = seen.lock().expect("lock").clone();
+        assert_eq!(
+            seen,
+            vec![
+                Request::LegalDocuments,
+                Request::AcceptTerms {
+                    version: "2026-10-11".into(),
+                    hash: "c".repeat(64),
+                    privacy_version: "2026-10-11".into(),
+                    privacy_hash: "d".repeat(64),
+                },
+                Request::SetPin {
+                    pin: SecretPin::new("975318")
+                },
+                Request::ChangePin {
+                    current: SecretPin::new("975318"),
+                    new: SecretPin::new("482916")
+                },
+                Request::RequestPinReset,
+                Request::VerifyPinReset {
+                    code: "123456".into()
+                },
+                Request::Mark {
+                    r#type: MarkType::BreakStart,
+                    pin: SecretPin::new("975318")
+                },
+                Request::Today,
+                Request::Marks {
+                    from: "2026-10-01".into(),
+                    to: "2026-10-12".into(),
+                    page: Some(2)
+                },
+                Request::Corrections,
+                Request::RespondCorrection {
+                    id: "01927d3b-65e1-7000-8000-0000000000d1".into(),
+                    accept: false
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_service_errors_keep_code_and_retry_delay() {
+        let dir = tempdir().expect("tempdir");
+        let rt = dir.path().to_path_buf();
+        spawn_fake_call_server(&rt, Arc::new(attendance_handler));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let err = client::mark(&rt, MarkType::WorkdayStart, SecretPin::new("000000"))
+            .await
+            .expect_err("wrong pin");
+        assert_eq!(err.code, "PIN_INCORRECT");
+        assert_eq!(err.retry_after_secs, Some(2));
+        // The WebView receives the delay to run the countdown (RF-AGENT-13-4).
+        let wire = serde_json::to_value(&err).expect("json");
+        assert_eq!(wire["retry_after_secs"], 2);
+
+        let err = client::days(&rt, "2026-10-01".into(), "2026-10-12".into())
+            .await
+            .expect_err("offline");
+        assert_eq!(err.code, "OFFLINE");
+        assert_eq!(err.retry_after_secs, None);
+        let wire = serde_json::to_value(&err).expect("json");
+        assert!(wire.get("retry_after_secs").is_none());
+    }
+
+    #[test]
+    fn test_command_pin_argument_deserializes_into_secret_pin() {
+        // Tauri deserializes command arguments with serde: the PIN lands in a zeroizing type
+        // and never prints in logs (SEC-19).
+        let pin: SecretPin = serde_json::from_value(json!("975318")).expect("pin");
+        assert_eq!(pin.expose().as_str(), "975318");
+        assert!(!format!("{pin:?}").contains("975318"));
+        let mark_type: MarkType = serde_json::from_value(json!("BREAK_END")).expect("type");
+        assert_eq!(mark_type, MarkType::BreakEnd);
     }
 
     #[test]

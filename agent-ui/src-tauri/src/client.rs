@@ -1,7 +1,8 @@
 use crate::error::CommandError;
 use agent_ipc::{
-    AppSnapshot, DiagnosticsInfo, IpcClient, Request, Response, VerificationResult,
-    WindowScreenHint,
+    AppSnapshot, Correction, DataSource, DaySummary, DiagnosticsInfo, IpcClient, LegalDocument,
+    MarkRecord, MarkType, Pagination, Request, Response, SecretPin, ServerMark, TodayView,
+    VerificationResult, WindowScreenHint,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -20,6 +21,15 @@ pub struct DataRequestDto {
     pub request_id: String,
     pub status: String,
     pub estimated_completion: Option<String>,
+}
+
+/// Marks of a range (`MARKS` op): server marks online, local journal offline.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MarksPageDto {
+    pub source: DataSource,
+    pub marks: Vec<ServerMark>,
+    pub local: Vec<MarkRecord>,
+    pub pagination: Option<Pagination>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,7 +191,11 @@ pub async fn send_request(runtime_dir: &Path, req: Request) -> Result<Response, 
     let client = IpcClient::connect(runtime_dir).await?;
     let resp = client.call(req).await?;
     match resp {
-        Response::Error { code, message, .. } => Err(CommandError::new(code, message)),
+        Response::Error {
+            code,
+            message,
+            retry_after_secs,
+        } => Err(CommandError::new(code, message).with_retry(retry_after_secs)),
         other => Ok(other),
     }
 }
@@ -339,5 +353,155 @@ pub async fn cancel_quit(runtime_dir: &Path, nonce: String) -> Result<(), Comman
             "INVALID_RESPONSE",
             "Respuesta inesperada para CancelQuit",
         )),
+    }
+}
+
+fn unexpected(op: &str) -> CommandError {
+    CommandError::new(
+        "INVALID_RESPONSE",
+        format!("Respuesta inesperada para {op}"),
+    )
+}
+
+/// Embedded legal texts with version and hash (LEG-04).
+pub async fn legal_documents(runtime_dir: &Path) -> Result<Vec<LegalDocument>, CommandError> {
+    match send_request(runtime_dir, Request::LegalDocuments).await? {
+        Response::LegalDocuments { documents } => Ok(documents),
+        _ => Err(unexpected("LegalDocuments")),
+    }
+}
+
+/// Accepts the displayed terms and privacy policy (LEG-04/05). Returns the accepted version.
+pub async fn accept_terms(
+    runtime_dir: &Path,
+    version: String,
+    hash: String,
+    privacy_version: String,
+    privacy_hash: String,
+) -> Result<String, CommandError> {
+    let req = Request::AcceptTerms {
+        version,
+        hash,
+        privacy_version,
+        privacy_hash,
+    };
+    match send_request(runtime_dir, req).await? {
+        Response::AcceptTerms {
+            terms_accepted_version,
+        } => Ok(terms_accepted_version),
+        _ => Err(unexpected("AcceptTerms")),
+    }
+}
+
+/// Creates the attendance PIN (SEC-19). The PIN stays zeroized (`SecretPin`) end to end.
+pub async fn set_pin(runtime_dir: &Path, pin: SecretPin) -> Result<(), CommandError> {
+    match send_request(runtime_dir, Request::SetPin { pin }).await? {
+        Response::SetPin => Ok(()),
+        _ => Err(unexpected("SetPin")),
+    }
+}
+
+/// Changes the attendance PIN after checking the current one.
+pub async fn change_pin(
+    runtime_dir: &Path,
+    current: SecretPin,
+    new: SecretPin,
+) -> Result<(), CommandError> {
+    match send_request(runtime_dir, Request::ChangePin { current, new }).await? {
+        Response::ChangePin => Ok(()),
+        _ => Err(unexpected("ChangePin")),
+    }
+}
+
+/// Asks the server to email a PIN reset code.
+pub async fn request_pin_reset(runtime_dir: &Path) -> Result<(), CommandError> {
+    match send_request(runtime_dir, Request::RequestPinReset).await? {
+        Response::RequestPinReset => Ok(()),
+        _ => Err(unexpected("RequestPinReset")),
+    }
+}
+
+/// Verifies the emailed reset code. Returns the seconds during which `SetPin` is allowed.
+pub async fn verify_pin_reset(runtime_dir: &Path, code: String) -> Result<u64, CommandError> {
+    match send_request(runtime_dir, Request::VerifyPinReset { code }).await? {
+        Response::VerifyPinReset {
+            set_pin_window_secs,
+        } => Ok(set_pin_window_secs),
+        _ => Err(unexpected("VerifyPinReset")),
+    }
+}
+
+/// Records a mark confirmed with the PIN (ATT-01). Returns the local journal record.
+pub async fn mark(
+    runtime_dir: &Path,
+    r#type: MarkType,
+    pin: SecretPin,
+) -> Result<MarkRecord, CommandError> {
+    match send_request(runtime_dir, Request::Mark { r#type, pin }).await? {
+        Response::Mark { mark } => Ok(*mark),
+        _ => Err(unexpected("Mark")),
+    }
+}
+
+/// Today's attendance view.
+pub async fn today(runtime_dir: &Path) -> Result<TodayView, CommandError> {
+    match send_request(runtime_dir, Request::Today).await? {
+        Response::Today { today } => Ok(*today),
+        _ => Err(unexpected("Today")),
+    }
+}
+
+/// Server day summaries of a range (ATT-09).
+pub async fn days(
+    runtime_dir: &Path,
+    from: String,
+    to: String,
+) -> Result<Vec<DaySummary>, CommandError> {
+    match send_request(runtime_dir, Request::Days { from, to }).await? {
+        Response::Days { days } => Ok(days),
+        _ => Err(unexpected("Days")),
+    }
+}
+
+/// Marks of a range (server online, local journal offline).
+pub async fn marks(
+    runtime_dir: &Path,
+    from: String,
+    to: String,
+    page: Option<u32>,
+) -> Result<MarksPageDto, CommandError> {
+    match send_request(runtime_dir, Request::Marks { from, to, page }).await? {
+        Response::Marks {
+            source,
+            marks,
+            local,
+            pagination,
+        } => Ok(MarksPageDto {
+            source,
+            marks,
+            local,
+            pagination,
+        }),
+        _ => Err(unexpected("Marks")),
+    }
+}
+
+/// Corrections proposed by the employer (ATT-05).
+pub async fn corrections(runtime_dir: &Path) -> Result<Vec<Correction>, CommandError> {
+    match send_request(runtime_dir, Request::Corrections).await? {
+        Response::Corrections { corrections } => Ok(corrections),
+        _ => Err(unexpected("Corrections")),
+    }
+}
+
+/// Accepts or opposes a pending correction (ATT-05).
+pub async fn respond_correction(
+    runtime_dir: &Path,
+    id: String,
+    accept: bool,
+) -> Result<Correction, CommandError> {
+    match send_request(runtime_dir, Request::RespondCorrection { id, accept }).await? {
+        Response::RespondCorrection { correction } => Ok(*correction),
+        _ => Err(unexpected("RespondCorrection")),
     }
 }

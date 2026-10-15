@@ -1,7 +1,8 @@
-use crate::client::{self, DataDeletionDto, DataRequestDto, ServiceStatusDto};
+use crate::client::{self, DataDeletionDto, DataRequestDto, MarksPageDto, ServiceStatusDto};
 use crate::error::CommandError;
 use agent_ipc::{
-    default_runtime_dir, AppSnapshot, DiagnosticsInfo, VerificationResult, WindowScreenHint,
+    default_runtime_dir, AppSnapshot, Correction, DaySummary, DiagnosticsInfo, LegalDocument,
+    MarkRecord, MarkType, SecretPin, TodayView, VerificationResult, WindowScreenHint,
 };
 use telemetry_crypto_core::ConsentFlags;
 
@@ -93,4 +94,85 @@ pub async fn confirm_quit(nonce: String) -> Result<(), CommandError> {
 pub async fn cancel_quit(nonce: String) -> Result<(), CommandError> {
     let dir = default_runtime_dir();
     client::cancel_quit(&dir, nonce).await
+}
+
+#[tauri::command]
+pub async fn legal_documents() -> Result<Vec<LegalDocument>, CommandError> {
+    client::legal_documents(&default_runtime_dir()).await
+}
+
+#[tauri::command]
+pub async fn accept_terms(
+    version: String,
+    hash: String,
+    privacy_version: String,
+    privacy_hash: String,
+) -> Result<String, CommandError> {
+    client::accept_terms(
+        &default_runtime_dir(),
+        version,
+        hash,
+        privacy_version,
+        privacy_hash,
+    )
+    .await
+}
+
+/// The PIN is deserialized straight into a zeroizing [`SecretPin`] (SEC-19).
+#[tauri::command]
+pub async fn set_pin(pin: SecretPin) -> Result<(), CommandError> {
+    client::set_pin(&default_runtime_dir(), pin).await
+}
+
+#[tauri::command]
+pub async fn change_pin(current: SecretPin, new: SecretPin) -> Result<(), CommandError> {
+    client::change_pin(&default_runtime_dir(), current, new).await
+}
+
+#[tauri::command]
+pub async fn request_pin_reset() -> Result<(), CommandError> {
+    client::request_pin_reset(&default_runtime_dir()).await
+}
+
+#[tauri::command]
+pub async fn verify_pin_reset(code: String) -> Result<u64, CommandError> {
+    client::verify_pin_reset(&default_runtime_dir(), code).await
+}
+
+/// Only path from the window to a mark: explicit type + PIN typed in the dialog (ATT-01).
+#[tauri::command]
+pub async fn mark_attendance(
+    mark_type: MarkType,
+    pin: SecretPin,
+) -> Result<MarkRecord, CommandError> {
+    client::mark(&default_runtime_dir(), mark_type, pin).await
+}
+
+#[tauri::command]
+pub async fn attendance_today() -> Result<TodayView, CommandError> {
+    client::today(&default_runtime_dir()).await
+}
+
+#[tauri::command]
+pub async fn attendance_days(from: String, to: String) -> Result<Vec<DaySummary>, CommandError> {
+    client::days(&default_runtime_dir(), from, to).await
+}
+
+#[tauri::command]
+pub async fn attendance_marks(
+    from: String,
+    to: String,
+    page: Option<u32>,
+) -> Result<MarksPageDto, CommandError> {
+    client::marks(&default_runtime_dir(), from, to, page).await
+}
+
+#[tauri::command]
+pub async fn list_corrections() -> Result<Vec<Correction>, CommandError> {
+    client::corrections(&default_runtime_dir()).await
+}
+
+#[tauri::command]
+pub async fn respond_correction(id: String, accept: bool) -> Result<Correction, CommandError> {
+    client::respond_correction(&default_runtime_dir(), id, accept).await
 }

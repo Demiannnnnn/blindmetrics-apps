@@ -80,6 +80,7 @@ async fn test_ipc_handshake_success_and_call() {
                     legal: Default::default(),
                     work_mode: None,
                     location_at_mark: false,
+                    personal_email: None,
                 };
                 let reply = ServerFrame::Reply {
                     id,
@@ -234,6 +235,7 @@ async fn test_ipc_subscribe_events() {
             legal: Default::default(),
             work_mode: None,
             location_at_mark: false,
+            personal_email: None,
         };
         let ev = ServerFrame::Event(Event::Snapshot(Box::new(snapshot)));
         write_frame(&mut stream, &ev).await.unwrap();
@@ -290,6 +292,7 @@ async fn test_snapshot_no_secrets() {
         legal: Default::default(),
         work_mode: None,
         location_at_mark: false,
+        personal_email: None,
     };
 
     let json = serde_json::to_string(&snapshot).unwrap();

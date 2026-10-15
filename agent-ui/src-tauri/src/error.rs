@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 pub struct CommandError {
     pub code: String,
     pub message: String,
+    /// Seconds before the action may be retried (PIN delay, rate limit), when the service says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_secs: Option<u64>,
 }
 
 impl CommandError {
@@ -13,7 +16,14 @@ impl CommandError {
         Self {
             code: code.into(),
             message: message.into(),
+            retry_after_secs: None,
         }
+    }
+
+    /// Same as [`CommandError::new`] with the retry delay the service returned.
+    pub fn with_retry(mut self, retry_after_secs: Option<u64>) -> Self {
+        self.retry_after_secs = retry_after_secs;
+        self
     }
 }
 
@@ -30,9 +40,11 @@ impl From<agent_ipc::IpcError> for CommandError {
             agent_ipc::IpcError::Timeout(msg) => CommandError::new("TIMEOUT", msg),
             agent_ipc::IpcError::Io(msg) => CommandError::new("IO_ERROR", msg),
             agent_ipc::IpcError::Rejected { code, message } => CommandError::new(code, message),
-            agent_ipc::IpcError::CallError { code, message, .. } => {
-                CommandError::new(code, message)
-            }
+            agent_ipc::IpcError::CallError {
+                code,
+                message,
+                retry_after_secs,
+            } => CommandError::new(code, message).with_retry(retry_after_secs),
             agent_ipc::IpcError::Framing(msg) => CommandError::new("FRAMING_ERROR", msg),
         }
     }
