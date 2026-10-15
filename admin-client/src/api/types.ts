@@ -467,6 +467,8 @@ export interface AttendanceMark {
   prev_hash: string;
   corrected_by?: string | null;
   superseded_by?: string | null;
+  /** [v3.1] The time that counts; display only, not part of the hash (api-contract §9.1). */
+  effective_ts?: string | null;
   hash_verified?: boolean | null;
 }
 
@@ -498,6 +500,10 @@ export interface DaySummary {
   attended: boolean;
   absence?: AbsenceType | null;
   absence_note?: string | null;
+  /** Id of the qualified absence when the server sends it (needed to remove it). */
+  absence_id?: string | null;
+  /** R38 art. 28 abbreviation of the qualified absence when the server sends it. */
+  absence_abbreviation?: string | null;
   missing: string;
   extra: string;
   anomalies: string[];
@@ -548,6 +554,28 @@ export interface ProposeCorrectionInput {
   reason: string;
   confirm_no_harm: boolean;
   original_mark_ts?: string | null;
+  timezone?: string | null;
+}
+
+/** Absence qualified by the employer (`PUT /attendance/absences`, api-contract §9.4 v3.1). */
+export interface Absence {
+  id: string;
+  worker_id: string;
+  date: string;
+  kind: AbsenceType;
+  abbreviation?: string | null;
+  note?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** Form of `attendance_set_absence` (RF-ADMIN-17-2). `timezone` is only for local validation. */
+export interface SetAbsenceInput {
+  worker_id: string;
+  date: string;
+  kind: AbsenceType;
+  abbreviation?: string | null;
+  note?: string | null;
   timezone?: string | null;
 }
 

@@ -45,6 +45,8 @@ import type {
   ProposeCorrectionInput,
   Correction,
   AttendanceCorrectionsQuery,
+  Absence,
+  SetAbsenceInput,
   ExportFormat,
   LegalReport,
   PrintedReport,
@@ -1422,6 +1424,31 @@ export async function attendanceWithdrawCorrection(id: string): Promise<void> {
     return;
   }
   return requireTauri('attendance_withdraw_correction');
+}
+
+// ---------------------------------------------------------------- absences (TASK-ADMIN-17)
+// The employer qualifies an absence (contract v3.1); nothing is qualified by default. Writes are
+// blocked with `402/403` while the subscription is suspended, like the rest of the console.
+
+export async function attendanceSetAbsence(form: SetAbsenceInput): Promise<Absence> {
+  if (isTauri()) return await invoke<Absence>('attendance_set_absence', { form });
+  if (isDemoMode) {
+    return {
+      id: `absence-demo-${form.worker_id}-${form.date}`,
+      worker_id: form.worker_id,
+      date: form.date,
+      kind: form.kind,
+      abbreviation: form.abbreviation || null,
+      note: form.note || null,
+    };
+  }
+  return requireTauri('attendance_set_absence');
+}
+
+export async function attendanceDeleteAbsence(id: string): Promise<void> {
+  if (isTauri()) return await invoke<void>('attendance_delete_absence', { id });
+  if (isDemoMode) return;
+  return requireTauri('attendance_delete_absence');
 }
 
 // ---------------------------------------------------------------- legal reports (TASK-ADMIN-16)
