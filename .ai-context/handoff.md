@@ -3,7 +3,7 @@
 Context to resume work without losing what is not in the code. The orchestrator updates it whenever
 work pauses.
 
-Last update: 2026-10-15 05:00 — ADMIN-16 merged (legal reports R38). AGENT-12 and ADMIN-17 in progress (Claude subagents; remote branches `dev-agent/agent-12-attendance-service`, `dev-admin/admin-17-absences-effective-time`). Remote branch naming: the remote has a `dev` branch, so `dev/*` refs can't be pushed; local `dev/*` branches are pushed as `dev-agent/*` / `dev-admin/*` (AGENTS.md §5 should be reconciled by the owner).
+Last update: 2026-10-15 05:00 — ADMIN-16 and ADMIN-17 merged. AGENT-12 in progress (Claude subagent; remote branch `dev-agent/agent-12-attendance-service`); then AGENT-13. **Contract gaps from ADMIN-17 (fix in telemetry-api TASK-21 and `api-contract.md`):** `DaySummary` needs `absence_id` and `absence_abbreviation` (or a GET for absences) and an `Absence` type in §9.4/§9.5 — until then removing a qualification only works in the session that created it; `CorrectionModal` sends `proposed_ts` as `${date}T${time}Z` (local time treated as UTC — fix in the app). Remote branch naming: the remote has a `dev` branch, so `dev/*` refs can't be pushed; local `dev/*` branches are pushed as `dev-agent/*` / `dev-admin/*` (AGENTS.md §5 should be reconciled by the owner).
 
 ## 1. State
 

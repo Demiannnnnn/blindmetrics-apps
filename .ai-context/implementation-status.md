@@ -119,7 +119,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Admin: workers v3 (legal data, agreed schedule, optional telemetry, telemetry pause) | ✅ | ADMIN-14 |
 | Admin: attendance board, days/marks, corrections | ✅ | ADMIN-15 |
 | Admin: R38 reports, exports, read-only reports while blocked | ✅ | ADMIN-16 (2026-10-15; server computes and exports, app validates art. 25 filters, previews and saves; not tested against the real API — v3 not implemented there yet) |
-| Admin: absence qualification + `effective_ts` display (contract v3.1) | ❌ | ADMIN-17 |
+| Admin: absence qualification + `effective_ts` display (contract v3.1) | ✅ | ADMIN-17 (2026-10-15; removing a qualification needs `absence_id` in `DaySummary`, see handoff) |
 | `telemetry-api` contract v3 (attendance, legal, employer, emails, reports/exports) | ❌ | API TASK-18..23 (to be written) |
 | `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ❌ | web tasks (to be written) |
 | DT certification and authorization | ❌ | Owner decision (`docs/legal/marco-legal-cl.md` §8) |
