@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-12` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `agent/src/attendance/` (nuevo), `agent/src/legal.rs` (nuevo), `agent/src/api/client.rs`, `agent/src/state.rs`, `agent/src/background/worker.rs`, `agent/src/credentials.rs`, `agent/src/io/transport.rs` (tabla `marks` en `offline.db`), `agent/src/notifications.rs`, `agent/src/ui/tray.rs`, `agent/src/ipc_server.rs`, `agent/build.rs`, `agent-ipc/src/lib.rs` |
 | **Dependencias** | `TASK-AGENT-10`, `TASK-CRYPTO-04` |
 | **Paralela con** | `TASK-ADMIN-15` |
@@ -129,4 +129,24 @@ prueba con `wiremock` reproduciendo **exactamente** esos JSON. Leer `domain.md` 
 
 ## Reporte
 
-_(pendiente)_
+- **Resumen:** Servicio del trabajador migrado a contrato v3 (`WorkerSelf` v3 con valores desconocidos tolerados; `AttendanceMode` y `RunMode` como funciones puras con tablas de tests) y nuevo módulo `agent/src/attendance/` (diario local de marcas en `offline.db`, cola offline con backoff 2 s ×2 → 300 s ±20 % y vaciado al reconectar, verificación de hash con `telemetry_crypto_core`, PIN con retardo creciente, reset por código, términos embebidos, correcciones, avisos locales con reloj inyectable). IPC extendido con las ops nuevas y el snapshot con asistencia/banners/legal. Bandeja: tooltip de 2 líneas (asistencia + telemetría, por el canal GTK en Linux) e ítem *Marcar asistencia…*. `build.rs` falla en `release` si los textos legales tienen marcadores (LEG-06).
+- **Archivos:** `agent-ipc/src/attendance.rs` (nuevo: `SecretPin`, `ServerMark`, `TodayResponse`, `DaySummary`, `Correction`, `MarkRecord`, `TodayView`, `Banner`, `LegalStatus`…), `agent-ipc/src/lib.rs` (ops y respuestas, `WindowScreenHint::Attendance`, campos del snapshot), `agent/src/attendance/{mod,journal,pin_guard,reminders,service,service_tests}.rs` (nuevos), `agent/src/legal.rs` (nuevo), `agent/build_support/placeholders.rs` + `agent/build.rs`, `agent/src/state.rs`, `agent/src/api/client.rs`, `agent/src/credentials.rs` (`{get,set,clear}_pin_verifier`, versión de términos aceptada, eventos PIN pendientes; también en el store en memoria), `agent/src/background/worker.rs` (`CollectGate` DP-12/DP-05 v3/DP-04 v3, envío de pendientes antes de limpiar por `REVOKED`), `agent/src/ipc_server.rs`, `agent/src/io/transport.rs`, `agent/src/notifications.rs`, `agent/src/ui/tray.rs`, `agent/src/main.rs`; fixtures v3 en `consent.rs`, `enrollment.rs`, `ui/mod.rs`, `agent-ipc/tests/ipc_tests.rs`, `agent-ui/src-tauri/src/lib.rs` (solo el literal de test del snapshot).
+- **Ops IPC nuevas** (documentadas en `agent-ipc/src/lib.rs`): `LEGAL_DOCUMENTS`; `ACCEPT_TERMS {version, hash, privacy_version, privacy_hash}` (errores `TERMS_MISMATCH`, `TERMS_OUTDATED`); `SET_PIN {pin}` (`PIN_ALREADY_SET`, `PIN_POLICY_<CAUSA>`); `CHANGE_PIN {current, new}` (`PIN_INCORRECT`/`PIN_RETRY_LATER` con `retry_after_secs`); `REQUEST_PIN_RESET`; `VERIFY_PIN_RESET {code}` → `{set_pin_window_secs: 600}` (`INVALID_RESET_CODE`, `RATE_LIMITED`); `MARK {type, pin}` → `MarkRecord` (`TERMS_REQUIRED`, `PIN_NOT_SET`, `ATTENDANCE_EXEMPT`, `NOT_ENROLLED`); `TODAY`; `DAYS {from, to}` (`OFFLINE` sin conexión); `MARKS {from, to, page?}` → `{source, marks, local, pagination}`; `CORRECTIONS`; `RESPOND_CORRECTION {id, accept}` (`CORRECTION_NOT_PENDING`). Snapshot agrega `attendance_mode`, `terms_update_pending`, `attendance_today`, `pending_marks`, `pending_corrections`, `banners`, `legal`, `work_mode`, `location_at_mark`.
+- **Comandos:**
+  - `cargo fmt --all --check` ✅
+  - `cargo clippy --workspace --all-targets -- -D warnings` ✅
+  - `cargo clippy --workspace -- -D warnings -D clippy::unwrap_used -D clippy::expect_used` ✅ (se eliminó el `OfflineQueue::open_in_memory().unwrap()` de `UNLINK` en `ipc_server.rs`)
+  - `cargo test --workspace` ✅ (agent 153 + cli 1, agent-ipc 16 + 6, crypto-core 126, admin-client-core 51, agent-ui-core 6; 0 fallos)
+  - `cd agent-ui && npm ci && npm run build && npm test` ✅ (6/6)
+- **Decisiones:**
+  - Hash: el ejemplo de `Mark` de §9.1 no trae `worker_run`/`employer_rut`, pero §9.3 dice que la respuesta trae todo el canónico; el agente los lee como opcionales (igual que ADMIN-15) y, si faltan, la marca queda `HASH_MISMATCH` (no verificable).
+  - Ubicación al marcar: el colector existente devuelve coordenadas fijas (dato falso, PLAT-02), así que **no** se reutiliza; `LocationProvider` inyectable, en producción `UnavailableLocationProvider` (sin ubicación) con timeout 5 s. Ver pendientes.
+  - La versión de términos aceptada se guarda en el keystore (no en `config.json`) para poder marcar en un arranque sin red; se borra al desvincular. `PIN_SET`/`PIN_CHANGED` no entregados se guardan en el keystore y se reintentan cada 5 min.
+  - `RunMode` v3: `NotRequested`, `Declined`, `AwaitingConsent{TermsPending}` nuevos; `Halted(UnknownServerState)` para `status`/`telemetry_status` desconocidos y `Halted(TrayUnavailable)` sin bandeja. Con `PENDING_TERMS` no hay telemetría; una versión nueva de términos (ya aceptada una vez) no detiene la recolección vigente, pero `CONSENT_DECISION` de aceptación responde `TERMS_REQUIRED` hasta leerla (rechazar sigue permitido).
+  - Cola: si un envío falla por red, todas las pendientes de esa pasada quedan `offline = true`; los 4xx distintos de 400 dejan la marca `PENDING` (ATT-04). Solo se envían marcas del `worker_id` actual.
+  - Avisos de marca faltante: ventana de 60 min tras `pactada + 30 min`; salida/colación solo si hubo entrada ese día; no se avisa la salida de turnos nocturnos; antes de avisar se refresca `/attendance/me/today`. Claves de avisos persistidas en `offline.db` (`attendance_notices`) para no repetir tras reiniciar. Zona horaria del trabajador con `chrono-tz` (dependencia nueva del crate `agent`, ya presente en el workspace vía admin-client).
+  - `UNLINK`: intenta enviar las pendientes y luego borra el diario (la UI advierte con `pending_marks`); la revocación por `/workers/me` `REVOKED` envía las pendientes antes de limpiar y conserva el diario (ATT-04).
+  - `IpcServer::new` recibe `IpcServerDeps` (clippy `too_many_arguments` sin `allow`). Etiquetas de la bandeja alineadas a la spec §7 (*Abrir*, *Marcar asistencia…*, *Qué se recolecta*).
+- **Pendientes / bloqueos:** sin geolocalización real del SO (marcas con `location_at_mark` se envían sin ubicación); además `core/collectors/location.rs::get_os_location` de telemetría devuelve coordenadas fijas — violación PLAT-02 preexistente fuera de alcance, se recomienda tarea propia. La UI de asistencia es AGENT-13.
+- **Desviaciones del contrato:** ninguna en lo enviado. Lectura tolerante: `worker_run`/`employer_rut` opcionales en `Mark` (ver Decisiones); campos v3 de `/workers/me` (`schedule`, `disconnection`, `location_at_mark`, `run`, `name`, `organization`) leídos como opcionales porque §12 no fija su forma exacta.
+
