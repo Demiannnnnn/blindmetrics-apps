@@ -20,7 +20,7 @@ use telemetry_crypto_core::{
 pub enum ConsentAction {
     /// Accept exactly these categories (non-empty subset of the requested ones).
     Accept(ConsentFlags),
-    /// Reject everything (in `PENDING_CONSENT`) or withdraw (in `ACTIVE`/`PAUSED`).
+    /// Reject everything or withdraw: telemetry becomes `DECLINED` (contract v3, `status` unchanged).
     Decline,
 }
 
@@ -243,7 +243,8 @@ mod tests {
     fn worker_self(version: i32) -> WorkerSelf {
         WorkerSelf {
             id: "w-1".into(),
-            status: WorkerStatus::PendingConsent,
+            status: WorkerStatus::Active,
+            telemetry_status: crate::state::TelemetryStatus::PendingDecision,
             role_type: "OFFICE".into(),
             work_hours_start: Some("09:00:00".into()),
             work_hours_end: Some("18:00:00".into()),
@@ -266,6 +267,7 @@ mod tests {
             admin_public_key_fingerprint: "fp".into(),
             enrollment_completed_at: None,
             ingestion_blocked_reason: None,
+            ..crate::state::tests::worker_v3()
         }
     }
 
@@ -425,7 +427,7 @@ mod tests {
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": {
-                    "status": "PENDING_CONSENT", "consent_version": 3, "accepted_consent_version": null,
+                    "status": "ACTIVE", "consent_version": 3, "accepted_consent_version": null,
                     "consent_flags": ConsentFlags::default(), "consent_accepted_at": null,
                     "consent_rejected_at": "2026-09-30T10:00:00Z"
                 }

@@ -1,7 +1,9 @@
+pub mod attendance;
 pub mod client;
 pub mod framing;
 pub mod transport;
 
+pub use attendance::*;
 pub use client::IpcClient;
 pub use framing::{read_frame, write_frame, FramingError, MAX_FRAME_SIZE};
 pub use futures::{Stream as EventStream, StreamExt};
@@ -57,6 +59,8 @@ pub enum ServerFrame {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum WindowScreenHint {
     Home,
+    /// Asistencia (A) — tray *Marcar asistencia…* (RF-AGENT-12-14).
+    Attendance,
     Telemetry,
     Withdraw,
 }
@@ -120,6 +124,72 @@ pub enum Request {
     CancelQuit {
         nonce: String,
     },
+    /// Embedded legal texts with version and hash (LEG-04) → `Response::LegalDocuments`.
+    LegalDocuments,
+    /// Accepts the embedded worker terms and privacy policy (LEG-04/05). The values must equal
+    /// the embedded ones; the service sends `POST /workers/me/terms-acceptance`.
+    /// Errors: `TERMS_MISMATCH` (values differ from the embedded texts), `TERMS_OUTDATED`
+    /// (`409 TERMS_VERSION_MISMATCH`: a newer app version is required).
+    AcceptTerms {
+        version: String,
+        hash: String,
+        privacy_version: String,
+        privacy_hash: String,
+    },
+    /// Creates the attendance PIN (SEC-19/20). Allowed when no PIN exists or within 10 min of a
+    /// successful `VerifyPinReset`. Errors: `PIN_ALREADY_SET`, `PIN_POLICY_*` (cause of the
+    /// policy violation: `NON_DIGITS`, `TOO_SHORT`, `TOO_LONG`, `ALL_DIGITS_EQUAL`,
+    /// `SEQUENTIAL_DIGITS`, `MATCHES_WORKER_RUN`).
+    SetPin {
+        pin: SecretPin,
+    },
+    /// Changes the PIN after checking the current one. Errors: `PIN_INCORRECT` /
+    /// `PIN_RETRY_LATER` (with `retry_after_secs`), `PIN_POLICY_*`, `PIN_NOT_SET`.
+    ChangePin {
+        current: SecretPin,
+        new: SecretPin,
+    },
+    /// Asks the server to email a reset code (`POST /workers/me/pin-reset/request`).
+    RequestPinReset,
+    /// Verifies the emailed code (`POST /workers/me/pin-reset/verify`); on success the next
+    /// `SetPin` within 10 min does not require the current PIN. Errors: `INVALID_RESET_CODE`,
+    /// `RATE_LIMITED` (with `retry_after_secs`).
+    VerifyPinReset {
+        code: String,
+    },
+    /// Records a mark (ATT-01): PIN check, local journal, `POST /attendance/marks`, queued if
+    /// offline. Never refused for subscription, telemetry or a later terms version (ATT-02).
+    /// Errors: `TERMS_REQUIRED` (before the first acceptance, no mark created), `PIN_NOT_SET`,
+    /// `PIN_INCORRECT` / `PIN_RETRY_LATER` (with `retry_after_secs`), `ATTENDANCE_EXEMPT`,
+    /// `NOT_ENROLLED`.
+    Mark {
+        #[serde(rename = "type")]
+        r#type: MarkType,
+        pin: SecretPin,
+    },
+    /// Today's view: server answer when online, local journal otherwise (`source`).
+    Today,
+    /// Server day summaries `GET /attendance/me/days` (dates `YYYY-MM-DD`, ≤ 62 days).
+    /// Error `OFFLINE` without connection.
+    Days {
+        from: String,
+        to: String,
+    },
+    /// Marks of a range: `GET /attendance/me/marks` online, local journal offline (`source`).
+    Marks {
+        from: String,
+        to: String,
+        #[serde(default)]
+        page: Option<u32>,
+    },
+    /// Corrections proposed by the employer (`GET /attendance/me/corrections`).
+    Corrections,
+    /// Accept (`true`) or oppose (`false`) a pending correction (ATT-05).
+    /// Error `CORRECTION_NOT_PENDING` (`409`).
+    RespondCorrection {
+        id: String,
+        accept: bool,
+    },
 }
 
 /// Responses returned by the IPC server (RF-AGENT-10-1).
@@ -156,6 +226,46 @@ pub enum Response {
     Shutdown,
     ConfirmQuit,
     CancelQuit,
+    LegalDocuments {
+        documents: Vec<LegalDocument>,
+    },
+    AcceptTerms {
+        terms_accepted_version: String,
+    },
+    SetPin,
+    ChangePin,
+    RequestPinReset,
+    VerifyPinReset {
+        /// Seconds during which `SetPin` does not require the current PIN.
+        set_pin_window_secs: u64,
+    },
+    Mark {
+        mark: Box<MarkRecord>,
+    },
+    Today {
+        today: Box<TodayView>,
+    },
+    Days {
+        days: Vec<DaySummary>,
+    },
+    Marks {
+        source: DataSource,
+        /// Server marks (newest first) when `source = SERVER`.
+        #[serde(default)]
+        marks: Vec<ServerMark>,
+        /// Journal marks of the range: all of them when `source = LOCAL`, only the ones not yet
+        /// confirmed by the server when `source = SERVER`.
+        #[serde(default)]
+        local: Vec<MarkRecord>,
+        #[serde(default)]
+        pagination: Option<Pagination>,
+    },
+    Corrections {
+        corrections: Vec<Correction>,
+    },
+    RespondCorrection {
+        correction: Box<Correction>,
+    },
     Error {
         code: String,
         message: String,
@@ -250,6 +360,30 @@ pub struct AppSnapshot {
     pub device_identifier_short: String,
     pub key_fingerprint: Option<String>,
     pub is_enrolled: bool,
+    /// Attendance mode (`architecture.md` §4.1), independent of `run_mode` (ATT-07).
+    #[serde(default)]
+    pub attendance_mode: AttendanceModeView,
+    /// A newer worker terms version must be read; marking keeps working (ATT-02, LEG-05).
+    #[serde(default)]
+    pub terms_update_pending: bool,
+    #[serde(default)]
+    pub attendance_today: Option<TodayView>,
+    /// Marks of the local journal still waiting to be sent (ATT-04).
+    #[serde(default)]
+    pub pending_marks: usize,
+    #[serde(default)]
+    pub pending_corrections: u32,
+    /// Ordered by priority (spec §1); the window shows the first one.
+    #[serde(default)]
+    pub banners: Vec<Banner>,
+    #[serde(default)]
+    pub legal: LegalStatus,
+    /// `ON_SITE` | `REMOTE` | `HYBRID` when known.
+    #[serde(default)]
+    pub work_mode: Option<String>,
+    /// The worker's schedule asks for a location reading when marking (ATT-08).
+    #[serde(default)]
+    pub location_at_mark: bool,
 }
 
 /// Diagnostics report returned by the service.

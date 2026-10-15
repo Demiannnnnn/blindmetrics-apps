@@ -11,6 +11,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// `<config_dir>/telemetry-worker/offline.db`: telemetry queue (`offline_queue`) and the mark
+/// journal (`marks`, TASK-AGENT-12) live in the same file (`architecture.md` §4.3).
+pub fn default_offline_db_path() -> std::path::PathBuf {
+    let mut db_path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    db_path.push("telemetry-worker");
+    let _ = std::fs::create_dir_all(&db_path);
+    db_path.push("offline.db");
+    db_path
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct QueueItem {
     pub id: i64,
@@ -112,11 +122,7 @@ impl OfflineQueue {
     }
 
     pub fn open_default() -> SqlResult<Self> {
-        let mut db_path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-        db_path.push("telemetry-worker");
-        let _ = std::fs::create_dir_all(&db_path);
-        db_path.push("offline.db");
-        Self::open(&db_path)
+        Self::open(default_offline_db_path())
     }
 
     pub fn open_in_memory() -> SqlResult<Self> {

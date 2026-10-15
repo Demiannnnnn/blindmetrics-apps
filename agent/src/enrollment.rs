@@ -241,7 +241,7 @@ mod tests {
                 "work_hours_start": "09:00:00",
                 "work_hours_end": "18:00:00",
                 "timezone": "America/Santiago",
-                "status": "PENDING_CONSENT",
+                "status": "PENDING_TERMS",
                 "auth": {
                     "access_token": "valid_access_jwt",
                     "refresh_token": "valid_refresh_token",

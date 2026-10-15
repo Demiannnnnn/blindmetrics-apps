@@ -513,6 +513,288 @@ impl ApiClient {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Contract v3: terms, PIN events and attendance (api-contract.md §9, §10, §12)
+// ---------------------------------------------------------------------------------------------
+
+/// `POST /workers/me/terms-acceptance` body (LEG-04).
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct TermsAcceptanceRequest<'a> {
+    pub document: &'a str,
+    pub version: &'a str,
+    pub hash: &'a str,
+    pub privacy_version: &'a str,
+    pub privacy_hash: &'a str,
+}
+
+/// `200 { status, terms_accepted_version }`.
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TermsAcceptanceResponse {
+    pub status: crate::state::WorkerStatus,
+    pub terms_accepted_version: String,
+}
+
+/// PIN events reported to the server for the R38 art. 7 f email (never the PIN, SEC-19).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CredentialEvent {
+    PinSet,
+    PinChanged,
+}
+
+impl CredentialEvent {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CredentialEvent::PinSet => "PIN_SET",
+            CredentialEvent::PinChanged => "PIN_CHANGED",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "PIN_SET" => Some(CredentialEvent::PinSet),
+            "PIN_CHANGED" => Some(CredentialEvent::PinChanged),
+            _ => None,
+        }
+    }
+}
+
+/// `POST /attendance/marks` body (`api-contract.md` §9.2).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct MarkRequest {
+    pub client_mark_id: String,
+    #[serde(rename = "type")]
+    pub r#type: agent_ipc::MarkType,
+    pub device_ts: String,
+    pub offline: bool,
+    pub identification: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<agent_ipc::MarkLocation>,
+}
+
+/// `201 { mark }` · `200 { mark, duplicate_of }`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct MarkResponse {
+    pub mark: agent_ipc::ServerMark,
+    #[serde(default)]
+    pub duplicate_of: Option<String>,
+}
+
+/// Collection envelope `{ data: [...], pagination }`.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct CollectionResponse<T> {
+    pub data: Vec<T>,
+    #[serde(default)]
+    pub pagination: Option<agent_ipc::Pagination>,
+}
+
+impl ApiClient {
+    fn url(&self, path: &str) -> String {
+        format!(
+            "{}/{}",
+            self.base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
+    }
+
+    /// Sends an authenticated request and unwraps `{ "data": T }`.
+    async fn send_data<T: serde::de::DeserializeOwned>(
+        req: reqwest::RequestBuilder,
+    ) -> Result<T, AgentError> {
+        let resp = req
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+        let status = resp.status();
+        if status.is_success() {
+            let wrapped: SingleResponse<T> = resp.json().await.map_err(AgentError::Reqwest)?;
+            Ok(wrapped.data)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
+    /// Sends an authenticated request whose success body is ignored (`202`/`204`).
+    async fn send_no_content(req: reqwest::RequestBuilder) -> Result<(), AgentError> {
+        let resp = req
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
+    /// `POST /workers/me/terms-acceptance` (LEG-04). `409 TERMS_VERSION_MISMATCH` when the
+    /// embedded text is not the version the server requires.
+    pub async fn accept_terms(
+        &self,
+        access_token: &str,
+        body: &TermsAcceptanceRequest<'_>,
+    ) -> Result<TermsAcceptanceResponse, AgentError> {
+        let req = self
+            .client
+            .post(self.url("workers/me/terms-acceptance"))
+            .bearer_auth(access_token)
+            .json(body);
+        Self::send_data(req).await
+    }
+
+    /// `POST /workers/me/credential-events { type }` → `204` (SEC-19: the PIN never travels).
+    pub async fn post_credential_event(
+        &self,
+        access_token: &str,
+        event: CredentialEvent,
+    ) -> Result<(), AgentError> {
+        let req = self
+            .client
+            .post(self.url("workers/me/credential-events"))
+            .bearer_auth(access_token)
+            .json(&serde_json::json!({ "type": event }));
+        Self::send_no_content(req).await
+    }
+
+    /// `POST /workers/me/pin-reset/request` → `202` (code to the personal email).
+    pub async fn request_pin_reset(&self, access_token: &str) -> Result<(), AgentError> {
+        let req = self
+            .client
+            .post(self.url("workers/me/pin-reset/request"))
+            .bearer_auth(access_token)
+            .json(&serde_json::json!({}));
+        Self::send_no_content(req).await
+    }
+
+    /// `POST /workers/me/pin-reset/verify { code }` → `204` · `400 INVALID_RESET_CODE` · `429`.
+    pub async fn verify_pin_reset(&self, access_token: &str, code: &str) -> Result<(), AgentError> {
+        let req = self
+            .client
+            .post(self.url("workers/me/pin-reset/verify"))
+            .bearer_auth(access_token)
+            .json(&serde_json::json!({ "code": code }));
+        Self::send_no_content(req).await
+    }
+
+    /// `POST /attendance/marks` (idempotent by `client_mark_id`, ATT-04).
+    pub async fn post_mark(
+        &self,
+        access_token: &str,
+        body: &MarkRequest,
+    ) -> Result<MarkResponse, AgentError> {
+        let req = self
+            .client
+            .post(self.url("attendance/marks"))
+            .bearer_auth(access_token)
+            .json(body);
+        Self::send_data(req).await
+    }
+
+    /// `GET /attendance/me/today`.
+    pub async fn get_today(
+        &self,
+        access_token: &str,
+    ) -> Result<agent_ipc::TodayResponse, AgentError> {
+        let req = self
+            .client
+            .get(self.url("attendance/me/today"))
+            .bearer_auth(access_token);
+        Self::send_data(req).await
+    }
+
+    /// `GET /attendance/me/marks?from&to&page&per_page` (newest first).
+    pub async fn get_my_marks(
+        &self,
+        access_token: &str,
+        from: &str,
+        to: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<CollectionResponse<agent_ipc::ServerMark>, AgentError> {
+        let resp = self
+            .client
+            .get(self.url("attendance/me/marks"))
+            .bearer_auth(access_token)
+            .query(&[
+                ("from", from.to_string()),
+                ("to", to.to_string()),
+                ("page", page.to_string()),
+                ("per_page", per_page.to_string()),
+            ])
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+        let status = resp.status();
+        if status.is_success() {
+            resp.json().await.map_err(AgentError::Reqwest)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
+
+    /// `GET /attendance/me/days?from&to` (≤ 62 days, server-computed, ATT-09).
+    pub async fn get_my_days(
+        &self,
+        access_token: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<agent_ipc::DaySummary>, AgentError> {
+        let req = self
+            .client
+            .get(self.url("attendance/me/days"))
+            .bearer_auth(access_token)
+            .query(&[("from", from), ("to", to)]);
+        Self::send_data(req).await
+    }
+
+    /// `GET /attendance/me/corrections[?status]`.
+    pub async fn get_my_corrections(
+        &self,
+        access_token: &str,
+        status: Option<&str>,
+    ) -> Result<Vec<agent_ipc::Correction>, AgentError> {
+        let mut req = self
+            .client
+            .get(self.url("attendance/me/corrections"))
+            .bearer_auth(access_token)
+            .header(APP_VERSION_HEADER, APP_VERSION);
+        if let Some(status) = status {
+            req = req.query(&[("status", status)]);
+        }
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+        let code = resp.status();
+        if code.is_success() {
+            let page: CollectionResponse<agent_ipc::Correction> =
+                resp.json().await.map_err(AgentError::Reqwest)?;
+            Ok(page.data)
+        } else {
+            Self::handle_error_response(code, resp).await
+        }
+    }
+
+    /// `POST /attendance/me/corrections/:id/response { accept }` · `409 CORRECTION_NOT_PENDING`.
+    pub async fn respond_correction(
+        &self,
+        access_token: &str,
+        id: &str,
+        accept: bool,
+    ) -> Result<agent_ipc::Correction, AgentError> {
+        let req = self
+            .client
+            .post(self.url(&format!("attendance/me/corrections/{id}/response")))
+            .bearer_auth(access_token)
+            .json(&serde_json::json!({ "accept": accept }));
+        Self::send_data(req).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

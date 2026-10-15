@@ -135,6 +135,15 @@ mod tests {
             device_identifier_short: "abcd1234".into(),
             key_fingerprint: None,
             is_enrolled: true,
+            attendance_mode: Default::default(),
+            terms_update_pending: false,
+            attendance_today: None,
+            pending_marks: 0,
+            pending_corrections: 0,
+            banners: Vec::new(),
+            legal: Default::default(),
+            work_mode: None,
+            location_at_mark: false,
         }
     }
 

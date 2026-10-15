@@ -1,4 +1,5 @@
 pub mod api;
+pub mod attendance;
 pub mod background;
 pub mod config;
 pub mod consent;
@@ -9,6 +10,7 @@ pub mod enrollment;
 pub mod errors;
 pub mod io;
 pub mod ipc_server;
+pub mod legal;
 pub mod notifications;
 pub mod pipeline;
 pub mod session;
@@ -17,6 +19,9 @@ pub mod ui;
 
 use agent_ipc::{
     default_runtime_dir, socket_endpoint, token_path, IpcClient, SocketEndpoint, WindowScreenHint,
+};
+use attendance::{
+    AttendanceService, DesktopNotifier, MarkJournal, SystemClock, UnavailableLocationProvider,
 };
 use background::BackgroundEngine;
 use config::WorkerConfig;
@@ -84,6 +89,19 @@ fn launch_ui_bin() {
     }
 }
 
+/// Tray icon colour = telemetry light (spec §7).
+fn tray_color(mode: &RunMode) -> (u8, u8, u8) {
+    match mode {
+        RunMode::Collecting(_) => (46, 204, 113),
+        RunMode::Paused | RunMode::EmployerSuspended { .. } => (241, 196, 15),
+        RunMode::AwaitingConsent { .. }
+        | RunMode::Unenrolled
+        | RunMode::NotRequested
+        | RunMode::Declined => (180, 180, 180),
+        RunMode::Halted(_) => (231, 76, 60),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Prohibit --headless mode without tray (PROC-02 / RF-AGENT-10-10)
     if std::env::args().any(|arg| arg == "--headless") {
@@ -147,25 +165,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cred_store: Arc<dyn CredentialStore> = Arc::new(KeyringCredentialStore::new());
     let buffer = Arc::new(MetricsBuffer::new(1000));
 
-    let engine = BackgroundEngine::new(config.clone(), buffer.clone(), cred_store.clone())?;
+    let mut engine = BackgroundEngine::new(config.clone(), buffer.clone(), cred_store.clone())?;
     engine.set_tray_available(tray_available);
     let engine_handle = engine.handle(rt.handle().clone());
     let tray_available_flag = engine.tray_available_flag();
 
+    // 7b. Attendance module (TASK-AGENT-12): mark journal in offline.db (table `marks`).
+    let db_path = io::transport::default_offline_db_path();
+    let journal = match MarkJournal::open(&db_path) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!("Cannot open the mark journal ({e}); using memory for this session");
+            MarkJournal::open_in_memory()?
+        }
+    };
+    let attendance = AttendanceService::new(
+        &config.api_base_url,
+        attendance::service::AttendanceDeps {
+            creds: cred_store.clone(),
+            journal,
+            db_path: Some(db_path),
+            clock: Arc::new(SystemClock),
+            notifier: Arc::new(DesktopNotifier),
+            location: Arc::new(UnavailableLocationProvider),
+        },
+        engine_handle.state.clone(),
+        Some(engine_handle.commands.clone()),
+    )?;
+    engine.set_attendance(attendance.clone());
+
     // 8. Initialize IPC server (RF-AGENT-10-1)
     let shutdown_notify = Arc::new(tokio::sync::Notify::new());
-    let ipc_server = Arc::new(ipc_server::IpcServer::new(
-        config.clone(),
-        cred_store.clone(),
-        buffer.clone(),
-        engine_handle.clone(),
-        runtime_dir.clone(),
-        tray_available_flag.clone(),
-        shutdown_notify.clone(),
-    )?);
+    let ipc_server = Arc::new(ipc_server::IpcServer::new(ipc_server::IpcServerDeps {
+        config: config.clone(),
+        cred_store: cred_store.clone(),
+        buffer: buffer.clone(),
+        engine: engine_handle.clone(),
+        runtime_dir: runtime_dir.clone(),
+        tray_available: tray_available_flag.clone(),
+        shutdown_notify: shutdown_notify.clone(),
+        attendance: attendance.clone(),
+    })?);
 
     // 9. Spawn engine and IPC server on Tokio runtime
     let engine_task = rt.spawn(engine.run());
+    let attendance_task = rt.spawn(attendance.clone().run(shutdown_notify.clone()));
     let ipc_server_for_run = ipc_server.clone();
     let ipc_task = rt.spawn(async move {
         if let Err(e) = ipc_server_for_run.run().await {
@@ -216,14 +260,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut quit_deadline: Option<Instant> = None;
     let mut last_run_mode = engine_handle.state.borrow().run_mode.clone();
 
-    // Initial tray icon color
-    let (r, g, b) = match &last_run_mode {
-        RunMode::Collecting(_) => (46, 204, 113),
-        RunMode::Paused | RunMode::EmployerSuspended { .. } => (241, 196, 15),
-        RunMode::AwaitingConsent { .. } | RunMode::Unenrolled => (180, 180, 180),
-        RunMode::Halted(_) => (231, 76, 60),
-    };
+    // Initial tray icon color and tooltip (spec §7)
+    let (r, g, b) = tray_color(&last_run_mode);
     tray.set_icon_color(r, g, b);
+    let mut last_tooltip = String::new();
+    let mut tooltip_tick: u32 = 0;
 
     loop {
         if shutdown_requested.load(Ordering::Relaxed) {
@@ -243,6 +284,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .context
                                 .set_suggested_screen(Some(WindowScreenHint::Home)),
                         );
+                    }
+                }
+                TrayAction::MarkAttendance => {
+                    tracing::info!("Tray action: Marcar asistencia");
+                    rt.block_on(
+                        ipc_server
+                            .context
+                            .set_suggested_screen(Some(WindowScreenHint::Attendance)),
+                    );
+                    let has_subs = rt.block_on(ipc_server.context.has_subscribers());
+                    if !has_subs {
+                        launch_ui_bin();
                     }
                 }
                 TrayAction::WhatsCollected => {
@@ -307,14 +360,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Sync tray icon color with RunMode transitions
         let current_mode = engine_handle.state.borrow().run_mode.clone();
         if current_mode != last_run_mode {
-            let (r, g, b) = match &current_mode {
-                RunMode::Collecting(_) => (46, 204, 113),
-                RunMode::Paused | RunMode::EmployerSuspended { .. } => (241, 196, 15),
-                RunMode::AwaitingConsent { .. } | RunMode::Unenrolled => (180, 180, 180),
-                RunMode::Halted(_) => (231, 76, 60),
-            };
+            let (r, g, b) = tray_color(&current_mode);
             tray.set_icon_color(r, g, b);
             last_run_mode = current_mode;
+        }
+
+        // Tooltip: attendance line + telemetry line, refreshed every second. On Linux the update
+        // goes through the channel to the GTK thread that owns the tray.
+        tooltip_tick = tooltip_tick.wrapping_add(1);
+        if tooltip_tick % 10 == 0 {
+            let tooltip = ui::tray::tray_tooltip(&attendance.tray_line(), &last_run_mode);
+            if tooltip != last_tooltip {
+                tray.set_tooltip(&tooltip);
+                last_tooltip = tooltip;
+            }
         }
 
         std::thread::sleep(Duration::from_millis(100));
@@ -327,7 +386,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = rt.block_on(async {
         tokio::time::timeout(Duration::from_secs(3), async {
-            let _ = tokio::join!(engine_task, ipc_task);
+            let _ = tokio::join!(engine_task, ipc_task, attendance_task);
         })
         .await
     });

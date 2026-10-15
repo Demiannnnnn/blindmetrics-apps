@@ -6,6 +6,8 @@ use tray_icon::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrayAction {
     Open,
+    /// *Marcar asistencia…*: opens the window on Asistencia (RF-AGENT-12-14).
+    MarkAttendance,
     WhatsCollected,
     WithdrawConsent,
     Quit,
@@ -39,6 +41,7 @@ pub fn create_tray_icon(r: u8, g: u8, b: u8) -> Result<Icon, tray_icon::BadIcon>
 #[derive(Clone, Debug)]
 struct MenuIds {
     open: String,
+    mark_attendance: String,
     whats_collected: String,
     withdraw: String,
     quit: String,
@@ -49,6 +52,7 @@ impl MenuIds {
     fn unavailable() -> Self {
         Self {
             open: "tray-unavailable-open".to_string(),
+            mark_attendance: "tray-unavailable-mark-attendance".to_string(),
             whats_collected: "tray-unavailable-whats-collected".to_string(),
             withdraw: "tray-unavailable-withdraw".to_string(),
             quit: "tray-unavailable-quit".to_string(),
@@ -69,6 +73,7 @@ pub struct SystemTrayManager {
     /// Channel to the GTK thread that owns the tray on Linux.
     commands: Option<std::sync::mpsc::Sender<TrayCommand>>,
     pub open_id: String,
+    pub mark_attendance_id: String,
     pub whats_collected_id: String,
     pub withdraw_id: String,
     pub quit_id: String,
@@ -90,13 +95,16 @@ fn is_main_thread() -> bool {
 /// Builds the tray and its menu on the calling thread.
 fn build_tray() -> Option<(TrayIcon, MenuIds)> {
     let menu = Menu::new();
-    let open_item = MenuItem::new("Abrir Panel de Telemetría", true, None);
-    let whats_collected_item = MenuItem::new("Qué se recopila", true, None);
+    // Labels of docs/worker-app-spec.md §7.
+    let open_item = MenuItem::new("Abrir", true, None);
+    let mark_item = MenuItem::new("Marcar asistencia…", true, None);
+    let whats_collected_item = MenuItem::new("Qué se recolecta", true, None);
     let withdraw_item = MenuItem::new("Retirar consentimiento...", true, None);
     let quit_item = MenuItem::new("Salir", true, None);
 
     let ids = MenuIds {
         open: open_item.id().0.clone(),
+        mark_attendance: mark_item.id().0.clone(),
         whats_collected: whats_collected_item.id().0.clone(),
         withdraw: withdraw_item.id().0.clone(),
         quit: quit_item.id().0.clone(),
@@ -104,6 +112,7 @@ fn build_tray() -> Option<(TrayIcon, MenuIds)> {
 
     let _ = menu.append_items(&[
         &open_item,
+        &mark_item,
         &whats_collected_item,
         &PredefinedMenuItem::separator(),
         &withdraw_item,
@@ -114,7 +123,7 @@ fn build_tray() -> Option<(TrayIcon, MenuIds)> {
     let icon = create_tray_icon(46, 204, 113).ok()?; // Default green
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("Telemetry Worker — Transparencia Activa")
+        .with_tooltip("Telemetry — Asistencia")
         .with_icon(icon)
         .build()
         .map_err(|e| tracing::warn!("System tray unavailable: {}", e))
@@ -185,6 +194,7 @@ impl SystemTrayManager {
             tray_icon,
             commands,
             open_id: ids.open,
+            mark_attendance_id: ids.mark_attendance,
             whats_collected_id: ids.whats_collected,
             withdraw_id: ids.withdraw,
             quit_id: ids.quit,
@@ -240,6 +250,8 @@ impl SystemTrayManager {
             let id = &event.id.0;
             if id == &self.open_id {
                 return Some(TrayAction::Open);
+            } else if id == &self.mark_attendance_id {
+                return Some(TrayAction::MarkAttendance);
             } else if id == &self.whats_collected_id {
                 return Some(TrayAction::WhatsCollected);
             } else if id == &self.withdraw_id {
@@ -263,6 +275,26 @@ impl Default for SystemTrayManager {
     }
 }
 
+/// Telemetry line of the tray tooltip (spec §7, line 2).
+pub fn telemetry_line(mode: &crate::state::RunMode) -> &'static str {
+    use crate::state::RunMode;
+    match mode {
+        RunMode::Collecting(_) => "Telemetría activa",
+        RunMode::Paused => "Telemetría en pausa",
+        RunMode::EmployerSuspended { .. } => "Telemetría suspendida",
+        RunMode::NotRequested => "Sin telemetría",
+        RunMode::Declined => "Telemetría rechazada",
+        RunMode::AwaitingConsent { .. } => "Telemetría: decisión pendiente",
+        RunMode::Halted(_) => "Telemetría detenida",
+        RunMode::Unenrolled => "Telemetría inactiva",
+    }
+}
+
+/// Tooltip: attendance state on line 1, telemetry state on line 2 (RF-AGENT-12-14).
+pub fn tray_tooltip(attendance_line: &str, mode: &crate::state::RunMode) -> String {
+    format!("{attendance_line}\n{}", telemetry_line(mode))
+}
+
 pub struct TrayMenuState {
     pub tooltip: String,
 }
@@ -277,6 +309,7 @@ impl TrayMenuState {
     pub fn handle_action(&mut self, action: TrayAction) -> Option<&'static str> {
         match action {
             TrayAction::Open => Some("SHOW_WINDOW"),
+            TrayAction::MarkAttendance => Some("MARK_ATTENDANCE"),
             TrayAction::WhatsCollected => Some("WHATS_COLLECTED"),
             TrayAction::WithdrawConsent => Some("WITHDRAW_CONSENT"),
             TrayAction::Quit => Some("QUIT"),
@@ -299,6 +332,10 @@ mod tests {
         let mut tray = TrayMenuState::new();
         assert_eq!(tray.handle_action(TrayAction::Open), Some("SHOW_WINDOW"));
         assert_eq!(
+            tray.handle_action(TrayAction::MarkAttendance),
+            Some("MARK_ATTENDANCE")
+        );
+        assert_eq!(
             tray.handle_action(TrayAction::WhatsCollected),
             Some("WHATS_COLLECTED")
         );
@@ -307,6 +344,17 @@ mod tests {
             Some("WITHDRAW_CONSENT")
         );
         assert_eq!(tray.handle_action(TrayAction::Quit), Some("QUIT"));
+    }
+
+    #[test]
+    fn test_tray_tooltip_has_attendance_then_telemetry() {
+        use crate::state::RunMode;
+        let t = tray_tooltip("En jornada desde 09:02", &RunMode::Paused);
+        assert_eq!(t, "En jornada desde 09:02\nTelemetría en pausa");
+        assert_eq!(
+            tray_tooltip("Fuera de jornada", &RunMode::NotRequested),
+            "Fuera de jornada\nSin telemetría"
+        );
     }
 
     #[test]
@@ -321,6 +369,7 @@ mod tests {
         // panic (release builds abort on panic).
         let mut manager = SystemTrayManager::new();
         assert!(!manager.open_id.is_empty());
+        assert!(!manager.mark_attendance_id.is_empty());
         assert!(!manager.whats_collected_id.is_empty());
         assert!(!manager.withdraw_id.is_empty());
         assert!(!manager.quit_id.is_empty());

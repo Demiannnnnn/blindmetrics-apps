@@ -84,6 +84,7 @@ dependencies = [
  "agent-ipc",
  "base64 0.22.1",
  "chrono",
+ "chrono-tz",
  "core-graphics 0.23.2",
  "dirs 5.0.1",
  "dotenvy",
@@ -110,6 +111,7 @@ dependencies = [
  "uuid",
  "wiremock",
  "xcap",
+ "zeroize",
 ]
 
 [[package]]
@@ -129,6 +131,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
