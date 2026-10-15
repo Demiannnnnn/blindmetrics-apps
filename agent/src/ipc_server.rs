@@ -1,4 +1,5 @@
 use crate::api::client::{ApiClient, DeviceInfo};
+use crate::attendance::AttendanceService;
 use crate::background::worker::{handle_revocation, EngineCommand, EngineHandle};
 use crate::config::WorkerConfig;
 use crate::consent::{submit_decision, ConsentAction, ConsentOffer};
@@ -8,17 +9,16 @@ use crate::enrollment::{
     commit_enrollment, enroll, enrollment_error_message, parse_enrollment_input, EnrollmentError,
     PendingEnrollment, Verification,
 };
-use crate::io::transport::OfflineQueue;
 use crate::session::with_access_token;
-use crate::state::{RunMode, WorkerSelf};
+use crate::state::{AttendanceMode, AwaitingReason, RunMode, WorkerSelf};
 use agent_ipc::framing::{read_frame, write_frame};
 use agent_ipc::transport::{
     bind_listener, socket_endpoint, token_path, verify_token, write_ipc_token, SocketEndpoint,
 };
 use agent_ipc::{
-    AppSnapshot, CategoryState, CategoryStates, ClientFrame, ConsentOfferSnapshot, DiagnosticsInfo,
-    Event, ListenerTrait as _, Request, Response, ServerFrame, Stream, VerificationResult,
-    WindowScreenHint, PROTOCOL_VERSION,
+    AppSnapshot, AttendanceModeView, Banner, CategoryState, CategoryStates, ClientFrame,
+    ConsentOfferSnapshot, DiagnosticsInfo, Event, ListenerTrait as _, Request, Response,
+    ServerFrame, Stream, VerificationResult, WindowScreenHint, PROTOCOL_VERSION,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,21 +48,62 @@ pub struct IpcServerContext {
     pub pending_enrollment: Arc<Mutex<Option<PendingEnrollment>>>,
     pub subscribers: Arc<Mutex<Vec<mpsc::Sender<Event>>>>,
     pub shutdown_notify: Arc<Notify>,
+    /// Attendance module (TASK-AGENT-12): marks, journal, terms, PIN.
+    pub attendance: Arc<AttendanceService>,
     pending_quit: Arc<Mutex<Option<PendingQuit>>>,
+}
+
+/// Banners of the window by priority (spec §1): service problem > pending marks > correction to
+/// review > new terms version > telemetry notice.
+pub fn compute_banners(
+    service_problem: bool,
+    pending_marks: usize,
+    pending_corrections: u32,
+    terms_update_pending: bool,
+    run_mode: &RunMode,
+) -> Vec<Banner> {
+    let mut banners = Vec::new();
+    if service_problem {
+        banners.push(Banner::ServiceProblem);
+    }
+    if pending_marks > 0 {
+        banners.push(Banner::PendingMarksOffline);
+    }
+    if pending_corrections > 0 {
+        banners.push(Banner::CorrectionToReview);
+    }
+    if terms_update_pending {
+        banners.push(Banner::NewTermsVersion);
+    }
+    let telemetry_notice = matches!(
+        run_mode,
+        RunMode::AwaitingConsent {
+            reason: AwaitingReason::NoConsent | AwaitingReason::NewVersionPending
+        } | RunMode::Halted(_)
+            | RunMode::EmployerSuspended { .. }
+    );
+    if telemetry_notice {
+        banners.push(Banner::TelemetryNotice);
+    }
+    banners
+}
+
+fn mode_view(mode: AttendanceMode) -> (AttendanceModeView, bool) {
+    match mode {
+        AttendanceMode::Unlinked => (AttendanceModeView::Unlinked, false),
+        AttendanceMode::NeedsTerms => (AttendanceModeView::NeedsTerms, false),
+        AttendanceMode::NeedsPin => (AttendanceModeView::NeedsPin, false),
+        AttendanceMode::Ready {
+            terms_update_pending,
+        } => (AttendanceModeView::Ready, terms_update_pending),
+        AttendanceMode::Exempt => (AttendanceModeView::Exempt, false),
+    }
 }
 
 impl IpcServerContext {
     pub async fn build_snapshot(&self) -> AppSnapshot {
         let engine_state = self.engine.state.borrow().clone();
-        let run_mode_str = match &engine_state.run_mode {
-            RunMode::Unenrolled => "UNENROLLED",
-            RunMode::AwaitingConsent { .. } => "AWAITING_CONSENT",
-            RunMode::Collecting(_) => "COLLECTING",
-            RunMode::Paused => "PAUSED",
-            RunMode::EmployerSuspended { .. } => "EMPLOYER_SUSPENDED",
-            RunMode::Halted(_) => "HALTED",
-        }
-        .to_string();
+        let run_mode_str = engine_state.run_mode.as_str().to_string();
 
         let pending = self.pending_enrollment.lock().await;
         let consent_offer = if let Some(p) = pending.as_ref() {
@@ -106,7 +147,9 @@ impl IpcServerContext {
         let timezone = ws.and_then(|w| w.timezone.clone());
 
         // Queue size from offline database or 0
-        let queue_size = OfflineQueue::open_default()
+        let queue_size = self
+            .attendance
+            .open_telemetry_queue()
             .map(|q| q.count().unwrap_or(0))
             .unwrap_or(0);
 
@@ -123,6 +166,16 @@ impl IpcServerContext {
         let key_fingerprint = self.cred_store.get_pinned_fingerprint();
         let is_enrolled = self.cred_store.get_access_token().is_some();
 
+        let attendance = self.attendance.snapshot();
+        let (attendance_mode, terms_update_pending) = mode_view(attendance.mode);
+        let banners = compute_banners(
+            engine_state.last_error.is_some(),
+            attendance.pending_marks,
+            attendance.pending_corrections,
+            terms_update_pending,
+            &engine_state.run_mode,
+        );
+
         AppSnapshot {
             service_version: env!("CARGO_PKG_VERSION").to_string(),
             run_mode: run_mode_str,
@@ -132,8 +185,8 @@ impl IpcServerContext {
             work_hours_start,
             work_hours_end,
             timezone,
-            worker_name: None,
-            organization: None,
+            worker_name: ws.and_then(|w| w.name.clone()),
+            organization: ws.and_then(|w| w.organization.clone()),
             queue_size,
             last_flush: None,
             last_error: engine_state.last_error,
@@ -143,6 +196,15 @@ impl IpcServerContext {
             device_identifier_short,
             key_fingerprint,
             is_enrolled,
+            attendance_mode,
+            terms_update_pending,
+            attendance_today: attendance.today,
+            pending_marks: attendance.pending_marks,
+            pending_corrections: attendance.pending_corrections,
+            banners,
+            legal: attendance.legal,
+            work_mode: attendance.work_mode,
+            location_at_mark: attendance.location_at_mark,
         }
     }
 
@@ -331,6 +393,7 @@ impl IpcServer {
         runtime_dir: PathBuf,
         tray_available: Arc<AtomicBool>,
         shutdown_notify: Arc<Notify>,
+        attendance: Arc<AttendanceService>,
     ) -> std::io::Result<Self> {
         let t_path = token_path(&runtime_dir);
         let token = write_ipc_token(&t_path)?;
@@ -347,6 +410,7 @@ impl IpcServer {
             pending_enrollment: Arc::new(Mutex::new(None)),
             subscribers: Arc::new(Mutex::new(Vec::new())),
             shutdown_notify,
+            attendance,
             pending_quit: Arc::new(Mutex::new(None)),
         });
 
@@ -371,6 +435,20 @@ impl IpcServer {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(250)).await;
+                ctx.broadcast_snapshot().await;
+            }
+        });
+
+        // Attendance changes (marks, queue, today view) also refresh the window.
+        let ctx = self.context.clone();
+        tokio::spawn(async move {
+            let mut changes = ctx.attendance.subscribe();
+            loop {
+                if changes.changed().await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                changes.borrow_and_update();
                 ctx.broadcast_snapshot().await;
             }
         });
@@ -695,6 +773,22 @@ impl IpcServer {
                 }
             }
             Request::ConsentDecision { accept } => {
+                // LEG-05: new telemetry decisions wait until the current terms were read.
+                // Rejecting stays possible (protective for the worker).
+                let terms_pending = matches!(
+                    self.context.attendance.mode(),
+                    AttendanceMode::NeedsTerms
+                        | AttendanceMode::Ready {
+                            terms_update_pending: true
+                        }
+                );
+                if accept.is_some() && terms_pending {
+                    return Response::Error {
+                        code: "TERMS_REQUIRED".into(),
+                        message: "Lee los nuevos términos antes de decidir.".into(),
+                        retry_after_secs: None,
+                    };
+                }
                 let api = match ApiClient::new(self.context.api_base_url.clone()) {
                     Ok(a) => a,
                     Err(e) => {
@@ -840,20 +934,27 @@ impl IpcServer {
                     };
                 }
 
-                let mut queue = OfflineQueue::open_default()
-                    .unwrap_or_else(|_| OfflineQueue::open_in_memory().unwrap());
-                handle_revocation(
-                    self.context.cred_store.as_ref(),
-                    &self.context.buffer,
-                    &mut queue,
-                );
+                // RF-AGENT-12-10: last attempt to send pending marks, then the journal goes
+                // with the credentials (the UI warned with `pending_marks`).
+                self.context.attendance.prepare_unlink().await;
+                match self.context.attendance.open_telemetry_queue() {
+                    Some(mut queue) => handle_revocation(
+                        self.context.cred_store.as_ref(),
+                        &self.context.buffer,
+                        &mut queue,
+                    ),
+                    None => {
+                        let _ = self.context.cred_store.wipe();
+                        let _ = self.context.buffer.drain_for_flush();
+                    }
+                }
                 let _ = self.context.engine.commands.send(EngineCommand::SyncNow);
                 self.context.broadcast_snapshot().await;
                 Response::Unlink
             }
             Request::Diagnostics => {
                 let uptime_seconds = self.context.start_time.elapsed().as_secs();
-                let queue = OfflineQueue::open_default();
+                let queue = self.context.attendance.open_telemetry_queue();
                 let telemetry_queue_items =
                     queue.as_ref().map(|q| q.count().unwrap_or(0)).unwrap_or(0);
                 let telemetry_queue_bytes = queue
@@ -874,8 +975,8 @@ impl IpcServer {
                     service_version: env!("CARGO_PKG_VERSION").to_string(),
                     uptime_seconds,
                     api_base_url: self.context.api_base_url.clone(),
-                    server_time_offset_seconds: None,
-                    pending_marks: 0,
+                    server_time_offset_seconds: self.context.attendance.server_time_offset(),
+                    pending_marks: self.context.attendance.pending_counts().0,
                     telemetry_queue_items,
                     telemetry_queue_bytes,
                     last_successful_send: None,
@@ -895,6 +996,88 @@ impl IpcServer {
             }
             Request::ConfirmQuit { nonce } => self.context.confirm_quit(&nonce).await,
             Request::CancelQuit { nonce } => self.context.cancel_quit(&nonce).await,
+            Request::LegalDocuments => Response::LegalDocuments {
+                documents: crate::legal::documents(),
+            },
+            Request::AcceptTerms {
+                version,
+                hash,
+                privacy_version,
+                privacy_hash,
+            } => match self
+                .context
+                .attendance
+                .accept_terms(&version, &hash, &privacy_version, &privacy_hash)
+                .await
+            {
+                Ok(terms_accepted_version) => Response::AcceptTerms {
+                    terms_accepted_version,
+                },
+                Err(e) => e.into(),
+            },
+            Request::SetPin { pin } => match self.context.attendance.set_pin(&pin).await {
+                Ok(()) => Response::SetPin,
+                Err(e) => e.into(),
+            },
+            Request::ChangePin { current, new } => {
+                match self.context.attendance.change_pin(&current, &new).await {
+                    Ok(()) => Response::ChangePin,
+                    Err(e) => e.into(),
+                }
+            }
+            Request::RequestPinReset => match self.context.attendance.request_pin_reset().await {
+                Ok(()) => Response::RequestPinReset,
+                Err(e) => e.into(),
+            },
+            Request::VerifyPinReset { code } => {
+                match self.context.attendance.verify_pin_reset(&code).await {
+                    Ok(set_pin_window_secs) => Response::VerifyPinReset {
+                        set_pin_window_secs,
+                    },
+                    Err(e) => e.into(),
+                }
+            }
+            Request::Mark { r#type, pin } => {
+                match self.context.attendance.mark(r#type, &pin).await {
+                    Ok(mark) => Response::Mark {
+                        mark: Box::new(mark),
+                    },
+                    Err(e) => e.into(),
+                }
+            }
+            Request::Today => {
+                let _ = self.context.attendance.refresh_today().await;
+                Response::Today {
+                    today: Box::new(self.context.attendance.today_view()),
+                }
+            }
+            Request::Days { from, to } => match self.context.attendance.days(&from, &to).await {
+                Ok(days) => Response::Days { days },
+                Err(e) => e.into(),
+            },
+            Request::Marks { from, to, page } => {
+                match self.context.attendance.marks(&from, &to, page).await {
+                    Ok((source, marks, local, pagination)) => Response::Marks {
+                        source,
+                        marks,
+                        local,
+                        pagination,
+                    },
+                    Err(e) => e.into(),
+                }
+            }
+            Request::Corrections => match self.context.attendance.corrections().await {
+                Ok(corrections) => Response::Corrections { corrections },
+                Err(e) => e.into(),
+            },
+            Request::RespondCorrection { id, accept } => {
+                match self.context.attendance.respond_correction(&id, accept).await {
+                    Ok(correction) => Response::RespondCorrection {
+                        correction: Box::new(correction),
+                    },
+                    Err(e) => e.into(),
+                }
+            }
             Request::Shutdown => Response::Error {
                 code: "NOT_ALLOWED".into(),
                 message:
@@ -912,6 +1095,7 @@ mod tests {
     use crate::background::worker::execute_withdraw;
     use crate::background::BackgroundEngine;
     use crate::credentials::InMemoryCredentialStore;
+    use crate::io::transport::OfflineQueue;
     use agent_ipc::{connect_stream, IpcClient, StreamExt};
     use tempfile::tempdir;
 
@@ -930,6 +1114,11 @@ mod tests {
         let engine_handle = engine.handle(rt_handle);
         let tray_available = Arc::new(AtomicBool::new(true));
         let shutdown_notify = Arc::new(Notify::new());
+        let attendance = AttendanceService::for_tests(
+            &config.api_base_url,
+            cred_store.clone(),
+            engine_handle.state.clone(),
+        );
 
         let server = Arc::new(
             IpcServer::new(
@@ -940,6 +1129,7 @@ mod tests {
                 runtime_dir.clone(),
                 tray_available.clone(),
                 shutdown_notify.clone(),
+                attendance,
             )
             .expect("server new"),
         );
@@ -1063,6 +1253,11 @@ mod tests {
         let engine = BackgroundEngine::new(config.clone(), buffer.clone(), cred_store.clone())
             .expect("engine");
         let engine_handle = engine.handle(tokio::runtime::Handle::current());
+        let attendance = AttendanceService::for_tests(
+            &config.api_base_url,
+            cred_store.clone(),
+            engine_handle.state.clone(),
+        );
         let server = Arc::new(
             IpcServer::new(
                 config,
@@ -1072,6 +1267,7 @@ mod tests {
                 runtime_dir.clone(),
                 Arc::new(AtomicBool::new(true)),
                 Arc::new(Notify::new()),
+                attendance,
             )
             .expect("server new"),
         );
@@ -1268,16 +1464,23 @@ mod tests {
             .expect("engine");
         let rt_handle = tokio::runtime::Handle::current();
         let shutdown_notify = Arc::new(Notify::new());
+        let engine_handle = engine.handle(rt_handle);
+        let attendance = AttendanceService::for_tests(
+            &config.api_base_url,
+            cred_store.clone(),
+            engine_handle.state.clone(),
+        );
 
         let server = Arc::new(
             IpcServer::new(
                 config,
                 cred_store,
                 buffer,
-                engine.handle(rt_handle),
+                engine_handle,
                 runtime_dir.clone(),
                 Arc::new(AtomicBool::new(true)),
                 shutdown_notify.clone(),
+                attendance,
             )
             .expect("server new"),
         );
@@ -1318,16 +1521,23 @@ mod tests {
             .expect("engine");
         let rt_handle = tokio::runtime::Handle::current();
         let shutdown_notify = Arc::new(Notify::new());
+        let engine_handle = engine.handle(rt_handle);
+        let attendance = AttendanceService::for_tests(
+            &config.api_base_url,
+            cred_store.clone(),
+            engine_handle.state.clone(),
+        );
 
         let server = Arc::new(
             IpcServer::new(
                 config,
                 cred_store,
                 buffer,
-                engine.handle(rt_handle),
+                engine_handle,
                 runtime_dir.clone(),
                 Arc::new(AtomicBool::new(true)),
                 shutdown_notify.clone(),
+                attendance,
             )
             .expect("server new"),
         );

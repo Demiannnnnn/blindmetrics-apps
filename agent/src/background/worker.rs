@@ -12,13 +12,15 @@ use crate::credentials::CredentialStore;
 use crate::errors::AgentError;
 use crate::io::system_hooks::SystemHooksManager;
 
+use crate::attendance::reminders::{in_window, parse_time};
+use crate::attendance::AttendanceService;
 use crate::consent::{current_version_from_conflict, send_consent, ConsentAction};
 use crate::io::transport::{BackoffPolicy, IngestOutcome, OfflineQueue, TelemetryTransport};
 use crate::notifications::NotificationDispatcher;
 use crate::pipeline::build_envelopes;
 use crate::session::{with_access_token, SessionError};
 use crate::state::{
-    derive_run_mode, AwaitingReason, BillingBlock, RunMode, WorkerSelf, WorkerStatus,
+    derive_run_mode, AwaitingReason, BillingBlock, RunMode, WorkMode, WorkerSelf, WorkerStatus,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -73,11 +75,46 @@ pub fn is_category_effective_and_accepted(
     }
 }
 
+/// Inputs of the telemetry gate that come from the worker's v3 profile and the local clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CollectGate<'a> {
+    pub role_type: &'a str,
+    pub in_work_hours: bool,
+    /// Inside a remote/hybrid worker's disconnection window (DP-12).
+    pub in_disconnection: bool,
+    /// `work_mode == ON_SITE` (DP-05 v3: never screenshots otherwise).
+    pub on_site: bool,
+    /// The employer declared a non-empty `location_cause` (DP-04 v3).
+    pub location_cause_declared: bool,
+}
+
+impl<'a> CollectGate<'a> {
+    /// Builds the gate from `/workers/me` and the local wall time.
+    pub fn for_worker(ws: Option<&'a WorkerSelf>, now: chrono::NaiveTime) -> Self {
+        let in_disconnection = ws
+            .and_then(|w| w.effective_disconnection())
+            .and_then(|d| Some((parse_time(&d.start)?, parse_time(&d.end)?)))
+            .is_some_and(|(start, end)| in_window(start, end, now));
+        Self {
+            role_type: ws.map(|w| w.role_type.as_str()).unwrap_or("OFFICE"),
+            in_work_hours: is_within_work_hours(
+                ws.and_then(|w| w.work_hours_start.as_deref()),
+                ws.and_then(|w| w.work_hours_end.as_deref()),
+                now,
+            ),
+            in_disconnection,
+            on_site: ws.is_some_and(|w| w.work_mode == Some(WorkMode::OnSite)),
+            location_cause_declared: ws
+                .and_then(|w| w.location_cause.as_deref())
+                .is_some_and(|c| !c.trim().is_empty()),
+        }
+    }
+}
+
 pub fn should_collect(
     category: Category,
     run_mode: &RunMode,
-    role_type: &str,
-    is_in_work_hours: bool,
+    gate: &CollectGate<'_>,
     locally_accepted: &ConsentFlags,
 ) -> bool {
     // DP-06: Zero collectors running outside RunMode::Collecting
@@ -90,13 +127,20 @@ pub fn should_collect(
         return false;
     }
 
-    // DP-04: Location only if role_type == FIELD and in work hours
-    if category == Category::Location && (role_type != "FIELD" || !is_in_work_hours) {
+    // DP-12: nothing during a remote/hybrid worker's disconnection window.
+    if gate.in_disconnection {
         return false;
     }
 
-    // DP-05: Screenshots only in work hours
-    if category == Category::ProductivityScreenshot && !is_in_work_hours {
+    // DP-04 (v3): location only for FIELD, in work hours, with a declared cause.
+    if category == Category::Location
+        && (gate.role_type != "FIELD" || !gate.in_work_hours || !gate.location_cause_declared)
+    {
+        return false;
+    }
+
+    // DP-05 (v3): screenshots only in work hours and never for REMOTE/HYBRID workers.
+    if category == Category::ProductivityScreenshot && (!gate.in_work_hours || !gate.on_site) {
         return false;
     }
 
@@ -179,23 +223,15 @@ pub fn handle_revocation(
     tracing::warn!("Worker revoked: wiped credentials, pinned keys, and purged queue (DP-09)");
 }
 
-/// Derives the run mode from `/workers/me`, also holding collection while a
-/// newer consent version than the one accepted on this device is pending.
+/// Derives the run mode from `/workers/me` (contract v3). A newer consent version than the one
+/// accepted on this device holds collection until decided; no tray means no collection (PROC-02).
 pub fn lifecycle_run_mode(
     me: &WorkerSelf,
     pinned_fp: &str,
     accepted_hash: Option<&str>,
+    tray_available: bool,
 ) -> RunMode {
-    let mode = derive_run_mode(me, pinned_fp, accepted_hash);
-    let outdated = me
-        .accepted_consent_version
-        .map_or(true, |v| v < me.consent_version);
-    if matches!(mode, RunMode::Collecting(_)) && outdated {
-        return RunMode::AwaitingConsent {
-            reason: AwaitingReason::NewVersionPending,
-        };
-    }
-    mode
+    derive_run_mode(me, pinned_fp, accepted_hash, tray_available)
 }
 
 /// How often `/workers/me` is polled (worker-app-spec: every 5 minutes).
@@ -275,6 +311,8 @@ pub struct BackgroundEngine {
     commands_tx: mpsc::UnboundedSender<EngineCommand>,
     state: watch::Sender<EngineSnapshot>,
     tray_available: Arc<std::sync::atomic::AtomicBool>,
+    /// Attendance module: pending marks are sent before a server revocation wipes the session.
+    attendance: Option<Arc<AttendanceService>>,
 }
 
 impl BackgroundEngine {
@@ -297,7 +335,13 @@ impl BackgroundEngine {
             commands_tx,
             state,
             tray_available: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            attendance: None,
         })
+    }
+
+    /// Connects the attendance module (RF-AGENT-12-10).
+    pub fn set_attendance(&mut self, attendance: Arc<AttendanceService>) {
+        self.attendance = Some(attendance);
     }
 
     pub fn set_tray_available(&self, available: bool) {
@@ -531,7 +575,15 @@ impl BackgroundEngine {
         }
 
         match me {
-            Ok(me) if me.status == WorkerStatus::Revoked => self.revoke(queue).await,
+            Ok(me) if me.status == WorkerStatus::Revoked => {
+                // The session still works: try to deliver pending marks before wiping
+                // (RF-AGENT-12-10). Whatever is left stays visible in the journal (ATT-04).
+                if let Some(attendance) = &self.attendance {
+                    let report = attendance.drain_pending().await;
+                    tracing::info!(sent = report.sent, "pending marks sent before revocation");
+                }
+                self.revoke(queue).await
+            }
             Ok(me) => {
                 let pinned = self.cred_store.get_pinned_fingerprint().unwrap_or_default();
                 let accepted = if self.cred_store.get_pending_withdrawal() {
@@ -539,7 +591,8 @@ impl BackgroundEngine {
                 } else {
                     self.cred_store.get_accepted_manifest_hash()
                 };
-                let mode = lifecycle_run_mode(&me, &pinned, accepted.as_deref());
+                let mode =
+                    lifecycle_run_mode(&me, &pinned, accepted.as_deref(), self.is_tray_available());
                 self.publish(mode, Some(me), false, withdrawal_error).await;
             }
             Err(SessionError::Revoked) => self.revoke(queue).await,
@@ -686,20 +739,11 @@ impl BackgroundEngine {
                     .unwrap_or_default();
 
                 let now = chrono::Local::now().time();
-                let in_work_hours = is_within_work_hours(
-                    ws.as_ref().and_then(|w| w.work_hours_start.as_deref()),
-                    ws.as_ref().and_then(|w| w.work_hours_end.as_deref()),
-                    now,
-                );
+                let gate = CollectGate::for_worker(ws.as_ref(), now);
 
                 // Check productivity collection (DP-06, DP-07)
-                let prod_enabled = should_collect(
-                    Category::ProductivityBasic,
-                    &mode,
-                    role,
-                    in_work_hours,
-                    &locally_accepted,
-                );
+                let prod_enabled =
+                    should_collect(Category::ProductivityBasic, &mode, &gate, &locally_accepted);
                 KeystrokeCollector::set_hook_enabled(prod_enabled);
                 if prod_enabled {
                     let prod = KeystrokeCollector::snapshot_and_reset();
@@ -707,51 +751,27 @@ impl BackgroundEngine {
                 }
 
                 // Check system collection (DP-06, DP-07)
-                if should_collect(
-                    Category::System,
-                    &mode,
-                    role,
-                    in_work_hours,
-                    &locally_accepted,
-                ) {
+                if should_collect(Category::System, &mode, &gate, &locally_accepted) {
                     let sys = sys_collector.collect();
                     collector_buffer.push(MetricPayload::System(sys));
                 }
 
                 // Check network collection (DP-02, DP-06, DP-07)
-                if should_collect(
-                    Category::Network,
-                    &mode,
-                    role,
-                    in_work_hours,
-                    &locally_accepted,
-                ) {
+                if should_collect(Category::Network, &mode, &gate, &locally_accepted) {
                     for item in net_collector.drain() {
                         collector_buffer.push(MetricPayload::Network(item));
                     }
                 }
 
                 // Check file metadata collection (DP-03, DP-06, DP-07)
-                if should_collect(
-                    Category::Files,
-                    &mode,
-                    role,
-                    in_work_hours,
-                    &locally_accepted,
-                ) {
+                if should_collect(Category::Files, &mode, &gate, &locally_accepted) {
                     for item in file_collector.drain() {
                         collector_buffer.push(MetricPayload::File(item));
                     }
                 }
 
                 // Check location collection (DP-04, DP-06, DP-07)
-                if should_collect(
-                    Category::Location,
-                    &mode,
-                    role,
-                    in_work_hours,
-                    &locally_accepted,
-                ) {
+                if should_collect(Category::Location, &mode, &gate, &locally_accepted) {
                     let start_t = ws
                         .as_ref()
                         .and_then(|w| w.work_hours_start.as_deref())
@@ -794,26 +814,17 @@ impl BackgroundEngine {
 
                 let mode = screenshot_run_mode.read().await.clone();
                 let ws = screenshot_worker_self.read().await.clone();
-                let role = ws
-                    .as_ref()
-                    .map(|w| w.role_type.as_str())
-                    .unwrap_or("OFFICE");
                 let locally_accepted = screenshot_cred_store
                     .get_accepted_flags()
                     .unwrap_or_default();
 
                 let now = chrono::Local::now().time();
-                let in_work_hours = is_within_work_hours(
-                    ws.as_ref().and_then(|w| w.work_hours_start.as_deref()),
-                    ws.as_ref().and_then(|w| w.work_hours_end.as_deref()),
-                    now,
-                );
+                let gate = CollectGate::for_worker(ws.as_ref(), now);
 
                 if should_collect(
                     Category::ProductivityScreenshot,
                     &mode,
-                    role,
-                    in_work_hours,
+                    &gate,
                     &locally_accepted,
                 ) {
                     if let Ok(Some(item)) = ScreenshotCollector::capture_primary() {
@@ -1167,8 +1178,7 @@ mod tests {
         assert!(should_collect(
             Category::System,
             &mode,
-            "OFFICE",
-            true,
+            &gate("OFFICE", true),
             &locally_accepted
         ));
 
@@ -1176,8 +1186,7 @@ mod tests {
         assert!(!should_collect(
             Category::ProductivityBasic,
             &mode,
-            "OFFICE",
-            true,
+            &gate("OFFICE", true),
             &locally_accepted
         ));
 
@@ -1185,8 +1194,7 @@ mod tests {
         assert!(!should_collect(
             Category::Location,
             &mode,
-            "OFFICE",
-            true,
+            &gate("OFFICE", true),
             &locally_accepted
         ));
     }
@@ -1224,7 +1232,7 @@ mod tests {
         for mode in non_collecting_modes {
             for cat in &categories {
                 assert!(
-                    !should_collect(*cat, &mode, "FIELD", true, &all_accepted),
+                    !should_collect(*cat, &mode, &gate("FIELD", true), &all_accepted),
                     "Mode {:?} must stop collector for {:?}",
                     mode,
                     cat
@@ -1279,7 +1287,7 @@ mod tests {
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": {
-                    "status": "PENDING_CONSENT", "consent_version": 1,
+                    "status": "ACTIVE", "consent_version": 1,
                     "accepted_consent_version": null,
                     "consent_flags": ConsentFlags::default()
                 }
@@ -1332,7 +1340,7 @@ mod tests {
                 "accepted": false, "consent_version": 2, "manifest_hash": "h"
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "status": "PENDING_CONSENT", "consent_version": 2,
+                "data": { "status": "ACTIVE", "consent_version": 2,
                           "accepted_consent_version": null, "consent_flags": ConsentFlags::default() }
             })))
             .expect(1)
@@ -1455,13 +1463,21 @@ mod tests {
         ));
     }
 
+    /// `GET /workers/me` v3 body. Telemetry is `ACCEPTED` when a version was accepted and
+    /// `PENDING_DECISION` otherwise; terms are accepted.
     fn me_json(status: &str, version: i32, accepted: Option<i32>, fp: &str) -> serde_json::Value {
         let flags = serde_json::json!({
             "system_activity": true, "network_activity": false, "productivity_basic": false,
             "productivity_screenshots": false, "file_activity": false, "location": false
         });
+        let telemetry_status = if accepted.is_some() {
+            "ACCEPTED"
+        } else {
+            "PENDING_DECISION"
+        };
         serde_json::json!({ "data": {
-            "id": "worker-1", "status": status, "role_type": "OFFICE",
+            "id": "worker-1", "status": status, "telemetry_status": telemetry_status,
+            "role_type": "OFFICE",
             "work_hours_start": "09:00:00", "work_hours_end": "18:00:00",
             "timezone": "America/Santiago",
             "consent_version": version, "accepted_consent_version": accepted,
@@ -1471,8 +1487,22 @@ mod tests {
                 "productivity_basic": null, "productivity_screenshots": null,
                 "file_activity": null, "location": null
             },
-            "admin_public_key_fingerprint": fp
+            "admin_public_key_fingerprint": fp,
+            "terms_accepted_version": "2026-10-11", "terms_required_version": "2026-10-11",
+            "work_mode": "ON_SITE", "art22_exempt": false, "schedule": null,
+            "location_at_mark": false, "location_cause": null, "disconnection": null
         }})
+    }
+
+    /// Gate of an on-site worker outside any disconnection window.
+    fn gate(role: &str, in_work_hours: bool) -> CollectGate<'_> {
+        CollectGate {
+            role_type: role,
+            in_work_hours,
+            in_disconnection: false,
+            on_site: true,
+            location_cause_declared: true,
+        }
     }
 
     fn test_engine(
@@ -1505,24 +1535,14 @@ mod tests {
             system_activity: true,
             ..Default::default()
         };
-        let me = WorkerSelf {
-            id: "w".into(),
-            status: WorkerStatus::Active,
-            role_type: "OFFICE".into(),
-            work_hours_start: None,
-            work_hours_end: None,
-            timezone: None,
-            consent_version: 2,
-            accepted_consent_version: Some(1),
-            consent_flags: flags,
-            requested_consent_flags: flags,
-            consent_descriptions: Default::default(),
-            admin_public_key_fingerprint: "fp".into(),
-            enrollment_completed_at: None,
-            ingestion_blocked_reason: None,
-        };
+        let mut me = crate::state::tests::worker_v3();
+        me.admin_public_key_fingerprint = "fp".into();
+        me.consent_flags = flags;
+        me.requested_consent_flags = flags;
+        me.consent_version = 2;
+        me.accepted_consent_version = Some(1);
         assert_eq!(
-            lifecycle_run_mode(&me, "fp", Some("hash")),
+            lifecycle_run_mode(&me, "fp", Some("hash"), true),
             RunMode::AwaitingConsent {
                 reason: AwaitingReason::NewVersionPending
             }
@@ -1532,7 +1552,7 @@ mod tests {
             ..me
         };
         assert_eq!(
-            lifecycle_run_mode(&current, "fp", Some("hash")),
+            lifecycle_run_mode(&current, "fp", Some("hash"), true),
             RunMode::Collecting(flags)
         );
     }
@@ -1632,7 +1652,7 @@ mod tests {
                 "accepted": false, "consent_version": 3, "manifest_hash": "accepted_hash"
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "status": "PENDING_CONSENT", "consent_version": 3,
+                "data": { "status": "ACTIVE", "consent_version": 3,
                           "accepted_consent_version": null,
                           "consent_flags": ConsentFlags::default() }
             })))
@@ -1642,7 +1662,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/workers/me"))
             .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
-                "PENDING_CONSENT",
+                "ACTIVE",
                 3,
                 None,
                 "pinned_fp",
@@ -1723,8 +1743,7 @@ mod tests {
             assert!(!should_collect(
                 category,
                 &mode,
-                "OFFICE",
-                true,
+                &gate("OFFICE", true),
                 &creds.get_accepted_flags().unwrap()
             ));
         }
@@ -1865,7 +1884,7 @@ mod tests {
             .and(path("/workers/me/consent"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": {
-                    "status": "PENDING_CONSENT",
+                    "status": "ACTIVE",
                     "consent_version": 1,
                     "accepted_consent_version": null,
                     "consent_flags": ConsentFlags::default()
@@ -1974,5 +1993,77 @@ mod tests {
             engine.state.borrow().last_error.is_some(),
             "last_error must be set"
         );
+    }
+
+    #[test]
+    fn test_gate_v3_disconnection_screenshots_and_location_cause() {
+        let all = ConsentFlags {
+            system_activity: true,
+            network_activity: true,
+            productivity_basic: true,
+            productivity_screenshots: true,
+            file_activity: true,
+            location: true,
+        };
+        let mode = RunMode::Collecting(all);
+        let at = |h, m| chrono::NaiveTime::from_hms_opt(h, m, 0).unwrap();
+
+        let mut me = crate::state::tests::worker_v3();
+        me.role_type = "FIELD".into();
+        me.work_hours_start = Some("08:00".into());
+        me.work_hours_end = Some("22:00".into());
+        me.location_cause = Some("Seguridad en terreno declarada por el empleador".into());
+        me.disconnection = Some(crate::state::DisconnectionWindow {
+            start: "20:00".into(),
+            end: "08:00".into(),
+        });
+
+        // On site, in hours, outside disconnection: everything allowed.
+        let g = CollectGate::for_worker(Some(&me), at(10, 0));
+        for cat in [
+            Category::System,
+            Category::ProductivityScreenshot,
+            Category::Location,
+        ] {
+            assert!(should_collect(cat, &mode, &g, &all), "{cat:?}");
+        }
+
+        // DP-12: inside the disconnection window nothing runs (even in "work hours").
+        let g = CollectGate::for_worker(Some(&me), at(21, 0));
+        assert!(g.in_disconnection);
+        for cat in [
+            Category::System,
+            Category::Network,
+            Category::ProductivityBasic,
+        ] {
+            assert!(!should_collect(cat, &mode, &g, &all), "{cat:?}");
+        }
+
+        // DP-05 v3: never screenshots for REMOTE/HYBRID (or unknown) workers.
+        for wm in [
+            Some(crate::state::WorkMode::Remote),
+            Some(crate::state::WorkMode::Hybrid),
+            Some(crate::state::WorkMode::Unknown),
+            None,
+        ] {
+            me.work_mode = wm;
+            let g = CollectGate::for_worker(Some(&me), at(10, 0));
+            assert!(!should_collect(
+                Category::ProductivityScreenshot,
+                &mode,
+                &g,
+                &all
+            ));
+            assert!(should_collect(Category::System, &mode, &g, &all));
+        }
+
+        // DP-04 v3: telemetry location needs a declared cause.
+        me.work_mode = Some(crate::state::WorkMode::OnSite);
+        me.location_cause = Some("   ".into());
+        let g = CollectGate::for_worker(Some(&me), at(10, 0));
+        assert!(!should_collect(Category::Location, &mode, &g, &all));
+        me.location_cause = None;
+        let g = CollectGate::for_worker(Some(&me), at(10, 0));
+        assert!(!should_collect(Category::Location, &mode, &g, &all));
     }
 }

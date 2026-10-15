@@ -1,5 +1,14 @@
 use std::path::Path;
 
+include!("build_support/placeholders.rs");
+
+/// Legal texts embedded by `src/legal.rs` (LEG-04). A release build fails while they still contain
+/// owner placeholders (LEG-06).
+const LEGAL_TEXTS: [&str; 2] = [
+    "../docs/legal/terminos-trabajador.md",
+    "../docs/legal/politica-privacidad.md",
+];
+
 /// Server URL the agent is built for. The agent only talks to the owner's server, so the URL is
 /// fixed at compile time (from the `TELEMETRY_API_URL` environment variable or `agent/.env`) and
 /// never asked to the worker.
@@ -37,6 +46,31 @@ fn main() {
         panic!("{API_URL_KEY} must start with https:// in release builds (got {url})");
     }
     println!("cargo:rustc-env={API_URL_KEY}={url}");
+
+    check_legal_texts(Path::new(&manifest_dir), release);
+}
+
+/// LEG-06: never ship legal texts with `[RUT]`-style placeholders of `docs/legal/README.md`.
+fn check_legal_texts(manifest_dir: &Path, release: bool) {
+    for relative in LEGAL_TEXTS {
+        let path = manifest_dir.join(relative);
+        println!("cargo:rerun-if-changed={}", path.display());
+        if !release {
+            continue;
+        }
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) => panic!("cannot read legal text {}: {e}", path.display()),
+        };
+        let placeholders = find_placeholders(&text);
+        if !placeholders.is_empty() {
+            panic!(
+                "LEG-06: {} still contains owner placeholders {:?}; complete docs/legal before a release build",
+                path.display(),
+                placeholders
+            );
+        }
+    }
 }
 
 /// Minimal `KEY=VALUE` reader for `.env` (comments with `#`, optional quotes). No dependency needed.

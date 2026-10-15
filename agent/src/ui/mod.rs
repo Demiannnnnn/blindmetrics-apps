@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_office_worker_cannot_enable_gps() {
-        use crate::background::worker::should_collect;
+        use crate::background::worker::{should_collect, CollectGate};
         use crate::state::RunMode;
         use telemetry_crypto_core::{Category, ConsentFlags};
 
@@ -94,17 +94,25 @@ mod tests {
         };
 
         let mode = RunMode::Collecting(all_true);
+        let gate = |role| CollectGate {
+            role_type: role,
+            in_work_hours: true,
+            in_disconnection: false,
+            on_site: true,
+            location_cause_declared: true,
+        };
 
         // For an OFFICE worker, location collection is ALWAYS false, even if requested and during work hours (DP-04)
         let can_collect_office =
-            should_collect(Category::Location, &mode, "OFFICE", true, &all_true);
+            should_collect(Category::Location, &mode, &gate("OFFICE"), &all_true);
         assert!(
             !can_collect_office,
             "OFFICE worker must never collect location"
         );
 
-        // For a FIELD worker during work hours with consent, it is allowed
-        let can_collect_field = should_collect(Category::Location, &mode, "FIELD", true, &all_true);
+        // For a FIELD worker during work hours with consent and a declared cause, it is allowed
+        let can_collect_field =
+            should_collect(Category::Location, &mode, &gate("FIELD"), &all_true);
         assert!(
             can_collect_field,
             "FIELD worker during work hours with consent collects location"

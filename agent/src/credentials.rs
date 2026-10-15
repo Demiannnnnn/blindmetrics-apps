@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
-use telemetry_crypto_core::ConsentFlags;
+use telemetry_crypto_core::{ConsentFlags, PinVerifier};
 
 pub const SERVICE_NAME: &str = "TelemetryWorker";
 
@@ -12,6 +12,12 @@ pub const KEY_WORKER_ID: &str = "worker_id";
 pub const KEY_ACCEPTED_MANIFEST_HASH: &str = "accepted_manifest_hash";
 pub const KEY_ACCEPTED_FLAGS: &str = "accepted_consent_flags";
 pub const KEY_PENDING_WITHDRAWAL: &str = "pending_withdrawal";
+/// Argon2id PIN verifier JSON (SEC-19). Never the PIN itself.
+pub const KEY_PIN_VERIFIER: &str = "pin_verifier";
+/// Worker terms version accepted on this device (LEG-05), so marking works on an offline start.
+pub const KEY_TERMS_ACCEPTED_VERSION: &str = "terms_accepted_version";
+/// `PIN_SET` / `PIN_CHANGED` event not yet delivered to `POST /workers/me/credential-events`.
+pub const KEY_PENDING_PIN_EVENT: &str = "pending_pin_event";
 
 /// Abstract secure credential storage trait to ensure isolation (SEC-05).
 /// Concrete implementations exist for OS Keystore and in-memory mock.
@@ -44,6 +50,17 @@ pub trait CredentialStore: Send + Sync {
         Ok(())
     }
 
+    /// PIN verifier stored in the keystore (SEC-19). A corrupt entry reads as `None`.
+    fn get_pin_verifier(&self) -> Option<PinVerifier>;
+    fn set_pin_verifier(&self, verifier: &PinVerifier) -> Result<(), String>;
+    fn clear_pin_verifier(&self) -> Result<(), String>;
+
+    fn get_terms_accepted_version(&self) -> Option<String>;
+    fn set_terms_accepted_version(&self, version: Option<&str>) -> Result<(), String>;
+
+    fn get_pending_pin_event(&self) -> Option<String>;
+    fn set_pending_pin_event(&self, event: Option<&str>) -> Result<(), String>;
+
     fn wipe(&self) -> Result<(), String> {
         self.set_access_token(None)?;
         self.set_refresh_token(None)?;
@@ -53,8 +70,20 @@ pub trait CredentialStore: Send + Sync {
         self.set_accepted_manifest_hash(None)?;
         self.set_accepted_flags(None)?;
         self.set_pending_withdrawal(false)?;
+        // Unlink/revocation also wipes the PIN verifier (domain.md §11).
+        self.clear_pin_verifier()?;
+        self.set_terms_accepted_version(None)?;
+        self.set_pending_pin_event(None)?;
         Ok(())
     }
+}
+
+fn verifier_to_json(verifier: &PinVerifier) -> Result<String, String> {
+    serde_json::to_string(verifier).map_err(|e| format!("Failed to encode PIN verifier: {e}"))
+}
+
+fn verifier_from_json(raw: &str) -> Option<PinVerifier> {
+    serde_json::from_str(raw).ok()
 }
 
 /// In-memory implementation of CredentialStore for testing and fallback environments.
@@ -163,6 +192,35 @@ impl CredentialStore for InMemoryCredentialStore {
             if pending { Some("true") } else { None },
         )
     }
+
+    fn get_pin_verifier(&self) -> Option<PinVerifier> {
+        self.get_val(KEY_PIN_VERIFIER)
+            .and_then(|s| verifier_from_json(&s))
+    }
+
+    fn set_pin_verifier(&self, verifier: &PinVerifier) -> Result<(), String> {
+        self.set_val(KEY_PIN_VERIFIER, Some(&verifier_to_json(verifier)?))
+    }
+
+    fn clear_pin_verifier(&self) -> Result<(), String> {
+        self.set_val(KEY_PIN_VERIFIER, None)
+    }
+
+    fn get_terms_accepted_version(&self) -> Option<String> {
+        self.get_val(KEY_TERMS_ACCEPTED_VERSION)
+    }
+
+    fn set_terms_accepted_version(&self, version: Option<&str>) -> Result<(), String> {
+        self.set_val(KEY_TERMS_ACCEPTED_VERSION, version)
+    }
+
+    fn get_pending_pin_event(&self) -> Option<String> {
+        self.get_val(KEY_PENDING_PIN_EVENT)
+    }
+
+    fn set_pending_pin_event(&self, event: Option<&str>) -> Result<(), String> {
+        self.set_val(KEY_PENDING_PIN_EVENT, event)
+    }
 }
 
 /// OS Native Keystore implementation backed by keyring (Apple Keychain / Windows Credential Manager / Secret Service).
@@ -265,6 +323,34 @@ impl CredentialStore for KeyringCredentialStore {
             if pending { Some("true") } else { None },
         )
     }
+
+    fn get_pin_verifier(&self) -> Option<PinVerifier> {
+        Self::get_entry(KEY_PIN_VERIFIER).and_then(|s| verifier_from_json(&s))
+    }
+
+    fn set_pin_verifier(&self, verifier: &PinVerifier) -> Result<(), String> {
+        Self::set_entry(KEY_PIN_VERIFIER, Some(&verifier_to_json(verifier)?))
+    }
+
+    fn clear_pin_verifier(&self) -> Result<(), String> {
+        Self::set_entry(KEY_PIN_VERIFIER, None)
+    }
+
+    fn get_terms_accepted_version(&self) -> Option<String> {
+        Self::get_entry(KEY_TERMS_ACCEPTED_VERSION)
+    }
+
+    fn set_terms_accepted_version(&self, version: Option<&str>) -> Result<(), String> {
+        Self::set_entry(KEY_TERMS_ACCEPTED_VERSION, version)
+    }
+
+    fn get_pending_pin_event(&self) -> Option<String> {
+        Self::get_entry(KEY_PENDING_PIN_EVENT)
+    }
+
+    fn set_pending_pin_event(&self, event: Option<&str>) -> Result<(), String> {
+        Self::set_entry(KEY_PENDING_PIN_EVENT, event)
+    }
 }
 
 #[cfg(test)]
@@ -297,5 +383,23 @@ mod tests {
         assert!(!disk_content.contains("secret_jwt_access_token_12345"));
         assert!(!disk_content.contains("secret_refresh_token_67890"));
         assert!(!disk_content.contains("pinned_admin_key_b64"));
+    }
+
+    #[test]
+    fn test_credentials_pin_verifier_roundtrip_and_wipe() {
+        let store = InMemoryCredentialStore::new();
+        assert!(store.get_pin_verifier().is_none());
+        let verifier = PinVerifier::create(&zeroize::Zeroizing::new("482916".to_string())).unwrap();
+        store.set_pin_verifier(&verifier).unwrap();
+        assert_eq!(store.get_pin_verifier(), Some(verifier));
+        store
+            .set_terms_accepted_version(Some("2026-10-11"))
+            .unwrap();
+        store.set_pending_pin_event(Some("PIN_SET")).unwrap();
+
+        store.wipe().unwrap();
+        assert!(store.get_pin_verifier().is_none());
+        assert!(store.get_terms_accepted_version().is_none());
+        assert!(store.get_pending_pin_event().is_none());
     }
 }

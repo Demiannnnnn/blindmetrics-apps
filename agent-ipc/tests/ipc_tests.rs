@@ -71,6 +71,15 @@ async fn test_ipc_handshake_success_and_call() {
                     device_identifier_short: "12345678".into(),
                     key_fingerprint: None,
                     is_enrolled: false,
+                    attendance_mode: Default::default(),
+                    terms_update_pending: false,
+                    attendance_today: None,
+                    pending_marks: 0,
+                    pending_corrections: 0,
+                    banners: Vec::new(),
+                    legal: Default::default(),
+                    work_mode: None,
+                    location_at_mark: false,
                 };
                 let reply = ServerFrame::Reply {
                     id,
@@ -216,6 +225,15 @@ async fn test_ipc_subscribe_events() {
             device_identifier_short: "12345678".into(),
             key_fingerprint: None,
             is_enrolled: true,
+            attendance_mode: Default::default(),
+            terms_update_pending: false,
+            attendance_today: None,
+            pending_marks: 0,
+            pending_corrections: 0,
+            banners: Vec::new(),
+            legal: Default::default(),
+            work_mode: None,
+            location_at_mark: false,
         };
         let ev = ServerFrame::Event(Event::Snapshot(Box::new(snapshot)));
         write_frame(&mut stream, &ev).await.unwrap();
@@ -263,6 +281,15 @@ async fn test_snapshot_no_secrets() {
         device_identifier_short: "12345678".into(),
         key_fingerprint: Some("0123456789abcdef".into()),
         is_enrolled: true,
+        attendance_mode: Default::default(),
+        terms_update_pending: false,
+        attendance_today: None,
+        pending_marks: 0,
+        pending_corrections: 0,
+        banners: Vec::new(),
+        legal: Default::default(),
+        work_mode: None,
+        location_at_mark: false,
     };
 
     let json = serde_json::to_string(&snapshot).unwrap();

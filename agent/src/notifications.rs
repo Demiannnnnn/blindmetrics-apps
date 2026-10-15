@@ -208,6 +208,25 @@ impl NotificationDispatcher {
         });
     }
 
+    /// Attendance notices of the service (spec §8). The caller builds the text; it never
+    /// contains the RUN, email, hash or location.
+    pub fn notify_attendance(summary: &str, body: &str) {
+        let summary = summary.to_string();
+        let body = body.to_string();
+        std::thread::spawn(move || {
+            let res = Notification::new()
+                .appname("Telemetry Worker")
+                .summary(&summary)
+                .body(&body)
+                .icon("dialog-information")
+                .timeout(notify_rust::Timeout::Milliseconds(8000))
+                .show();
+            if let Err(e) = res {
+                tracing::debug!("Notification suppressed or unavailable: {:?}", e);
+            }
+        });
+    }
+
     /// Prompts the user to click Salir again within 10s to confirm quit (RF-AGENT-10-9).
     pub fn notify_confirm_quit() {
         std::thread::spawn(|| {
