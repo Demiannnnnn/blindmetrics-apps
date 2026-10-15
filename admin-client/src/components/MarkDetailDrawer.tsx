@@ -16,18 +16,23 @@ import {
   formatHashBlocks,
   MARK_TYPE_LABELS,
   MARK_SOURCE_LABELS,
+  effectiveTs,
+  deviceTimeDiffers,
 } from '../lib/attendance';
 
 interface MarkDetailDrawerProps {
   mark: AttendanceMark | null;
   onClose: () => void;
   onProposeCorrection?: (mark: AttendanceMark) => void;
+  /** Worker's IANA time zone for display (defaults to America/Santiago). */
+  timezone?: string;
 }
 
 export const MarkDetailDrawer: React.FC<MarkDetailDrawerProps> = ({
   mark,
   onClose,
   onProposeCorrection,
+  timezone,
 }) => {
   const [copiedHash, setCopiedHash] = useState(false);
   const [copiedPrevHash, setCopiedPrevHash] = useState(false);
@@ -49,6 +54,10 @@ export const MarkDetailDrawer: React.FC<MarkDetailDrawerProps> = ({
     }
   };
 
+  const tz = timezone || 'America/Santiago';
+  // v3.1 (RF-ADMIN-17-1): the time that counts; the hash keeps using the canonical fields.
+  const effective = effectiveTs(mark);
+  const showDeviceTime = deviceTimeDiffers(mark);
   const isHashValid = mark.hash_verified === true;
   const isHashInvalid = mark.hash_verified === false;
 
@@ -86,24 +95,42 @@ export const MarkDetailDrawer: React.FC<MarkDetailDrawerProps> = ({
             </div>
 
             <div className="flex justify-between items-center">
-              <span className="text-xs text-muted">Sello de tiempo (Servidor oficial):</span>
+              <span className="text-xs text-muted">Hora de la marca:</span>
               <div className="text-right">
                 <span className="text-xs font-mono font-bold text-fg">
-                  {formatR38DateTime(mark.server_ts)}
+                  {formatR38DateTime(effective, tz)}
+                </span>
+                {(mark.offline || mark.source === 'CORRECTION') && (
+                  <span className="block text-[10px] text-muted">
+                    {mark.source === 'CORRECTION'
+                      ? 'Hora fijada por la corrección'
+                      : 'Hora del equipo al marcar sin conexión'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-muted">Registrada por el servidor:</span>
+              <div className="text-right">
+                <span className="text-xs font-mono text-fg">
+                  {formatR38DateTime(mark.server_ts, tz)}
                 </span>
                 <span className="block text-[10px] text-muted font-mono">{mark.server_ts}</span>
               </div>
             </div>
 
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-muted">Hora del equipo (Dispositivo):</span>
-              <div className="text-right">
-                <span className="text-xs font-mono text-fg">
-                  {formatR38DateTime(mark.device_ts)}
-                </span>
-                <span className="block text-[10px] text-muted font-mono">{mark.device_ts}</span>
+            {showDeviceTime && (
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted">Hora del equipo:</span>
+                <div className="text-right">
+                  <span className="text-xs font-mono text-fg">
+                    {formatR38DateTime(mark.device_ts, tz)}
+                  </span>
+                  <span className="block text-[10px] text-muted font-mono">{mark.device_ts}</span>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex justify-between items-center">
               <span className="text-xs text-muted">Transmisión:</span>

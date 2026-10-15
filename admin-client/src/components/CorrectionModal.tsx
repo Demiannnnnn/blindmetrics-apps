@@ -19,6 +19,7 @@ import {
   getDateStringInTimezone,
   validateCorrectionForm,
   describeCorrectionError,
+  effectiveTs,
 } from '../lib/attendance';
 import { describeError } from '../lib/errors';
 
@@ -67,8 +68,8 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
       setWorkerId(initialMark.worker_id);
       setMarkType(initialMark.type);
       try {
-        setDateStr(getDateStringInTimezone(initialMark.server_ts, effectiveTimezone));
-        setTimeStr(formatR38Time(initialMark.server_ts, effectiveTimezone));
+        setDateStr(getDateStringInTimezone(effectiveTs(initialMark), effectiveTimezone));
+        setTimeStr(formatR38Time(effectiveTs(initialMark), effectiveTimezone));
       } catch {
         setDateStr('');
         setTimeStr('09:00:00');
@@ -105,7 +106,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
     const validation = validateCorrectionForm({
       kind,
       originalMarkId: kind === 'MODIFY' ? initialMark?.id ?? null : null,
-      originalMarkTs: kind === 'MODIFY' ? initialMark?.server_ts ?? null : null,
+      originalMarkTs: kind === 'MODIFY' ? (initialMark ? effectiveTs(initialMark) : null) : null,
       markType,
       proposedTs: proposedIso,
       reason,
@@ -127,7 +128,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
       proposed_ts: proposedIso,
       reason: reason.trim(),
       confirm_no_harm: confirmNoHarm,
-      original_mark_ts: kind === 'MODIFY' ? initialMark?.server_ts ?? null : null,
+      original_mark_ts: kind === 'MODIFY' ? (initialMark ? effectiveTs(initialMark) : null) : null,
       timezone: effectiveTimezone,
     };
 
@@ -241,7 +242,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
                     {MARK_TYPE_LABELS[initialMark.type]}
                   </span>
                   <span className="text-muted">
-                    {formatR38DateTime(initialMark.server_ts)}
+                    {formatR38DateTime(effectiveTs(initialMark))}
                   </span>
                 </div>
               ) : (

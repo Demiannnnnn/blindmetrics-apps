@@ -1,10 +1,13 @@
-//! Attendance console commands: live board, days/marks, hash verification, and corrections (TASK-ADMIN-15).
+//! Attendance console commands: live board, days/marks, hash verification, corrections
+//! (TASK-ADMIN-15) and employer qualification of absences (TASK-ADMIN-17, contract v3.1).
 //!
 //! Enforces:
 //! * ATT-03: Local hash verification using `telemetry_crypto_core::attendance::mark_hash`.
 //! * ATT-05: Corrections only through the R38 art. 39-41 procedure (no deletion, reason 5-500, no harm to worker, from next business day).
 //! * ATT-09: No client-side recalculation of missing/extra time. Days range validated to <= 62 days in Rust.
 //! * BILL-04: All attendance GET endpoints are allowed while subscription is blocked.
+//! * R38 art. 27.1 / 28 g (v3.1): absences are qualified only by the employer, with the official
+//!   abbreviations; nothing is qualified by default. Writes answer `402/403` while blocked.
 
 use crate::client::{get_api_client, AdminApiClient, CollectionResponse};
 use crate::commands::CommandError;
@@ -80,6 +83,10 @@ pub struct AttendanceMark {
     pub corrected_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub superseded_by: Option<String>,
+    /// [v3.1] The time that counts (device time for offline/correction marks, else server time).
+    /// Display only: it is **not** part of the canonical hash (api-contract §9.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_ts: Option<String>,
     /// Locally computed verification of `hash` using `telemetry_crypto_core::attendance::mark_hash`.
     /// `Some(true)` if valid, `Some(false)` if mismatch or verification failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,8 +165,8 @@ pub struct AgreedDaySchedule {
     pub break_counts_as_work: bool,
 }
 
-/// Justification of an absence.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+/// Employer qualification of an absence (api-contract §9.4 v3.1, R38 art. 27.1).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AbsenceType {
     Justified,
@@ -181,6 +188,13 @@ pub struct DaySummary {
     pub absence: Option<AbsenceType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub absence_note: Option<String>,
+    /// Id of the qualified absence, when the server sends it (needed for
+    /// `DELETE /attendance/absences/:id`; not yet listed in api-contract §9.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absence_id: Option<String>,
+    /// R38 art. 28 abbreviation of the qualified absence, when the server sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absence_abbreviation: Option<String>,
     pub missing: String,
     pub extra: String,
     #[serde(default)]
@@ -281,6 +295,61 @@ pub struct AttendanceCorrectionsQuery {
     pub page: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub per_page: Option<usize>,
+}
+
+/// Official abbreviations of R38 art. 28 g (api-contract §9.4 v3.1). Any other value is rejected.
+pub const R38_ABBREVIATIONS: [&str; 14] = [
+    "A.I.", "A.J", "AT", "C.T.", "D.E.J.", "H.E.", "J.O.", "L.M.", "P.G.R", "PREN.", "P.S.G.R.",
+    "POSTN", "S.A", "VAC",
+];
+
+/// Maximum length of the absence note (api-contract §9.4 v3.1).
+pub const ABSENCE_NOTE_MAX_CHARS: usize = 300;
+
+/// Absence qualified by the employer (`PUT /attendance/absences` response, api-contract §9.4 v3.1).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Absence {
+    pub id: String,
+    pub worker_id: String,
+    pub date: String,
+    pub kind: AbsenceType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abbreviation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Form of `attendance_set_absence` (RF-ADMIN-17-2).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SetAbsenceInput {
+    pub worker_id: String,
+    /// Local date of the worker, `YYYY-MM-DD`.
+    pub date: String,
+    pub kind: AbsenceType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abbreviation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Worker's IANA time zone, only for the local "not in the future" check (never sent).
+    /// Defaults to `America/Santiago`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+}
+
+/// Exact body of `PUT /attendance/absences` (api-contract §9.4 v3.1).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct AbsenceRequest {
+    pub worker_id: String,
+    pub date: String,
+    pub kind: AbsenceType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abbreviation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 // ============================================================================
@@ -440,6 +509,78 @@ pub fn validate_correction_input_at(
 /// Validates correction form fields using current UTC time (RF-ADMIN-15-5).
 pub fn validate_correction_input(form: &ProposeCorrectionInput) -> Result<(), CommandError> {
     validate_correction_input_at(form, Utc::now())
+}
+
+/// Validates the absence form and builds the exact request body (RF-ADMIN-17-2), with `now`
+/// injected for tests: canonical worker UUID, `YYYY-MM-DD` date not in the future in the worker's
+/// time zone, abbreviation in the R38 art. 28 list (and not contradicting the kind: `A.I.` is
+/// only for unjustified, `A.J` only for justified), note ≤ 300 characters. Empty optional fields
+/// are omitted.
+pub fn validate_absence_input_at(
+    form: &SetAbsenceInput,
+    now: DateTime<Utc>,
+) -> Result<AbsenceRequest, CommandError> {
+    let worker_id = form.worker_id.trim();
+    if !is_canonical_uuid(worker_id) {
+        return Err(CommandError::validation(
+            "El ID del trabajador debe ser un UUID canónico.",
+        ));
+    }
+
+    let date = NaiveDate::parse_from_str(form.date.trim(), "%Y-%m-%d")
+        .map_err(|_| CommandError::validation("La fecha debe tener formato AAAA-MM-DD."))?;
+    let tz: Tz = form
+        .timezone
+        .as_deref()
+        .unwrap_or("America/Santiago")
+        .parse()
+        .unwrap_or(chrono_tz::America::Santiago);
+    if date > now.with_timezone(&tz).date_naive() {
+        return Err(CommandError::validation(
+            "No puedes calificar una ausencia en una fecha futura.",
+        ));
+    }
+
+    let abbreviation = match form.abbreviation.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(abbr) => {
+            if !R38_ABBREVIATIONS.contains(&abbr) {
+                return Err(CommandError::validation(
+                    "La abreviatura no está en la lista oficial de la Res. Ex. N°38 (art. 28).",
+                ));
+            }
+            let contradicts = matches!(
+                (form.kind, abbr),
+                (AbsenceType::Justified, "A.I.") | (AbsenceType::Unjustified, "A.J")
+            );
+            if contradicts {
+                return Err(CommandError::validation(
+                    "La abreviatura contradice la calificación elegida.",
+                ));
+            }
+            Some(abbr.to_string())
+        }
+    };
+
+    let note = match form.note.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(note) => {
+            if note.chars().count() > ABSENCE_NOTE_MAX_CHARS {
+                return Err(CommandError::validation(
+                    "La nota no puede superar los 300 caracteres.",
+                ));
+            }
+            Some(note.to_string())
+        }
+    };
+
+    Ok(AbsenceRequest {
+        worker_id: worker_id.to_string(),
+        date: date.format("%Y-%m-%d").to_string(),
+        kind: form.kind,
+        abbreviation,
+        note,
+    })
 }
 
 // ============================================================================
@@ -622,6 +763,37 @@ pub async fn attendance_withdraw_correction_with_client(
         .map_err(Into::into)
 }
 
+/// `PUT /attendance/absences` (RF-ADMIN-17-2): the employer qualifies an absence. Validated
+/// locally first; `402/403 SUBSCRIPTION_*` from the server is propagated like any console write.
+pub async fn attendance_set_absence_with_client(
+    client: &AdminApiClient,
+    form: SetAbsenceInput,
+    now: DateTime<Utc>,
+) -> Result<Absence, CommandError> {
+    let body = validate_absence_input_at(&form, now)?;
+    client
+        .put_json::<_, Absence>("/attendance/absences", &body)
+        .await
+        .map_err(Into::into)
+}
+
+/// `DELETE /attendance/absences/:id` (RF-ADMIN-17-2): removes the employer's qualification.
+pub async fn attendance_delete_absence_with_client(
+    client: &AdminApiClient,
+    id: &str,
+) -> Result<(), CommandError> {
+    let trimmed = id.trim();
+    if !is_canonical_uuid(trimmed) {
+        return Err(CommandError::validation(
+            "El ID de la ausencia debe ser un UUID canónico.",
+        ));
+    }
+    client
+        .delete(&format!("/attendance/absences/{}", trimmed))
+        .await
+        .map_err(Into::into)
+}
+
 // ============================================================================
 // Tauri Commands
 // ============================================================================
@@ -666,6 +838,16 @@ pub async fn attendance_withdraw_correction(id: String) -> Result<(), CommandErr
     attendance_withdraw_correction_with_client(get_api_client(), &id).await
 }
 
+#[tauri::command]
+pub async fn attendance_set_absence(form: SetAbsenceInput) -> Result<Absence, CommandError> {
+    attendance_set_absence_with_client(get_api_client(), form, Utc::now()).await
+}
+
+#[tauri::command]
+pub async fn attendance_delete_absence(id: String) -> Result<(), CommandError> {
+    attendance_delete_absence_with_client(get_api_client(), &id).await
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -673,7 +855,7 @@ pub async fn attendance_withdraw_correction(id: String) -> Result<(), CommandErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{header, method, path, query_param};
+    use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn make_test_client(server: &MockServer) -> AdminApiClient {
@@ -904,6 +1086,7 @@ mod tests {
             hash: "57c4cad20df41e012451c2841647daef7691fd333b1aaef5afb7fdad7666784e".to_string(),
             corrected_by: None,
             superseded_by: None,
+            effective_ts: None,
             hash_verified: None,
         };
 
@@ -1077,5 +1260,325 @@ mod tests {
         )
         .await;
         assert!(withdraw_res.is_ok());
+    }
+
+    // ------------------------------------------------------------------ TASK-ADMIN-17
+
+    const WORKER: &str = "01927d3b-65e1-7000-8000-0000000000aa";
+    const ABSENCE_ID: &str = "01927d3b-65e1-7000-8000-0000000000d1";
+
+    fn fixed_now() -> DateTime<Utc> {
+        // 2026-10-15 00:30 in Santiago (UTC-3) = 2026-10-15T03:30:00Z.
+        DateTime::parse_from_rfc3339("2026-10-15T03:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    fn absence_form() -> SetAbsenceInput {
+        SetAbsenceInput {
+            worker_id: WORKER.to_string(),
+            date: "2026-10-09".to_string(),
+            kind: AbsenceType::Justified,
+            abbreviation: Some("L.M.".to_string()),
+            note: Some("Licencia médica presentada el lunes".to_string()),
+            timezone: Some("America/Santiago".to_string()),
+        }
+    }
+
+    #[test]
+    fn test_attendance_mark_effective_ts_roundtrip_and_not_in_hash() {
+        let mut mark: AttendanceMark = serde_json::from_value(serde_json::json!({
+            "id": "01927d3b-65e1-7000-8000-000000000001",
+            "mark_id": "01927d3b-65e1-7000-8000-000000000001",
+            "worker_id": WORKER,
+            "worker_run": "12.345.678-5",
+            "employer_rut": "76.123.456-0",
+            "type": "WORKDAY_START",
+            "server_ts": "2026-10-11T08:59:58Z",
+            "device_ts": "2026-10-11T08:59:57Z",
+            "offline": false,
+            "source": "AGENT",
+            "workplace_id": "01927d3b-65e1-7000-8000-0000000000b1",
+            "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "57c4cad20df41e012451c2841647daef7691fd333b1aaef5afb7fdad7666784e",
+            "effective_ts": "2026-10-11T08:59:58Z"
+        }))
+        .unwrap();
+        assert_eq!(mark.effective_ts.as_deref(), Some("2026-10-11T08:59:58Z"));
+        // effective_ts is display-only: changing it never changes hash verification.
+        mark.effective_ts = Some("2020-01-01T00:00:00Z".to_string());
+        verify_mark(&mut mark);
+        assert_eq!(mark.hash_verified, Some(true));
+        let out = serde_json::to_value(&mark).unwrap();
+        assert_eq!(out["effective_ts"], "2020-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_validate_absence_input_builds_exact_body() {
+        let body = validate_absence_input_at(&absence_form(), fixed_now()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            serde_json::json!({
+                "worker_id": WORKER,
+                "date": "2026-10-09",
+                "kind": "JUSTIFIED",
+                "abbreviation": "L.M.",
+                "note": "Licencia médica presentada el lunes"
+            })
+        );
+
+        // Optional fields omitted when empty; timezone is never sent.
+        let mut form = absence_form();
+        form.kind = AbsenceType::Unjustified;
+        form.abbreviation = Some("  ".to_string());
+        form.note = None;
+        let body = validate_absence_input_at(&form, fixed_now()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            serde_json::json!({ "worker_id": WORKER, "date": "2026-10-09", "kind": "UNJUSTIFIED" })
+        );
+    }
+
+    #[test]
+    fn test_validate_absence_input_rejects_invalid_fields() {
+        let mut form = absence_form();
+        form.worker_id = "not-a-uuid".to_string();
+        assert!(validate_absence_input_at(&form, fixed_now())
+            .unwrap_err()
+            .message
+            .contains("UUID"));
+
+        let mut form = absence_form();
+        form.date = "09/10/2026".to_string();
+        assert!(validate_absence_input_at(&form, fixed_now())
+            .unwrap_err()
+            .message
+            .contains("AAAA-MM-DD"));
+
+        let mut form = absence_form();
+        form.abbreviation = Some("LM".to_string());
+        assert!(validate_absence_input_at(&form, fixed_now())
+            .unwrap_err()
+            .message
+            .contains("lista oficial"));
+
+        let mut form = absence_form();
+        form.abbreviation = Some("A.I.".to_string());
+        assert!(validate_absence_input_at(&form, fixed_now())
+            .unwrap_err()
+            .message
+            .contains("contradice"));
+
+        let mut form = absence_form();
+        form.kind = AbsenceType::Unjustified;
+        form.abbreviation = Some("A.J".to_string());
+        assert!(validate_absence_input_at(&form, fixed_now()).is_err());
+
+        let mut form = absence_form();
+        form.note = Some("x".repeat(301));
+        assert!(validate_absence_input_at(&form, fixed_now())
+            .unwrap_err()
+            .message
+            .contains("300"));
+        form.note = Some("ñ".repeat(300));
+        assert!(validate_absence_input_at(&form, fixed_now()).is_ok());
+
+        // The kind is a closed enum: anything else fails to deserialize.
+        let bad_kind = serde_json::from_value::<SetAbsenceInput>(serde_json::json!({
+            "worker_id": WORKER, "date": "2026-10-09", "kind": "MAYBE"
+        }));
+        assert!(bad_kind.is_err());
+    }
+
+    #[test]
+    fn test_validate_absence_input_future_date_uses_worker_timezone() {
+        // fixed_now is already 2026-10-15 in UTC and in Santiago (00:30): today is allowed.
+        let mut form = absence_form();
+        form.date = "2026-10-15".to_string();
+        assert!(validate_absence_input_at(&form, fixed_now()).is_ok());
+        form.date = "2026-10-16".to_string();
+        assert!(validate_absence_input_at(&form, fixed_now())
+            .unwrap_err()
+            .message
+            .contains("futura"));
+
+        // 2026-10-15T02:00:00Z is still 2026-10-14 23:00 in Santiago: the 15th is future there.
+        let late_night = DateTime::parse_from_rfc3339("2026-10-15T02:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        form.date = "2026-10-15".to_string();
+        assert!(validate_absence_input_at(&form, late_night).is_err());
+        form.timezone = Some("UTC".to_string());
+        assert!(validate_absence_input_at(&form, late_night).is_ok());
+    }
+
+    #[test]
+    fn test_r38_abbreviations_match_contract_list() {
+        assert_eq!(
+            R38_ABBREVIATIONS.join(" "),
+            "A.I. A.J AT C.T. D.E.J. H.E. J.O. L.M. P.G.R PREN. P.S.G.R. POSTN S.A VAC"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_attendance_set_absence_wiremock_exact_body() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+
+        Mock::given(method("PUT"))
+            .and(path("/attendance/absences"))
+            .and(header("Authorization", "Bearer test-admin-token"))
+            .and(body_json(serde_json::json!({
+                "worker_id": WORKER,
+                "date": "2026-10-09",
+                "kind": "JUSTIFIED",
+                "abbreviation": "L.M.",
+                "note": "Licencia médica presentada el lunes"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": ABSENCE_ID,
+                    "worker_id": WORKER,
+                    "date": "2026-10-09",
+                    "kind": "JUSTIFIED",
+                    "abbreviation": "L.M.",
+                    "note": "Licencia médica presentada el lunes"
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let absence = attendance_set_absence_with_client(&client, absence_form(), fixed_now())
+            .await
+            .unwrap();
+        assert_eq!(absence.id, ABSENCE_ID);
+        assert_eq!(absence.kind, AbsenceType::Justified);
+        assert_eq!(absence.abbreviation.as_deref(), Some("L.M."));
+    }
+
+    #[tokio::test]
+    async fn test_attendance_set_absence_invalid_form_makes_no_request() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+        Mock::given(method("PUT"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let mut form = absence_form();
+        form.abbreviation = Some("LICENCIA".to_string());
+        let err = attendance_set_absence_with_client(&client, form, fixed_now())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn test_attendance_set_absence_402_propagated() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+        Mock::given(method("PUT"))
+            .and(path("/attendance/absences"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "SUBSCRIPTION_SUSPENDED",
+                    "message": "Subscription suspended",
+                    "details": {
+                        "reason": "TRIAL_EXPIRED",
+                        "subscription_status": "SUSPENDED",
+                        "portal_url": "https://portal.example.cl/billing",
+                        "support_email": "soporte@example.cl"
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let err = attendance_set_absence_with_client(&client, absence_form(), fixed_now())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "SUBSCRIPTION_SUSPENDED");
+        assert_eq!(err.reason.as_deref(), Some("TRIAL_EXPIRED"));
+    }
+
+    #[tokio::test]
+    async fn test_attendance_delete_absence_wiremock() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+        Mock::given(method("DELETE"))
+            .and(path(format!("/attendance/absences/{ABSENCE_ID}")))
+            .and(header("Authorization", "Bearer test-admin-token"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        attendance_delete_absence_with_client(&client, ABSENCE_ID)
+            .await
+            .unwrap();
+
+        let err = attendance_delete_absence_with_client(&client, "../corrections")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn test_attendance_delete_absence_403_propagated() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+        Mock::given(method("DELETE"))
+            .and(path(format!("/attendance/absences/{ABSENCE_ID}")))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "SUBSCRIPTION_CANCELLED",
+                    "message": "Subscription cancelled",
+                    "details": { "subscription_status": "CANCELLED" }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let err = attendance_delete_absence_with_client(&client, ABSENCE_ID)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "SUBSCRIPTION_CANCELLED");
+    }
+
+    #[tokio::test]
+    async fn test_attendance_days_with_qualified_absence_and_effective_ts() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+        Mock::given(method("GET"))
+            .and(path("/attendance/days"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {
+                        "date": "2026-10-08",
+                        "agreed": { "start": "09:00:00", "end": "18:00:00", "break": "13:00:00-14:00:00", "break_counts_as_work": false },
+                        "marks": [], "attended": false, "absence": null, "absence_note": null,
+                        "missing": "-00:00:00", "extra": "+00:00:00", "anomalies": [], "altered": false
+                    },
+                    {
+                        "date": "2026-10-09",
+                        "agreed": { "start": "09:00:00", "end": "18:00:00", "break": "13:00:00-14:00:00", "break_counts_as_work": false },
+                        "marks": [], "attended": false, "absence": "JUSTIFIED", "absence_note": "Licencia médica",
+                        "missing": "-00:00:00", "extra": "+00:00:00", "anomalies": [], "altered": false
+                    }
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let days = attendance_days_with_client(&client, WORKER, "2026-10-08", "2026-10-09")
+            .await
+            .unwrap();
+        // Never qualified by default: an unqualified workday without marks stays `None`.
+        assert_eq!(days[0].absence, None);
+        assert_eq!(days[1].absence, Some(AbsenceType::Justified));
+        assert_eq!(days[1].absence_note.as_deref(), Some("Licencia médica"));
+        assert_eq!(days[1].absence_id, None);
     }
 }

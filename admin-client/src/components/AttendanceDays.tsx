@@ -10,24 +10,36 @@ import {
   User,
   WifiOff,
   History,
+  CalendarX,
+  BookOpen,
 } from 'lucide-react';
 import {
   WorkerItem,
   DaySummary,
   AttendanceMark,
+  Absence,
   attendanceDays,
   getWorkersList,
 } from '../api/tauri-bridge';
 import {
-  formatR38Date,
+  formatR38DayDate,
   formatR38Time,
   MARK_TYPE_SHORT,
   describeAnomaly,
+  effectiveTs,
+  effectiveLocalDate,
+  sortMarksByEffective,
+  describeDayStatus,
+  canQualifyAbsence,
+  abbreviationMeaning,
+  ABSENCE_KIND_LABELS,
+  R38_ABBREVIATIONS,
 } from '../lib/attendance';
 import { describeError } from '../lib/errors';
 import { MarkDetailDrawer } from './MarkDetailDrawer';
 import { CorrectionModal } from './CorrectionModal';
 import { CorrectionsList } from './CorrectionsList';
+import { AbsenceModal, AbsenceModalMode, CurrentAbsence } from './AbsenceModal';
 
 interface AttendanceDaysProps {
   initialWorkerId?: string;
@@ -59,6 +71,13 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
   const [selectedMark, setSelectedMark] = useState<AttendanceMark | null>(null);
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
   const [correctionTargetMark, setCorrectionTargetMark] = useState<AttendanceMark | null>(null);
+
+  // Absence qualification (RF-ADMIN-17-3). Absences saved in this session are kept by
+  // `worker:date` so their id/abbreviation are known even if the day summary does not carry them.
+  const [absenceTarget, setAbsenceTarget] = useState<
+    { day: DaySummary; mode: AbsenceModalMode } | null
+  >(null);
+  const [savedAbsences, setSavedAbsences] = useState<Record<string, Absence | null>>({});
 
   // Calculate dates from preset
   const computeDatesFromPreset = (preset: RangePreset) => {
@@ -130,6 +149,21 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
   }, [selectedWorkerId, fromDate, toDate]);
 
   const selectedWorker = workers.find(w => w.id === selectedWorkerId);
+  const dayTimezone = (day: DaySummary) =>
+    day.timezone || selectedWorker?.timezone || 'America/Santiago';
+
+  /** Current qualification of a day: the server summary, completed with this session's saves. */
+  const currentAbsence = (day: DaySummary): CurrentAbsence | null => {
+    if (!day.absence) return null;
+    const saved = savedAbsences[`${selectedWorkerId}:${day.date}`];
+    const fromSession = saved && saved.kind === day.absence ? saved : null;
+    return {
+      id: day.absence_id ?? fromSession?.id ?? null,
+      kind: day.absence,
+      abbreviation: day.absence_abbreviation ?? fromSession?.abbreviation ?? null,
+      note: day.absence_note ?? fromSession?.note ?? null,
+    };
+  };
 
   return (
     <div className="space-y-5">
@@ -301,9 +335,9 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
                     <tr key={day.date} className="hover:bg-surface-subtle/50 transition">
                       {/* Date */}
                       <td className="py-3 px-3 font-mono font-medium text-fg whitespace-nowrap">
-                        {formatR38Date(day.date)}
+                        {formatR38DayDate(day.date)}
                         <span className="block text-[10px] text-muted font-sans">
-                          {day.attended ? 'Asistió' : 'Ausente'}
+                          {describeDayStatus(day)}
                         </span>
                       </td>
 
@@ -329,9 +363,12 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
                           <span className="text-muted text-[11px] italic">Sin marcas</span>
                         ) : (
                           <div className="flex flex-wrap gap-1.5 items-center">
-                            {day.marks.map(mark => {
+                            {sortMarksByEffective(day.marks).map(mark => {
                               const shortLabel = MARK_TYPE_SHORT[mark.type] || mark.type;
-                              const timeStr = formatR38Time(mark.server_ts);
+                              // v3.1: the time that counts, in the worker's zone (RF-ADMIN-17-1).
+                              const tz = dayTimezone(day);
+                              const timeStr = formatR38Time(effectiveTs(mark), tz);
+                              const markDate = effectiveLocalDate(mark, tz);
                               const hasMismatch = mark.hash_verified === false;
 
                               return (
@@ -347,6 +384,14 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
                                 >
                                   <span className="font-bold">{shortLabel}</span>
                                   <span>{timeStr}</span>
+                                  {markDate && markDate !== day.date && (
+                                    <span
+                                      className="text-[10px] text-muted"
+                                      title="La hora efectiva de esta marca cae en otra fecha"
+                                    >
+                                      ({formatR38DayDate(markDate)})
+                                    </span>
+                                  )}
 
                                   {mark.offline && (
                                     <span
@@ -409,7 +454,28 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
                       </td>
 
                       {/* Anomalies / Observations in plain words */}
-                      <td className="py-3 px-3">
+                      <td className="py-3 px-3 space-y-1.5">
+                        {(() => {
+                          const absence = currentAbsence(day);
+                          if (!absence) return null;
+                          const meaning = abbreviationMeaning(absence.abbreviation);
+                          return (
+                            <div className="text-[11px] space-y-0.5">
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded-badge border font-medium ${
+                                  absence.kind === 'JUSTIFIED'
+                                    ? 'bg-info-subtle text-info border-info/30'
+                                    : 'bg-danger-subtle text-danger border-danger/30'
+                                }`}
+                              >
+                                {ABSENCE_KIND_LABELS[absence.kind]}
+                                {absence.abbreviation ? ` · ${absence.abbreviation}` : ''}
+                              </span>
+                              {meaning && <span className="block text-muted">{meaning}</span>}
+                              {absence.note && <span className="block text-muted">{absence.note}</span>}
+                            </div>
+                          );
+                        })()}
                         {day.anomalies.length > 0 ? (
                           <div className="space-y-0.5">
                             {day.anomalies.map((anom, idx) => (
@@ -425,8 +491,45 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
                           <span className="text-[11px] text-accent font-medium">
                             Jornada modificada
                           </span>
-                        ) : (
-                          <span className="text-muted text-[11px]">—</span>
+                        ) : !day.absence ? (
+                          <span className="text-muted text-[11px]">
+                            {day.marks.length === 0 && day.agreed ? 'Sin marcas' : '—'}
+                          </span>
+                        ) : null}
+
+                        {canQualifyAbsence(day, new Date(), dayTimezone(day)) && (
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {day.absence ? (
+                              <>
+                                <button
+                                  onClick={() => setAbsenceTarget({ day, mode: 'qualify' })}
+                                  className="px-2 py-0.5 text-[11px] font-semibold text-accent border border-default rounded-control hover:bg-surface-subtle transition"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  onClick={() => setAbsenceTarget({ day, mode: 'remove' })}
+                                  disabled={!currentAbsence(day)?.id}
+                                  title={
+                                    currentAbsence(day)?.id
+                                      ? undefined
+                                      : 'El servidor no informó el identificador de esta calificación; usa Editar para cambiarla.'
+                                  }
+                                  className="px-2 py-0.5 text-[11px] font-semibold text-danger border border-default rounded-control hover:bg-surface-subtle transition disabled:opacity-50"
+                                >
+                                  Quitar calificación
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setAbsenceTarget({ day, mode: 'qualify' })}
+                                className="px-2 py-0.5 text-[11px] font-semibold text-accent border border-default rounded-control hover:bg-surface-subtle transition flex items-center gap-1"
+                              >
+                                <CalendarX className="w-3 h-3" />
+                                Calificar ausencia
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -435,6 +538,26 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
               </table>
             </div>
           )}
+
+          {/* Abbreviations legend (R38 art. 28 g) */}
+          <div className="bg-surface border border-default rounded-card p-4 space-y-2">
+            <h4 className="text-xs font-bold text-fg flex items-center gap-1.5">
+              <BookOpen className="w-3.5 h-3.5 text-muted" />
+              Abreviaturas (Res. Ex. N°38, art. 28)
+            </h4>
+            <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-[11px]">
+              {R38_ABBREVIATIONS.map(a => (
+                <div key={a.code} className="flex gap-1.5">
+                  <dt className="font-mono font-semibold text-fg">{a.code}</dt>
+                  <dd className="text-muted">{a.meaning}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="text-[11px] text-muted">
+              Un día laboral sin marcas se muestra como "Sin marcas" hasta que tú califiques la
+              ausencia. El sistema nunca la califica por su cuenta.
+            </p>
+          </div>
         </>
       )}
 
@@ -449,6 +572,7 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
       {/* Mark Detail Drawer */}
       <MarkDetailDrawer
         mark={selectedMark}
+        timezone={selectedWorker?.timezone || undefined}
         onClose={() => setSelectedMark(null)}
         onProposeCorrection={mark => {
           setSelectedMark(null);
@@ -456,6 +580,23 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
           setShowCorrectionModal(true);
         }}
       />
+
+      {/* Absence qualification (RF-ADMIN-17-3) */}
+      {absenceTarget && selectedWorker && (
+        <AbsenceModal
+          isOpen
+          mode={absenceTarget.mode}
+          worker={{ id: selectedWorker.id, name: selectedWorker.name, timezone: dayTimezone(absenceTarget.day) }}
+          date={absenceTarget.day.date}
+          current={currentAbsence(absenceTarget.day)}
+          onClose={() => setAbsenceTarget(null)}
+          onSaved={absence => {
+            const key = `${selectedWorker.id}:${absenceTarget.day.date}`;
+            setSavedAbsences(prev => ({ ...prev, [key]: absence }));
+            loadDays();
+          }}
+        />
+      )}
 
       {/* Correction Modal */}
       <CorrectionModal

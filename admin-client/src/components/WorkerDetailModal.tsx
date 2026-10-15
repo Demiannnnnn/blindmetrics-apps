@@ -32,7 +32,15 @@ import {
   attendanceDays,
 } from '../api/tauri-bridge';
 import type { DaySummary } from '../api/types';
-import { formatR38Date, describeAnomaly } from '../lib/attendance';
+import {
+  formatR38DayDate,
+  formatR38Time,
+  describeAnomaly,
+  describeDayStatus,
+  effectiveTs,
+  sortMarksByEffective,
+  MARK_TYPE_SHORT,
+} from '../lib/attendance';
 import { STATUS_BADGES } from './EmployeeCard';
 import { ConsentEditor } from './ConsentEditor';
 import { ScheduleEditor } from './ScheduleEditor';
@@ -510,11 +518,26 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                             return (
                               <tr key={d.date} className="hover:bg-surface-subtle/40">
                                 <td className="py-2 px-3 font-medium text-fg">
-                                  {formatR38Date(d.date)}
+                                  {formatR38DayDate(d.date)}
                                 </td>
                                 <td className="py-2 px-3">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-mono text-fg">{d.marks.length}</span>
+                                    {d.marks.length === 0 ? (
+                                      <span className="font-mono text-fg">0</span>
+                                    ) : (
+                                      sortMarksByEffective(d.marks).map(m => (
+                                        <span
+                                          key={m.id}
+                                          className="px-1.5 py-0.5 bg-surface-subtle border border-default rounded-sm text-[10px] font-mono text-fg"
+                                        >
+                                          {MARK_TYPE_SHORT[m.type] || m.type}{' '}
+                                          {formatR38Time(
+                                            effectiveTs(m),
+                                            d.timezone || initial.timezone || 'America/Santiago',
+                                          )}
+                                        </span>
+                                      ))
+                                    )}
                                     {hasOffline && (
                                       <span className="px-1.5 py-0.2 bg-warning-subtle text-warning border border-warning/30 rounded text-[10px]">
                                         Sin conexión
@@ -536,7 +559,10 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                   {d.agreed ? `${d.agreed.start.slice(0, 5)} - ${d.agreed.end.slice(0, 5)}` : 'Libre'}
                                 </td>
                                 <td className="py-2 px-3 font-mono font-medium text-fg">
-                                  {d.attended ? 'Asistió' : 'Ausente'}
+                                  {describeDayStatus(d)}
+                                  {d.absence_abbreviation && (
+                                    <span className="text-muted"> · {d.absence_abbreviation}</span>
+                                  )}
                                 </td>
                                 <td className="py-2 px-3 font-mono text-[11px]">
                                   {d.missing && d.missing !== '-00:00:00' && (

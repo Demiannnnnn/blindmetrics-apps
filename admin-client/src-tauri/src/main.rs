@@ -8,8 +8,9 @@ pub mod keystore;
 
 use client::{get_api_client, ClientEvents, SubscriptionBlock};
 use commands::attendance::{
-    attendance_board, attendance_corrections, attendance_days, attendance_marks,
-    attendance_propose_correction, attendance_withdraw_correction,
+    attendance_board, attendance_corrections, attendance_days, attendance_delete_absence,
+    attendance_marks, attendance_propose_correction, attendance_set_absence,
+    attendance_withdraw_correction,
 };
 use commands::devices::{devices_list, devices_rename, devices_revoke};
 use commands::employer::{
@@ -140,6 +141,8 @@ fn main() {
             attendance_propose_correction,
             attendance_corrections,
             attendance_withdraw_correction,
+            attendance_set_absence,
+            attendance_delete_absence,
             attendance_report,
             attendance_export_report,
             attendance_print_report,
