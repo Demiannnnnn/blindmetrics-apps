@@ -9,7 +9,7 @@ pub fn find_placeholders(text: &str) -> Vec<String> {
     let mut rest = text;
     while let Some(open) = rest.find('[') {
         let after_open = &rest[open + 1..];
-        let close = after_open.find(|c: char| c == ']' || c == '[' || c == '\n');
+        let close = after_open.find([']', '[', '\n']);
         match close {
             Some(end) if after_open[end..].starts_with(']') => {
                 let inner = &after_open[..end];

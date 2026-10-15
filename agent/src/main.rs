@@ -196,16 +196,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 8. Initialize IPC server (RF-AGENT-10-1)
     let shutdown_notify = Arc::new(tokio::sync::Notify::new());
-    let ipc_server = Arc::new(ipc_server::IpcServer::new(
-        config.clone(),
-        cred_store.clone(),
-        buffer.clone(),
-        engine_handle.clone(),
-        runtime_dir.clone(),
-        tray_available_flag.clone(),
-        shutdown_notify.clone(),
-        attendance.clone(),
-    )?);
+    let ipc_server = Arc::new(ipc_server::IpcServer::new(ipc_server::IpcServerDeps {
+        config: config.clone(),
+        cred_store: cred_store.clone(),
+        buffer: buffer.clone(),
+        engine: engine_handle.clone(),
+        runtime_dir: runtime_dir.clone(),
+        tray_available: tray_available_flag.clone(),
+        shutdown_notify: shutdown_notify.clone(),
+        attendance: attendance.clone(),
+    })?);
 
     // 9. Spawn engine and IPC server on Tokio runtime
     let engine_task = rt.spawn(engine.run());

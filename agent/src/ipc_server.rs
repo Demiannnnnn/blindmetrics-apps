@@ -378,6 +378,18 @@ fn compute_category_states(
     }
 }
 
+/// Everything the IPC server is built from.
+pub struct IpcServerDeps {
+    pub config: WorkerConfig,
+    pub cred_store: Arc<dyn CredentialStore>,
+    pub buffer: Arc<MetricsBuffer>,
+    pub engine: EngineHandle,
+    pub runtime_dir: PathBuf,
+    pub tray_available: Arc<AtomicBool>,
+    pub shutdown_notify: Arc<Notify>,
+    pub attendance: Arc<AttendanceService>,
+}
+
 pub struct IpcServer {
     pub context: Arc<IpcServerContext>,
     pub runtime_dir: PathBuf,
@@ -385,16 +397,17 @@ pub struct IpcServer {
 }
 
 impl IpcServer {
-    pub fn new(
-        config: WorkerConfig,
-        cred_store: Arc<dyn CredentialStore>,
-        buffer: Arc<MetricsBuffer>,
-        engine: EngineHandle,
-        runtime_dir: PathBuf,
-        tray_available: Arc<AtomicBool>,
-        shutdown_notify: Arc<Notify>,
-        attendance: Arc<AttendanceService>,
-    ) -> std::io::Result<Self> {
+    pub fn new(deps: IpcServerDeps) -> std::io::Result<Self> {
+        let IpcServerDeps {
+            config,
+            cred_store,
+            buffer,
+            engine,
+            runtime_dir,
+            tray_available,
+            shutdown_notify,
+            attendance,
+        } = deps;
         let t_path = token_path(&runtime_dir);
         let token = write_ipc_token(&t_path)?;
 
@@ -1121,16 +1134,16 @@ mod tests {
         );
 
         let server = Arc::new(
-            IpcServer::new(
+            IpcServer::new(IpcServerDeps {
                 config,
-                cred_store.clone(),
+                cred_store: cred_store.clone(),
                 buffer,
-                engine_handle,
-                runtime_dir.clone(),
-                tray_available.clone(),
-                shutdown_notify.clone(),
+                engine: engine_handle,
+                runtime_dir: runtime_dir.clone(),
+                tray_available: tray_available.clone(),
+                shutdown_notify: shutdown_notify.clone(),
                 attendance,
-            )
+            })
             .expect("server new"),
         );
 
@@ -1259,16 +1272,16 @@ mod tests {
             engine_handle.state.clone(),
         );
         let server = Arc::new(
-            IpcServer::new(
+            IpcServer::new(IpcServerDeps {
                 config,
                 cred_store,
                 buffer,
-                engine_handle,
-                runtime_dir.clone(),
-                Arc::new(AtomicBool::new(true)),
-                Arc::new(Notify::new()),
+                engine: engine_handle,
+                runtime_dir: runtime_dir.clone(),
+                tray_available: Arc::new(AtomicBool::new(true)),
+                shutdown_notify: Arc::new(Notify::new()),
                 attendance,
-            )
+            })
             .expect("server new"),
         );
         let server_clone = server.clone();
@@ -1472,16 +1485,16 @@ mod tests {
         );
 
         let server = Arc::new(
-            IpcServer::new(
+            IpcServer::new(IpcServerDeps {
                 config,
                 cred_store,
                 buffer,
-                engine_handle,
-                runtime_dir.clone(),
-                Arc::new(AtomicBool::new(true)),
-                shutdown_notify.clone(),
+                engine: engine_handle,
+                runtime_dir: runtime_dir.clone(),
+                tray_available: Arc::new(AtomicBool::new(true)),
+                shutdown_notify: shutdown_notify.clone(),
                 attendance,
-            )
+            })
             .expect("server new"),
         );
 
@@ -1529,16 +1542,16 @@ mod tests {
         );
 
         let server = Arc::new(
-            IpcServer::new(
+            IpcServer::new(IpcServerDeps {
                 config,
                 cred_store,
                 buffer,
-                engine_handle,
-                runtime_dir.clone(),
-                Arc::new(AtomicBool::new(true)),
-                shutdown_notify.clone(),
+                engine: engine_handle,
+                runtime_dir: runtime_dir.clone(),
+                tray_available: Arc::new(AtomicBool::new(true)),
+                shutdown_notify: shutdown_notify.clone(),
                 attendance,
-            )
+            })
             .expect("server new"),
         );
 
