@@ -1261,8 +1261,14 @@ impl AttendanceService {
         types
     }
 
+    fn notice_shown(&self, date: NaiveDate, mark_type: MarkType) -> bool {
+        lock(&self.journal)
+            .notice_seen(&format!("missing:{date}:{mark_type:?}"))
+            .unwrap_or(false)
+    }
+
     /// Missing-mark and disconnection notices, each once per day (persisted keys).
-    pub fn check_reminders(&self, now: DateTime<Utc>) {
+    pub async fn check_reminders(&self, now: DateTime<Utc>) {
         if !matches!(self.mode(), AttendanceMode::Ready { .. }) {
             return;
         }
@@ -1270,8 +1276,14 @@ impl AttendanceService {
         let (date, time) = (local.date(), local.time());
 
         if let Some(agreed) = self.agreed_today(date) {
-            let marks = self.mark_types_on(date);
-            for (mark_type, at) in reminders::due_missing_marks(&agreed, &marks, time) {
+            let mut due = reminders::due_missing_marks(&agreed, &self.mark_types_on(date), time);
+            if due.iter().any(|(t, _)| !self.notice_shown(date, *t)) {
+                // Spec §10: refresh today at the agreed time + 30 min, so a mark made from
+                // another channel (portal) is seen before reminding.
+                let _ = self.refresh_today().await;
+                due = reminders::due_missing_marks(&agreed, &self.mark_types_on(date), time);
+            }
+            for (mark_type, at) in due {
                 let key = format!("missing:{date}:{mark_type:?}");
                 if lock(&self.journal).notice_once(&key, now).unwrap_or(false) {
                     self.notifier.notify(&AttendanceNotice::MissingMark {
@@ -1347,13 +1359,14 @@ impl AttendanceService {
                 && last_today.map_or(true, |t| (now - t).num_seconds() >= TODAY_REFRESH_SECS)
             {
                 let _ = self.refresh_today().await;
+                // Undelivered PIN events are retried at the same pace (not every tick).
+                self.retry_pin_events().await;
                 last_today = Some(now);
             }
             if self.retry_due(now) {
                 self.drain_pending().await;
             }
-            self.retry_pin_events().await;
-            self.check_reminders(now);
+            self.check_reminders(now).await;
             if last_retention.map_or(true, |t| (now - t).num_hours() >= 24) {
                 let _ = lock(&self.journal).enforce_retention(now);
                 last_retention = Some(now);

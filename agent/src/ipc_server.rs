@@ -1588,4 +1588,101 @@ mod tests {
         assert!(creds.get_accepted_manifest_hash().is_none());
         assert_eq!(queue.count().unwrap(), 0);
     }
+
+    #[tokio::test]
+    async fn test_ipc_attendance_ops_when_unlinked() {
+        let ts = start_test_server().await;
+        let client = IpcClient::connect(&ts.runtime_dir).await.expect("connect");
+
+        match client.call(Request::LegalDocuments).await.expect("call") {
+            Response::LegalDocuments { documents } => {
+                assert_eq!(documents.len(), 2);
+                assert_eq!(
+                    documents[0].document,
+                    agent_ipc::LegalDocumentKind::WorkerTerms
+                );
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let res = client
+            .call(Request::Mark {
+                r#type: agent_ipc::MarkType::WorkdayStart,
+                pin: agent_ipc::SecretPin::new("975318"),
+            })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ENROLLED"));
+        let res = client
+            .call(Request::SetPin {
+                pin: agent_ipc::SecretPin::new("975318"),
+            })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "NOT_ENROLLED"));
+        let res = client
+            .call(Request::Days {
+                from: "ayer".into(),
+                to: "hoy".into(),
+            })
+            .await
+            .expect("call");
+        assert!(matches!(res, Response::Error { ref code, .. } if code == "INVALID_INPUT"));
+
+        match client.call(Request::Snapshot).await.expect("call") {
+            Response::Snapshot { snapshot } => {
+                assert_eq!(snapshot.attendance_mode, AttendanceModeView::Unlinked);
+                assert_eq!(snapshot.pending_marks, 0);
+                assert!(snapshot.attendance_today.is_none());
+                assert!(snapshot.banners.is_empty());
+                assert_eq!(
+                    snapshot.legal.embedded_terms_version.as_deref(),
+                    Some("2026-10-11")
+                );
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        match client.call(Request::Diagnostics).await.expect("call") {
+            Response::Diagnostics { diagnostics } => assert_eq!(diagnostics.pending_marks, 0),
+            other => panic!("unexpected {other:?}"),
+        }
+
+        ts.server.context.shutdown_notify.notify_waiters();
+        let _ = ts.server_task.await;
+    }
+
+    #[test]
+    fn test_ipc_banners_follow_spec_priority() {
+        use crate::state::HaltReason;
+        let all = compute_banners(
+            true,
+            2,
+            1,
+            true,
+            &RunMode::Halted(HaltReason::KeyFingerprintMismatch),
+        );
+        assert_eq!(
+            all,
+            vec![
+                Banner::ServiceProblem,
+                Banner::PendingMarksOffline,
+                Banner::CorrectionToReview,
+                Banner::NewTermsVersion,
+                Banner::TelemetryNotice
+            ]
+        );
+        let mut sorted = all.clone();
+        sorted.sort();
+        assert_eq!(sorted, all, "enum order is the priority order");
+        assert!(compute_banners(false, 0, 0, false, &RunMode::NotRequested).is_empty());
+        assert!(compute_banners(
+            false,
+            0,
+            0,
+            false,
+            &RunMode::AwaitingConsent {
+                reason: AwaitingReason::TermsPending
+            }
+        )
+        .is_empty());
+    }
 }

@@ -1152,12 +1152,15 @@ async fn test_attendance_missing_start_notification_once_per_day() {
     let h = harness_with(Some(worker_with_schedule()), enrolled_creds(true), None).await;
     // 09:29 Santiago: too early.
     h.service
-        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 12, 12, 29, 0).unwrap());
+        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 12, 12, 29, 0).unwrap())
+        .await;
     assert!(h.notifier.taken().is_empty());
     // 09:31: due, shown once.
     let t = Utc.with_ymd_and_hms(2026, 10, 12, 12, 31, 0).unwrap();
-    h.service.check_reminders(t);
-    h.service.check_reminders(t + chrono::Duration::minutes(5));
+    h.service.check_reminders(t).await;
+    h.service
+        .check_reminders(t + chrono::Duration::minutes(5))
+        .await;
     assert_eq!(
         h.notifier.taken(),
         vec![AttendanceNotice::MissingMark {
@@ -1167,7 +1170,8 @@ async fn test_attendance_missing_start_notification_once_per_day() {
     );
     // Tuesday has no agreed schedule: nothing.
     h.service
-        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 13, 12, 31, 0).unwrap());
+        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 13, 12, 31, 0).unwrap())
+        .await;
     assert!(h.notifier.taken().is_empty());
 }
 
@@ -1187,7 +1191,8 @@ async fn test_attendance_no_missing_notice_when_marked_or_exempt() {
         .await
         .unwrap();
     h.service
-        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 12, 12, 31, 0).unwrap());
+        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 12, 12, 31, 0).unwrap())
+        .await;
     assert!(h
         .notifier
         .taken()
@@ -1198,7 +1203,8 @@ async fn test_attendance_no_missing_notice_when_marked_or_exempt() {
     exempt.art22_exempt = true;
     let h = harness_with(Some(exempt), enrolled_creds(true), None).await;
     h.service
-        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 12, 12, 31, 0).unwrap());
+        .check_reminders(Utc.with_ymd_and_hms(2026, 10, 12, 12, 31, 0).unwrap())
+        .await;
     assert!(h.notifier.taken().is_empty());
 }
 
@@ -1213,8 +1219,10 @@ async fn test_attendance_disconnection_notice_for_remote_workers_only() {
     let h = harness_with(Some(me.clone()), enrolled_creds(true), None).await;
     // 19:35 Santiago = 22:35Z.
     let t = Utc.with_ymd_and_hms(2026, 10, 12, 22, 35, 0).unwrap();
-    h.service.check_reminders(t);
-    h.service.check_reminders(t + chrono::Duration::minutes(10));
+    h.service.check_reminders(t).await;
+    h.service
+        .check_reminders(t + chrono::Duration::minutes(10))
+        .await;
     assert_eq!(
         h.notifier.taken(),
         vec![AttendanceNotice::DisconnectionSoon {
@@ -1224,7 +1232,7 @@ async fn test_attendance_disconnection_notice_for_remote_workers_only() {
 
     me.work_mode = Some(WorkMode::OnSite);
     let h = harness_with(Some(me), enrolled_creds(true), None).await;
-    h.service.check_reminders(t);
+    h.service.check_reminders(t).await;
     assert!(h.notifier.taken().is_empty());
 }
 
@@ -1250,7 +1258,7 @@ async fn test_attendance_background_tasks_never_post_a_mark() {
     for minutes in [0, 31, 60 * 5, 60 * 9 + 31] {
         h.clock
             .set(monday_9am() + chrono::Duration::minutes(minutes));
-        h.service.check_reminders(h.clock_now());
+        h.service.check_reminders(h.clock_now()).await;
         let _ = h.service.refresh_today().await;
         h.service.drain_pending().await;
         h.service.retry_pin_events().await;

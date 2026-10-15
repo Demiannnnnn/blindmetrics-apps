@@ -336,6 +336,16 @@ impl MarkJournal {
         Ok(())
     }
 
+    /// True when the notice key was already recorded.
+    pub fn notice_seen(&self, key: &str) -> SqlResult<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM attendance_notices WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
     /// Records a notice key; `true` only the first time (so it is shown once).
     pub fn notice_once(&self, key: &str, now: DateTime<Utc>) -> SqlResult<bool> {
         let inserted = self.conn.execute(

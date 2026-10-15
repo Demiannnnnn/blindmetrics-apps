@@ -361,6 +361,43 @@ mod tests {
     }
 
     #[test]
+    fn test_mark_request_wire_shape_is_strict() {
+        let req: crate::Request = serde_json::from_value(serde_json::json!({
+            "op": "MARK", "type": "BREAK_END", "pin": "482916"
+        }))
+        .unwrap();
+        match &req {
+            crate::Request::Mark { r#type, pin } => {
+                assert_eq!(*r#type, MarkType::BreakEnd);
+                assert_eq!(pin.expose().as_str(), "482916");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(!format!("{req:?}").contains("482916"));
+        assert!(serde_json::from_value::<crate::Request>(serde_json::json!({
+            "op": "MARK", "type": "BREAK_END", "pin": "482916", "extra": 1
+        }))
+        .is_err());
+        let change: crate::Request = serde_json::from_value(serde_json::json!({
+            "op": "CHANGE_PIN", "current": "482916", "new": "975318"
+        }))
+        .unwrap();
+        assert!(matches!(change, crate::Request::ChangePin { .. }));
+        let marks: crate::Request = serde_json::from_value(serde_json::json!({
+            "op": "MARKS", "from": "2026-10-01", "to": "2026-10-12"
+        }))
+        .unwrap();
+        assert_eq!(
+            marks,
+            crate::Request::Marks {
+                from: "2026-10-01".into(),
+                to: "2026-10-12".into(),
+                page: None
+            }
+        );
+    }
+
+    #[test]
     fn test_server_mark_parses_contract_shape() {
         let mark: ServerMark = serde_json::from_value(serde_json::json!({
             "id": "01927d3b-65e1-7000-8000-000000000001",

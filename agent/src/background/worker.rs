@@ -2066,4 +2066,73 @@ mod tests {
         let g = CollectGate::for_worker(Some(&me), at(10, 0));
         assert!(!should_collect(Category::Location, &mode, &g, &all));
     }
+
+    #[tokio::test]
+    async fn test_engine_revoked_status_sends_pending_marks_before_wipe() {
+        use agent_ipc::{MarkType, SecretPin};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/attendance/marks"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        let creds = enrolled_creds();
+        creds
+            .set_terms_accepted_version(Some("2026-10-11"))
+            .unwrap();
+        let verifier = telemetry_crypto_core::PinVerifier::create(&zeroize::Zeroizing::new(
+            "975318".to_string(),
+        ))
+        .unwrap();
+        creds.set_pin_verifier(&verifier).unwrap();
+        let (mut engine, _dir) = test_engine(&server.uri(), creds.clone());
+        let handle = engine.handle(tokio::runtime::Handle::current());
+        let attendance =
+            AttendanceService::for_tests(&server.uri(), creds.clone(), handle.state.clone());
+        engine.set_attendance(attendance.clone());
+
+        let rec = attendance
+            .mark(MarkType::WorkdayEnd, &SecretPin::new("975318"))
+            .await
+            .unwrap();
+        assert_eq!(rec.status, agent_ipc::LocalMarkStatus::Pending);
+
+        Mock::given(method("POST"))
+            .and(path("/attendance/marks"))
+            .and(wiremock::matchers::header("authorization", "Bearer access"))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(serde_json::json!({ "data": {
+                    "mark": {
+                        "id": "01927d3b-65e1-7000-8000-000000000009", "worker_id": "worker-1",
+                        "type": "WORKDAY_END", "server_ts": "2026-10-12T21:00:05Z",
+                        "device_ts": rec.device_ts, "offline": true, "source": "AGENT",
+                        "hash": "0".repeat(64), "prev_hash": "0".repeat(64)
+                    }
+                }})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/workers/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me_json(
+                "REVOKED",
+                1,
+                Some(1),
+                "pinned_fp",
+            )))
+            .mount(&server)
+            .await;
+
+        let mut queue = OfflineQueue::open_in_memory().unwrap();
+        engine.sync_lifecycle(&mut queue).await;
+
+        // RF-AGENT-12-10: delivered with the still-valid session, then everything was wiped.
+        assert_eq!(attendance.pending_counts(), (0, 0));
+        assert!(creds.get_access_token().is_none());
+        assert!(creds.get_pin_verifier().is_none());
+        assert!(engine.state.borrow().revoked);
+    }
 }
