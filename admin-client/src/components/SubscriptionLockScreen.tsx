@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { ExternalLink, Copy, Check, RefreshCw, LogOut } from 'lucide-react';
+import { ExternalLink, Copy, Check, RefreshCw, LogOut, FileText, ArrowLeft } from 'lucide-react';
 import type { SubscriptionStatus } from '../api/types';
 import { openBillingPortal } from '../api/tauri-bridge';
 import { describeError } from '../lib/errors';
-import { RECHECK_INTERVAL_MS, displayUrl, isSafePortalUrl, lockScreenCopy } from '../lib/subscription';
+import {
+  LOCK_ATTENDANCE_NOTICE,
+  RECHECK_INTERVAL_MS,
+  displayUrl,
+  isSafePortalUrl,
+  lockScreenCopy,
+} from '../lib/subscription';
+import { LegalReports } from './LegalReports';
 
 interface SubscriptionLockScreenProps {
   status: Pick<SubscriptionStatus, 'effective_status' | 'reason' | 'portal_url' | 'support_email'>;
@@ -14,11 +21,14 @@ interface SubscriptionLockScreenProps {
 /**
  * L2 — replaces the whole console while the subscription is suspended or cancelled
  * (TASK-ADMIN-12 = TASK-APP-01, BILL-02). Payment happens only in the web portal.
+ * *Ver reportes de asistencia* opens the legal reports read-only inside this layout, without the
+ * console rail (TASK-ADMIN-16, BILL-04).
  */
 export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({ status, onRecheck, onLogout }) => {
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showReports, setShowReports] = useState(false);
   const copy = lockScreenCopy(status.effective_status, status.reason);
   const portalOk = isSafePortalUrl(status.portal_url);
 
@@ -35,12 +45,14 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({ 
   };
 
   // RF-ADMIN-12-5: activation arrives through Flow's webhook; re-check every minute.
- useEffect(() => {
- const timer = setInterval(() => {
- onRecheck().catch(() => undefined);
- }, RECHECK_INTERVAL_MS);
- return () => clearInterval(timer);
- }, [onRecheck]);
+  // Paused while the reports are open: a re-check remounts the gates and would drop the preview.
+  useEffect(() => {
+    if (showReports) return;
+    const timer = setInterval(() => {
+      onRecheck().catch(() => undefined);
+    }, RECHECK_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [onRecheck, showReports]);
 
  const openPortal = async () => {
  setError(null);
@@ -57,6 +69,30 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({ 
  setCopied(true);
  setTimeout(() => setCopied(false), 2000);
  };
+
+ if (showReports) {
+ return (
+ <div className="h-screen bg-bg flex flex-col text-fg">
+ <header className="no-print bg-ink border-b border-ink-line px-6 py-3 flex items-center justify-between gap-4 shrink-0">
+ <div className="flex items-center gap-3 min-w-0">
+ <button
+ type="button"
+ onClick={() => setShowReports(false)}
+ className="px-3 py-1.5 bg-ink-raised hover:bg-ink-line text-ink-fg border border-ink-line rounded-control text-xs flex items-center gap-1.5"
+ >
+ <ArrowLeft className="w-3.5 h-3.5" />
+ Volver
+ </button>
+ <span className="text-sm font-semibold text-ink-fg">Telemetry</span>
+ </div>
+ <p className="text-[11px] text-ink-muted text-right">{LOCK_ATTENDANCE_NOTICE}</p>
+ </header>
+ <main className="flex-1 overflow-y-auto p-6">
+ <LegalReports readOnly />
+ </main>
+ </div>
+ );
+ }
 
  return (
  <div className="min-h-screen bg-bg flex items-center justify-center p-4 text-fg">
@@ -93,8 +129,20 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({ 
  </p>
  )}
 
+ <div className="space-y-2 pt-2 border-t border-default">
+ <p className="text-sm text-fg">{LOCK_ATTENDANCE_NOTICE}</p>
+ <button
+ type="button"
+ onClick={() => setShowReports(true)}
+ className="w-full py-2 bg-surface border border-default hover:bg-surface-subtle text-fg text-xs rounded-control flex items-center justify-center gap-1.5"
+ >
+ <FileText className="w-3.5 h-3.5" />
+ Ver reportes de asistencia
+ </button>
+ </div>
+
  <p className="text-[11px] text-muted">
- Mientras tanto tus trabajadores dejan de enviar datos; lo ya recibido se conserva cifrado.
+ Mientras tanto tus trabajadores dejan de enviar datos de telemetría; lo ya recibido se conserva cifrado.
  </p>
 
  {error && <p className="text-xs text-danger">{error}</p>}

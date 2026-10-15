@@ -749,6 +749,7 @@ impl AdminApiClient {
         endpoint: &str,
         body: Option<&serde_json::Value>,
         token: &str,
+        timeout: Option<Duration>,
     ) -> Result<reqwest::Response, ApiError> {
         let mut req = self
             .http
@@ -757,6 +758,9 @@ impl AdminApiClient {
             .bearer_auth(token);
         if let Some(b) = body {
             req = req.json(b);
+        }
+        if let Some(t) = timeout {
+            req = req.timeout(t);
         }
         req.send().await.map_err(ApiError::network)
     }
@@ -769,6 +773,19 @@ impl AdminApiClient {
         endpoint: &str,
         body: Option<serde_json::Value>,
     ) -> Result<reqwest::Response, ApiError> {
+        self.send_with_auth_timeout(method, endpoint, body, None)
+            .await
+    }
+
+    /// Same as [`AdminApiClient::send_with_auth`] with a per-request `timeout` that replaces
+    /// the client default (used by server-generated report exports, TASK-ADMIN-16).
+    pub async fn send_with_auth_timeout(
+        &self,
+        method: Method,
+        endpoint: &str,
+        body: Option<serde_json::Value>,
+        timeout: Option<Duration>,
+    ) -> Result<reqwest::Response, ApiError> {
         let Some(token) = self.current_access_token() else {
             return Err(ApiError::local(
                 "NOT_AUTHENTICATED",
@@ -776,7 +793,7 @@ impl AdminApiClient {
             ));
         };
         let resp = self
-            .send_once(&method, endpoint, body.as_ref(), &token)
+            .send_once(&method, endpoint, body.as_ref(), &token, timeout)
             .await?;
         let resp = if resp.status() == StatusCode::UNAUTHORIZED {
             let err = ApiError::from_response(resp).await;
@@ -786,7 +803,7 @@ impl AdminApiClient {
             }
             let fresh = self.refresh_after_401(&token).await?;
             let retry = self
-                .send_once(&method, endpoint, body.as_ref(), &fresh)
+                .send_once(&method, endpoint, body.as_ref(), &fresh, timeout)
                 .await?;
             if retry.status() == StatusCode::UNAUTHORIZED {
                 let err = ApiError::from_response(retry).await;

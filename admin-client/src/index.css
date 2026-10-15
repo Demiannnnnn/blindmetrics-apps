@@ -157,3 +157,76 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Legal reports print styles (TASK-ADMIN-16, R38 art. 28): only the report preview is printed,
+ * Arial-equivalent sans at 8 pt, tables fitted to the sheet with wrapping columns.
+ * *Imprimir* in the app uses the server PDF; these rules cover the WebView's own print.
+ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  html,
+  body,
+  *:has(.report-print-area) {
+    overflow: visible !important;
+    height: auto !important;
+    background: #ffffff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .report-print-area,
+  .report-print-area * {
+    visibility: visible;
+  }
+  .report-print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .report-preview,
+  .report-preview * {
+    font-family: Arial, 'Liberation Sans', Helvetica, sans-serif !important;
+    font-size: 8pt !important;
+    line-height: 1.25 !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+  }
+  .report-preview .report-section,
+  .report-preview .report-legend {
+    border: 0 !important;
+    padding: 0 0 6pt 0 !important;
+    background: #ffffff !important;
+  }
+  .report-preview table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+  }
+  .report-preview thead {
+    display: table-header-group;
+  }
+  .report-preview tr {
+    break-inside: avoid;
+  }
+  .report-preview th,
+  .report-preview td {
+    border: 0.5pt solid #000000 !important;
+    padding: 1pt 2pt !important;
+    overflow-wrap: anywhere;
+    background: #ffffff !important;
+  }
+  .report-preview td.report-altered {
+    font-weight: 700 !important;
+    text-decoration: underline;
+  }
+}
