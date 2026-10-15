@@ -299,6 +299,7 @@ schedule changes) answer `402`/`403 SUBSCRIPTION_*` like the rest of the console
 "AGENT" | "PORTAL" | "CORRECTION"
 // Mark
 { "id": "uuid", "client_mark_id": "uuid-v7" | null, "worker_id": "uuid", "type": "WORKDAY_START",
+  "worker_run": "12345678-5", "employer_rut": "76123456-0",   // [v3.2] hashed fields: always present so the agent can recompute the hash
   "server_ts": "2026-10-11T12:00:05Z", "device_ts": "2026-10-11T12:00:04Z", "offline": false,
   "source": "AGENT", "identification": "DEVICE_PIN",
   "workplace": { "id": "uuid", "name": "Casa matriz", "address": "Av. Apoquindo 1234, piso 5, of. 501, Las Condes, Santiago, Región Metropolitana" },
@@ -330,8 +331,9 @@ ahead of server time), `OFFLINE_MARK_TOO_OLD` (> 30 days)); `403 ATTENDANCE_EXEM
 
 ### 9.3 Hash
 
-As in `security-model.md` §9.3. The response `mark` carries every field of the canonical form; the
-agent recomputes it. Test vector (shared with `telemetry-api`): `telemetry-crypto-core/tests/vectors/attendance-mark-v1.json`.
+As in `security-model.md` §9.3. The response `mark` carries **every** field of the canonical form
+(including `worker_run` and `employer_rut`, [v3.2]); the agent recomputes it — a missing hashed field
+shows as `HASH_MISMATCH` on the worker's receipt. Test vector (shared with `telemetry-api`): `telemetry-crypto-core/tests/vectors/attendance-mark-v1.json`.
 
 ### 9.4 Admin side
 
@@ -352,6 +354,9 @@ agent recomputes it. Test vector (shared with `telemetry-api`): `telemetry-crypt
 | **[v3.1]** `GET /attendance/verify/:hash` (public) | R38 art. 8 receipt check: `{ valid, type, effective_date, effective_time, employer_legal_name, workplace_name, offline, corrected }` or `404`. Used by the web portal. |
 
 ```jsonc
+// Absence ([v3.2]; PUT /attendance/absences response)
+{ "id": "uuid", "worker_id": "uuid", "date": "2026-10-09", "kind": "JUSTIFIED" | "UNJUSTIFIED",
+  "abbreviation": "A.J" | null, "note": "…" | null, "created_at", "updated_at" }
 // Correction
 { "id", "worker_id", "kind": "MODIFY", "original_mark": Mark | null, "type", "proposed_ts",
   "reason", "status": "PENDING" | "ACCEPTED" | "OPPOSED" | "CONSOLIDATED" | "WITHDRAWN",
@@ -363,6 +368,7 @@ agent recomputes it. Test vector (shared with `telemetry-api`): `telemetry-crypt
 ```jsonc
 { "date": "2026-10-09", "agreed": { "start": "09:00:00", "end": "18:00:00", "break": "13:00:00-14:00:00", "break_counts_as_work": false } | null,
   "marks": [Mark], "attended": true, "absence": null | "JUSTIFIED" | "UNJUSTIFIED", "absence_note": null,
+  "absence_id": null | "uuid", "absence_abbreviation": null | "A.J",   // [v3.2] needed to edit/remove a qualification
   "missing": "-00:12:30", "extra": "+00:40:00", "anomalies": ["BREAK_WITHOUT_END"], "altered": false }
 ```
 
@@ -416,6 +422,8 @@ regions).
 
 ## 12. [v3] Worker lifecycle and telemetry state
 
+- **[v3.2]** `GET /workers/me` also returns the worker's own `personal_email` (used by the agent for
+  receipts and PIN-reset texts, shown masked). Only to the worker themself.
 - `status` ∈ `PENDING_ENROLLMENT` | `PENDING_TERMS` | `ACTIVE` | `REVOKED` (v2 `PENDING_CONSENT` →
   `PENDING_TERMS`; v2 `PAUSED` → `telemetry_status: PAUSED`).
 - `telemetry_status` ∈ `NOT_REQUESTED` | `PENDING_DECISION` | `ACCEPTED` | `DECLINED` | `PAUSED`.
