@@ -46,3 +46,7 @@ export function trialBannerText(daysLeft: number): string {
   if (daysLeft <= 0) return 'Tu período de prueba termina hoy.';
   return daysLeft === 1 ? 'Te queda 1 día de prueba.' : `Te quedan ${daysLeft} días de prueba.`;
 }
+
+/** L2 notice next to *Ver reportes de asistencia* (RF-ADMIN-16-6, ATT-02, BILL-04). */
+export const LOCK_ATTENDANCE_NOTICE =
+  'Tus trabajadores siguen pudiendo marcar asistencia. La telemetría está detenida.';

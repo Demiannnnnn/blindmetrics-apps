@@ -45,6 +45,11 @@ import type {
   ProposeCorrectionInput,
   Correction,
   AttendanceCorrectionsQuery,
+  ExportFormat,
+  LegalReport,
+  PrintedReport,
+  ReportFilters,
+  ReportKind,
 } from './types';
 
 export * from './types';
@@ -1419,4 +1424,54 @@ export async function attendanceWithdrawCorrection(id: string): Promise<void> {
   return requireTauri('attendance_withdraw_correction');
 }
 
+// ---------------------------------------------------------------- legal reports (TASK-ADMIN-16)
+// Computed and exported by the server (api-contract §9.4); reachable while the subscription is
+// blocked (BILL-04). Files are written by Rust to Downloads; the WebView never picks a path.
 
+function demoReport(report: ReportKind): LegalReport {
+  return {
+    report,
+    generated_at: new Date().toISOString(),
+    employer: { legal_name: 'Empresa de demostración SpA', rut: '76.123.456-0' },
+    sections: [
+      {
+        worker: { name: 'Juan Pérez', run: '12.345.678-5', workplace: 'Casa matriz', job_title: 'Vendedor' },
+        header_notes: ['Datos de demostración'],
+        columns: ['Fecha', 'Asistencia', 'Ausencia', 'Observaciones'],
+        rows: [
+          ['05/10/26', 'Sí', '', ''],
+          ['06/10/26', { v: 'Sí', altered: true }, '', 'Marca corregida'],
+        ],
+        totals: [],
+      },
+    ],
+    abbreviations: [{ code: 'VAC', meaning: 'Vacaciones' }],
+  };
+}
+
+export async function attendanceReport(report: ReportKind, filters: ReportFilters): Promise<LegalReport> {
+  if (isTauri()) return await invoke<LegalReport>('attendance_report', { report, filters });
+  if (isDemoMode) return demoReport(report);
+  return requireTauri('attendance_report');
+}
+
+/** Saves the server file to Downloads (never overwrites) and returns its path. */
+export async function attendanceExportReport(
+  report: ReportKind,
+  filters: ReportFilters,
+  format: ExportFormat,
+): Promise<string> {
+  if (isTauri()) return await invoke<string>('attendance_export_report', { report, filters, format });
+  return requireTauri('attendance_export_report');
+}
+
+/** Downloads the PDF and opens it with the system viewer. */
+export async function attendancePrintReport(report: ReportKind, filters: ReportFilters): Promise<PrintedReport> {
+  if (isTauri()) return await invoke<PrintedReport>('attendance_print_report', { report, filters });
+  return requireTauri('attendance_print_report');
+}
+
+export async function openDownloadsFolder(): Promise<void> {
+  if (isTauri()) return await invoke<void>('open_downloads_folder');
+  return requireTauri('open_downloads_folder');
+}

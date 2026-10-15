@@ -39,6 +39,7 @@ import { AuthView } from './components/AuthView';
 import { Dashboard } from './components/Dashboard';
 import { AttendanceBoard } from './components/AttendanceBoard';
 import { AttendanceDays } from './components/AttendanceDays';
+import { LegalReports } from './components/LegalReports';
 import { ActivityChart } from './components/ActivityChart';
 import { NetworkExplorer } from './components/NetworkExplorer';
 import { ScreenshotGallery } from './components/ScreenshotGallery';
@@ -689,20 +690,7 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'attendance-reports' && (
-            <div className="max-w-2xl mx-auto p-12 bg-surface border border-default rounded-card text-center space-y-4 mt-12">
-              <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center mx-auto">
-                <FileText className="w-6 h-6" />
-              </div>
-              <h2 className="text-base font-bold text-fg">Reportes Legales (R38 arts. 25, 27, 28)</h2>
-              <p className="text-xs text-muted max-w-md mx-auto leading-relaxed">
-                Reportes oficiales de asistencia, jornada diaria, domingos y festivos, modificaciones de turnos e incidentes técnicos.
-              </p>
-              <div className="inline-block px-3 py-1 bg-surface-subtle border border-default rounded-full text-xs font-medium text-muted">
-                Disponible próximamente
-              </div>
-            </div>
-          )}
+          {activeTab === 'attendance-reports' && <LegalReports />}
 
           {activeTab === 'system' && (
             <ActivityChart

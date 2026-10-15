@@ -559,3 +559,75 @@ export interface AttendanceCorrectionsQuery {
 }
 
 
+
+// Legal reports (TASK-ADMIN-16, api-contract §9.4) — computed and exported by the server.
+
+export type ReportKind =
+  | 'attendance'
+  | 'daily-hours'
+  | 'sundays-holidays'
+  | 'shift-changes'
+  | 'incidents';
+
+export type ReportPeriod = 'last_week' | 'last_fortnight' | 'last_month';
+
+export type ExportFormat = 'xlsx' | 'pdf' | 'docx';
+
+/** R38 art. 25 filters. Exactly one of `period` or `from`/`to` (YYYY-MM-DD). */
+export interface ReportFilters {
+  worker_ids: string[];
+  search?: string;
+  period?: ReportPeriod;
+  from?: string;
+  to?: string;
+  journey_type?: JourneyType;
+  schedule_id?: string;
+  workplace_id?: string;
+  job_title?: string;
+  hash?: string;
+}
+
+export interface ReportEmployer {
+  legal_name: string;
+  rut: string;
+}
+
+export type ReportWorkplace = string | { name: string; address?: string | null };
+
+export interface ReportWorker {
+  name: string;
+  run?: string | null;
+  workplace?: ReportWorkplace | null;
+  job_title?: string | null;
+}
+
+/** A cell exactly as the server formatted it; altered values come flagged. */
+export type ReportCell = string | number | null | { v: string; altered: boolean };
+
+export interface ReportSection {
+  worker?: ReportWorker | null;
+  header_notes: string[];
+  columns: string[];
+  rows: ReportCell[][];
+  totals: ReportCell[][];
+}
+
+export interface ReportAbbreviation {
+  code: string;
+  meaning: string;
+}
+
+export interface LegalReport {
+  report: ReportKind;
+  generated_at: string;
+  employer: ReportEmployer;
+  sections: ReportSection[];
+  /** In the server's order. */
+  abbreviations: ReportAbbreviation[];
+  empty_message?: string | null;
+}
+
+export interface PrintedReport {
+  path: string;
+  opened: boolean;
+}
