@@ -13,6 +13,7 @@ import {
   canQualifyAbsence,
   validateAbsenceForm,
   ABSENCE_KIND_LABELS,
+  formatR38DayDate,
 } from '../src/lib/attendance.ts';
 
 const TZ = 'America/Santiago';
@@ -171,4 +172,9 @@ test('absences: form validation mirrors the command rules', () => {
   // "Injustificada" needs an explicit confirmation.
   assert.ok(validateAbsenceForm({ kind: 'UNJUSTIFIED', confirmUnjustified: false }).confirmUnjustified);
   assert.deepEqual(validateAbsenceForm({ kind: 'UNJUSTIFIED', abbreviation: 'A.I.', confirmUnjustified: true }), {});
+});
+
+test('effective_ts: a server day is shown as that same local date (no UTC shift)', () => {
+  assert.equal(formatR38DayDate('2026-10-09'), '09/10/26');
+  assert.equal(formatR38DayDate('2026-01-01'), '01/01/26');
 });

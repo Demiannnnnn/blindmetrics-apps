@@ -21,6 +21,8 @@ import {
   MARK_TYPE_SHORT,
   formatR38Time,
   describeAnomaly,
+  effectiveTs,
+  sortMarksByEffective,
 } from '../lib/attendance';
 import { describeError } from '../lib/errors';
 
@@ -293,7 +295,7 @@ export const AttendanceBoard: React.FC<AttendanceBoardProps> = ({
                       {worker.last_mark ? (
                         <div className="flex items-center gap-1.5 font-mono">
                           <span className="font-semibold text-fg">
-                            {formatR38Time(worker.last_mark.server_ts)}
+                            {formatR38Time(effectiveTs(worker.last_mark))}
                           </span>
                           <span className="text-[11px] text-muted font-sans">
                             ({MARK_TYPE_SHORT[worker.last_mark.type] || worker.last_mark.type})
@@ -315,12 +317,12 @@ export const AttendanceBoard: React.FC<AttendanceBoardProps> = ({
                         <span className="text-muted text-[11px]">0 marcas</span>
                       ) : (
                         <div className="flex flex-wrap gap-1 items-center">
-                          {worker.today_marks.map(m => (
+                          {sortMarksByEffective(worker.today_marks).map(m => (
                             <span
                               key={m.id}
                               className="px-1.5 py-0.5 bg-surface-subtle border border-default rounded-sm text-[10px] font-mono text-fg"
                             >
-                              {MARK_TYPE_SHORT[m.type] || m.type} {formatR38Time(m.server_ts).slice(0, 5)}
+                              {MARK_TYPE_SHORT[m.type] || m.type} {formatR38Time(effectiveTs(m)).slice(0, 5)}
                             </span>
                           ))}
                         </div>

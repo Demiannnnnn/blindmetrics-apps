@@ -31,6 +31,16 @@ export function formatR38Date(isoOrDate: string | Date, timezone = 'America/Sant
 }
 
 /**
+ * Formats a server day (`YYYY-MM-DD`, already the worker's local date) as dd/mm/aa without any
+ * time-zone conversion (parsing it as a UTC instant would show the previous day in Chile).
+ */
+export function formatR38DayDate(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day.trim());
+  if (!m) return formatR38Date(day);
+  return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+}
+
+/**
  * Formats a date in full year: dd/mm/yyyy.
  */
 export function formatR38DateFull(isoOrDate: string | Date, timezone = 'America/Santiago'): string {
