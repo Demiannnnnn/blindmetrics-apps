@@ -8,9 +8,15 @@ import { RecordsView } from '../views/RecordsView';
 import { TelemetryView } from '../views/TelemetryView';
 import { MyDataView } from '../views/MyDataView';
 import { SettingsView } from '../views/SettingsView';
+import { TermsView } from '../views/TermsView';
 
 export const Shell: React.FC = () => {
-  const { currentView } = useApp();
+  const { currentView, termsOverlay, setTermsOverlay } = useApp();
+
+  // T1 in update/review mode: non-blocking, the worker can go back and keep marking (ATT-02).
+  if (termsOverlay) {
+    return <TermsView mode={termsOverlay} onClose={() => setTermsOverlay(null)} />;
+  }
 
   const renderCurrentView = () => {
     switch (currentView) {

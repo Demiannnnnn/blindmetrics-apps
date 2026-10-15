@@ -6,6 +6,9 @@ import { VerificationView } from './views/VerificationView';
 import { TamperingAlertView } from './views/TamperingAlertView';
 import { RevokedView } from './views/RevokedView';
 import { Shell } from './components/Shell';
+import { TermsView } from './views/TermsView';
+import { PinSetupView } from './views/PinSetupView';
+import { screenForMode } from './lib/attendance';
 
 import { Modal } from './components/Modal';
 
@@ -35,7 +38,12 @@ export const AppContent: React.FC = () => {
       return <ServiceUnavailableView />;
     }
 
-    if (snapshot && !snapshot.is_enrolled) {
+    if (!snapshot) {
+      return <ServiceUnavailableView />;
+    }
+
+    const screen = screenForMode(snapshot);
+    if (screen === 'ENROLLMENT') {
       switch (enrollmentStep) {
         case 'link':
           return <EnrollmentView />;
@@ -50,6 +58,9 @@ export const AppContent: React.FC = () => {
       }
     }
 
+    // RF-AGENT-13-8: E1 → T1 → P1 → A. The rail (Shell) only appears after P1.
+    if (screen === 'TERMS') return <TermsView mode="initial" />;
+    if (screen === 'PIN') return <PinSetupView />;
     return <Shell />;
   };
 

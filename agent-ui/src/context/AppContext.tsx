@@ -5,6 +5,10 @@ import * as bridge from '../api/tauri-bridge';
 export type NavView = 'attendance' | 'records' | 'telemetry' | 'my-data' | 'settings';
 export type EnrollmentStep = 'link' | 'verify' | 'tamper' | 'revoked';
 export type TelemetryMode = 'view' | 'consent' | 'withdraw';
+/** T1 opened from the rail screens: `update` = new terms version (non-blocking), `review` = read again. */
+export type TermsOverlay = 'update' | 'review' | null;
+/** One-shot request to open a specific flow in Ajustes (e.g. "Olvidé mi PIN" from the mark dialog). */
+export type SettingsIntent = 'PIN_RESET' | null;
 
 interface AppContextType {
   serviceRunning: boolean;
@@ -17,6 +21,10 @@ interface AppContextType {
   error: string | null;
   pendingQuit: { nonce: string; expiresInSecs: number } | null;
   quitLoading: boolean;
+  termsOverlay: TermsOverlay;
+  settingsIntent: SettingsIntent;
+  setTermsOverlay: (overlay: TermsOverlay) => void;
+  setSettingsIntent: (intent: SettingsIntent) => void;
   setCurrentView: (view: NavView) => void;
   setTelemetryMode: (mode: TelemetryMode) => void;
   setEnrollmentStep: (step: EnrollmentStep, code?: string) => void;
@@ -40,8 +48,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [error, setError] = useState<string | null>(null);
   const [pendingQuit, setPendingQuit] = useState<{ nonce: string; expiresInSecs: number } | null>(null);
   const [quitLoading, setQuitLoading] = useState<boolean>(false);
+  const [termsOverlay, setTermsOverlay] = useState<TermsOverlay>(null);
+  const [settingsIntent, setSettingsIntent] = useState<SettingsIntent>(null);
 
-  const initialHintHandled = useRef<boolean>(false);
+  const lastHint = useRef<AppSnapshot['suggested_screen']>(null);
 
   const setEnrollmentStep = useCallback((step: EnrollmentStep, code?: string) => {
     setEnrollmentStepState(step);
@@ -53,17 +63,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setServiceRunning(true);
     setServiceLoading(false);
 
-    // RF-AGENT-11-6: tray -> window navigation hint
-    if (!initialHintHandled.current && snap.suggested_screen) {
-      initialHintHandled.current = true;
+    // RF-AGENT-11-6 / RF-AGENT-13-8: tray -> window navigation hint, applied when it changes.
+    // Opening A never marks anything (ATT-01): it only shows the screen.
+    if (snap.suggested_screen !== lastHint.current) {
+      lastHint.current = snap.suggested_screen;
       if (snap.suggested_screen === 'TELEMETRY') {
         setCurrentView('telemetry');
         setTelemetryMode('view');
       } else if (snap.suggested_screen === 'WITHDRAW') {
         setCurrentView('telemetry');
         setTelemetryMode('withdraw');
-      } else if (snap.suggested_screen === 'HOME') {
+      } else if (snap.suggested_screen === 'HOME' || snap.suggested_screen === 'ATTENDANCE') {
         setCurrentView('attendance');
+        setTermsOverlay(null);
       }
     }
   }, []);
@@ -184,6 +196,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         error,
         pendingQuit,
         quitLoading,
+        termsOverlay,
+        settingsIntent,
+        setTermsOverlay,
+        setSettingsIntent,
         setCurrentView,
         setTelemetryMode,
         setEnrollmentStep,
