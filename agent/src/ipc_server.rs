@@ -205,6 +205,7 @@ impl IpcServerContext {
             legal: attendance.legal,
             work_mode: attendance.work_mode,
             location_at_mark: attendance.location_at_mark,
+            personal_email: ws.and_then(|w| w.personal_email.clone()),
         }
     }
 

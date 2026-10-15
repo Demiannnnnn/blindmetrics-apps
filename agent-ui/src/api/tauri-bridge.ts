@@ -4,10 +4,17 @@ import type {
   AppSnapshot,
   CommandError,
   ConsentFlags,
+  Correction,
   DataDeletionDto,
   DataRequestDto,
+  DaySummary,
   DiagnosticsInfo,
+  LegalDocument,
+  MarkRecord,
+  MarksPage,
+  MarkType,
   ServiceStatusDto,
+  TodayView,
   VerificationResult,
   WindowScreenHint,
 } from './types';
@@ -69,7 +76,30 @@ let demoSnapshot: AppSnapshot = {
   device_identifier_short: 'demo1234',
   key_fingerprint: '3f9a21c08b7e45ad',
   is_enrolled: true,
+  // Attendance has no demo data (PLAT-02): its calls answer "unsupported" in demo mode.
+  attendance_mode: 'READY',
+  terms_update_pending: false,
+  attendance_today: null,
+  pending_marks: 0,
+  pending_corrections: 0,
+  banners: [],
+  legal: {
+    accepted_version: null,
+    required_version: null,
+    embedded_terms_version: null,
+    embedded_privacy_version: null,
+  },
+  work_mode: null,
+  location_at_mark: false,
+  personal_email: null,
 };
+
+function demoUnsupported(): never {
+  throw {
+    code: 'UNSUPPORTED',
+    message: 'No disponible en modo demostración.',
+  } as CommandError;
+}
 
 export async function serviceStatus(): Promise<ServiceStatusDto> {
   if (isDemo) {
@@ -251,4 +281,88 @@ export async function listenSnapshot(
   return listen<AppSnapshot>('snapshot', (event) => {
     callback(event.payload);
   });
+}
+
+// ---- Attendance, terms and PIN (TASK-AGENT-13). The PIN is passed through once and never stored.
+
+export async function legalDocuments(): Promise<LegalDocument[]> {
+  if (isDemo) demoUnsupported();
+  return invoke<LegalDocument[]>('legal_documents');
+}
+
+export async function acceptTerms(
+  version: string,
+  hash: string,
+  privacyVersion: string,
+  privacyHash: string
+): Promise<string> {
+  if (isDemo) demoUnsupported();
+  return invoke<string>('accept_terms', { version, hash, privacyVersion, privacyHash });
+}
+
+export async function setPin(pin: string): Promise<void> {
+  if (isDemo) demoUnsupported();
+  return invoke<void>('set_pin', { pin });
+}
+
+export async function changePin(current: string, next: string): Promise<void> {
+  if (isDemo) demoUnsupported();
+  return invoke<void>('change_pin', { current, new: next });
+}
+
+export async function requestPinReset(): Promise<void> {
+  if (isDemo) demoUnsupported();
+  return invoke<void>('request_pin_reset');
+}
+
+export async function verifyPinReset(code: string): Promise<number> {
+  if (isDemo) demoUnsupported();
+  return invoke<number>('verify_pin_reset', { code });
+}
+
+export async function markAttendance(markType: MarkType, pin: string): Promise<MarkRecord> {
+  if (isDemo) demoUnsupported();
+  return invoke<MarkRecord>('mark_attendance', { markType, pin });
+}
+
+export async function attendanceToday(): Promise<TodayView> {
+  if (isDemo) demoUnsupported();
+  return invoke<TodayView>('attendance_today');
+}
+
+export async function attendanceDays(from: string, to: string): Promise<DaySummary[]> {
+  if (isDemo) demoUnsupported();
+  return invoke<DaySummary[]>('attendance_days', { from, to });
+}
+
+export async function attendanceMarks(
+  from: string,
+  to: string,
+  page?: number
+): Promise<MarksPage> {
+  if (isDemo) demoUnsupported();
+  return invoke<MarksPage>('attendance_marks', { from, to, page: page ?? null });
+}
+
+export async function listCorrections(): Promise<Correction[]> {
+  if (isDemo) demoUnsupported();
+  return invoke<Correction[]>('list_corrections');
+}
+
+export async function respondCorrection(id: string, accept: boolean): Promise<Correction> {
+  if (isDemo) demoUnsupported();
+  return invoke<Correction>('respond_correction', { id, accept });
+}
+
+/** Normalizes a rejected `invoke` into a CommandError. */
+export function toCommandError(err: unknown): CommandError {
+  if (err && typeof err === 'object' && 'code' in err && 'message' in err) {
+    const e = err as { code: unknown; message: unknown; retry_after_secs?: unknown };
+    return {
+      code: String(e.code),
+      message: String(e.message),
+      retry_after_secs: typeof e.retry_after_secs === 'number' ? e.retry_after_secs : undefined,
+    };
+  }
+  return { code: 'UNKNOWN', message: typeof err === 'string' ? err : 'Error desconocido.' };
 }

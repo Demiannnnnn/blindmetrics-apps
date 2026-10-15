@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-13` |
-| **Estado** | 🔴 pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `agent-ui/src/**`, `agent-ui/src-tauri/src/**`, `agent-ui/test/**` |
 | **Dependencias** | `TASK-AGENT-11`, `TASK-AGENT-12` |
 | **Paralela con** | `TASK-ADMIN-16` |
@@ -81,4 +81,30 @@ Con el servicio de AGENT-12 listo, la ventana muestra la función principal. Lee
 
 ## Reporte
 
-_(pendiente)_
+- **Resumen:** Ventana del trabajador con la función de asistencia completa sobre las ops IPC de AGENT-12: T1 (visor Markdown de los textos embebidos, versión + hash de 16 hex, *He leído y acepto* solo tras llegar al final de ambos documentos, modos inicial/actualización/relectura), P1 y Ajustes → PIN (crear, cambiar, *Olvidé mi PIN* con código), A (reloj del servidor, estado, jornada y colación, botón = próxima marca + *Otras marcas*, marcas de hoy con estado local, aviso de reloj desfasado, aviso art. 22, línea de ubicación), diálogo M con PIN, retardo con cuenta regresiva y comprobante, Registros (rangos, resúmenes del servidor, detalle con *Copiar comprobante*, datos locales sin conexión) con correcciones (pendientes primero, Aceptar/Oponerme con confirmación, historial), banners por prioridad con su acción y navegación E1 → T1 → P1 → A. Lógica en helpers puros probados con `node --test`; ops reenviadas probadas en Rust con un servidor IPC falso.
+- **Archivos:** `agent-ui/src-tauri/src/{client,commands,error,lib}.rs` (12 comandos nuevos, `CommandError.retry_after_secs`, tests); `agent-ui/src/api/{types,tauri-bridge}.ts`; `agent-ui/src/lib/attendance.ts` (helpers puros, nuevo); `agent-ui/src/views/{TermsView,PinSetupView}.tsx` (nuevos), `AttendanceView.tsx`, `RecordsView.tsx`, `SettingsView.tsx`; `agent-ui/src/components/{ui,MarkDialog,MarkDetail,NewPinFields,PinSettings}.tsx` (nuevos), `Banner.tsx`, `Modal.tsx`, `Shell.tsx`; `agent-ui/src/context/AppContext.tsx`, `agent-ui/src/App.tsx`; `agent-ui/test/attendance.test.mjs` (nuevo); `agent-ui/package.json` + lock (`react-markdown`, `remark-gfm`). Servicio (mínimo): `agent/src/state.rs` (`WorkerSelf.personal_email` opcional + test), `agent/src/ipc_server.rs` y `agent-ipc/src/lib.rs` (`AppSnapshot.personal_email`), literales de prueba en `agent-ipc/tests/ipc_tests.rs`.
+- **Comandos:**
+  - `cargo fmt --all --check` ✅
+  - `cargo clippy --workspace --all-targets -- -D warnings` ✅
+  - `cargo clippy --workspace -- -D warnings -D clippy::unwrap_used -D clippy::expect_used` ✅
+  - `cargo test --workspace` ✅ (agent 154 + cli 1, agent-ipc 16 + 6, agent-ui-core 9, crypto-core y admin-client-core sin cambios; 0 fallos)
+  - `cd agent-ui && npm ci && npm run build && npm test` ✅ (26/26: 20 nuevos de asistencia + 6 previos)
+  - Prueba manual (enrolar contra wiremock, aceptar términos, crear PIN, marcar online/offline): **no ejecutada** — no hay display en este entorno (nota de orquestación). Cobertura sustituta: tests de servicio de AGENT-12 (wiremock), reenvío IPC de cada op (servidor falso en `agent-ui-core`) y helpers puros de la UI; además se verificó con `react-dom/server` que ambos textos legales reales se renderizan (tablas incluidas) y que el HTML crudo se descarta.
+- **Decisiones:**
+  - **Correo enmascarado:** el snapshot no traía el correo para "Te enviamos el comprobante a j•••@…" ni para el reset del PIN. Se agregó al servicio `WorkerSelf.personal_email` (lectura opcional, igual que `run`/`name`) y `AppSnapshot.personal_email`; la UI lo enmascara con `maskEmail`. Si el servidor no lo envía: "…a tu correo personal". Es el dato del propio trabajador, no un secreto (PROC-03); nunca va en notificaciones.
+  - **Renderer:** `react-markdown@10` + `remark-gfm@4` (sugeridos por la tarea) con `skipHtml` y sin `rehype-raw`; enlaces entre `terminos-trabajador.md` y `politica-privacidad.md` hacen scroll dentro del visor; los demás enlaces se muestran con su dirección pero no navegan la WebView.
+  - **PIN en Tauri:** los argumentos se deserializan directo en `SecretPin` (zeroizing, `Debug` redactado). En React el PIN se borra del estado al enviarse (antes de esperar la respuesta) y tras cada acción.
+  - **Retardo del PIN:** `CommandError` ahora transporta `retry_after_secs` (antes se perdía) y la UI cuenta hacia atrás; *Confirmar* solo se deshabilita durante el envío o el retardo (ATT-02).
+  - **Próxima marca:** `next_mark` del servidor con `source = SERVER`; sin conexión se deriva de la última marca del día (diario local + caché). "Otras marcas" siempre disponibles.
+  - **Hora efectiva (v3.1):** se muestra y agrupa por `effective_ts`; si falta, `device_ts` para marcas offline o `CORRECTION` y `server_ts` en otro caso (`effectiveTs`, probado). `server_ts` solo en el detalle como "Registrada por el servidor". Marcas locales sin datos del servidor usan `device_ts`.
+  - **Registros:** `MARKS` siempre; `DAYS` solo con conexión y rangos ≤ 62 días (límite del contrato). Rangos más largos (hasta 5 años) muestran las marcas agrupadas por día con paginación y una nota de que el resumen diario existe hasta 62 días. Las marcas locales no enviadas se integran en su día. Faltante/extra se muestran tal cual (ATT-09). Una ausencia sin calificación con jornada pactada se muestra "Sin marcas" (nunca "injustificada" por cuenta propia).
+  - **Banners:** se usa el orden de `snapshot.banners` del servicio; `pending_withdrawal` se trata como aviso de telemetría (última prioridad). Acciones: diagnóstico (Ajustes), Asistencia, Registros, T1 en modo actualización, Telemetría. Se reemplazaron los colores crudos del banner por tokens.
+  - **T1 actualización:** pantalla completa no bloqueante con "Leer después"/Volver; marcar sigue disponible desde A. Ajustes muestra versión aceptada/vigente/incluida y "Leer de nuevo". `TERMS_OUTDATED` → "Hay una versión más nueva de esta app. Actualízala para continuar."
+  - **Pista de la bandeja:** se aplica cada vez que `suggested_screen` cambia (antes solo la primera vez), para que *Marcar asistencia…* abra A con la ventana ya abierta. Abrir A nunca marca (ATT-01).
+  - **Ajustes (spec §6):** se agregaron al diagnóstico la diferencia con la hora del servidor y las marcas pendientes, y en *Desvincular* el aviso "Tienes N marcas sin enviar…" y el texto de la spec (incluye el PIN).
+  - **Modo demo (`VITE_DEMO_MODE`):** las llamadas de asistencia responden `UNSUPPORTED` ("No disponible en modo demostración."); no hay datos de asistencia inventados (PLAT-02).
+- **Pendientes / bloqueos:**
+  - Prueba manual con display y capturas: pendiente para el orquestador/dueño (no hay display aquí).
+  - En Registros con conexión, `MARKS` devuelve solo las marcas locales no enviadas, por lo que el estado local `HASH_MISMATCH` de marcas antiguas no se ve ahí (sí en A para las de hoy y en el comprobante al marcar). Si se quiere, el servicio podría incluir también las `HASH_MISMATCH` en `local`.
+  - El encabezado (`Header.tsx`) y otras vistas previas aún usan algunas clases de paleta cruda (fuera de alcance).
+- **Desviaciones del contrato:** ninguna en lo enviado. Lectura tolerante de `personal_email` en `GET /workers/me` (§12 no fija ese campo para el trabajador; `WorkerResponse` del admin sí lo trae); sin él la UI usa un texto genérico.

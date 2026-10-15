@@ -41,7 +41,7 @@ export interface ConsentOfferSnapshot {
   previous_selection?: ConsentFlags | null;
 }
 
-export type WindowScreenHint = 'HOME' | 'TELEMETRY' | 'WITHDRAW';
+export type WindowScreenHint = 'HOME' | 'ATTENDANCE' | 'TELEMETRY' | 'WITHDRAW';
 
 export interface AppSnapshot {
   service_version: string;
@@ -63,6 +63,176 @@ export interface AppSnapshot {
   device_identifier_short: string;
   key_fingerprint: string | null;
   is_enrolled: boolean;
+  attendance_mode: AttendanceMode;
+  terms_update_pending: boolean;
+  attendance_today: TodayView | null;
+  pending_marks: number;
+  pending_corrections: number;
+  banners: BannerKind[];
+  legal: LegalStatus;
+  work_mode: string | null;
+  location_at_mark: boolean;
+  personal_email: string | null;
+}
+
+// ---- Attendance (agent-ipc `attendance.rs`, api-contract §9) ----
+
+export type MarkType = 'WORKDAY_START' | 'WORKDAY_END' | 'BREAK_START' | 'BREAK_END';
+export type MarkSource = 'AGENT' | 'PORTAL' | 'CORRECTION';
+export type AttendanceMode = 'UNLINKED' | 'NEEDS_TERMS' | 'NEEDS_PIN' | 'READY' | 'EXEMPT';
+export type BannerKind =
+  | 'SERVICE_PROBLEM'
+  | 'PENDING_MARKS_OFFLINE'
+  | 'CORRECTION_TO_REVIEW'
+  | 'NEW_TERMS_VERSION'
+  | 'TELEMETRY_NOTICE';
+export type LocalMarkStatus = 'PENDING' | 'CONFIRMED' | 'HASH_MISMATCH' | 'REJECTED';
+export type DataSource = 'SERVER' | 'LOCAL';
+export type DayState = 'OFF' | 'WORKING' | 'ON_BREAK' | 'UNKNOWN';
+
+export interface MarkLocation {
+  lat: number;
+  lon: number;
+  accuracy_m: number;
+}
+
+export interface MarkWorkplace {
+  id: string;
+  name: string | null;
+  address: string | null;
+}
+
+export interface ServerMark {
+  id: string;
+  client_mark_id: string | null;
+  worker_id: string;
+  worker_run?: string | null;
+  employer_rut?: string | null;
+  type: MarkType;
+  server_ts: string;
+  device_ts: string;
+  offline: boolean;
+  source: MarkSource;
+  identification: string | null;
+  workplace: MarkWorkplace | null;
+  workplace_id?: string | null;
+  location: MarkLocation | null;
+  hash: string;
+  prev_hash: string;
+  corrected_by: string | null;
+  superseded_by: string | null;
+  effective_ts: string | null;
+}
+
+export interface MarkRecord {
+  client_mark_id: string;
+  type: MarkType;
+  device_ts: string;
+  offline: boolean;
+  status: LocalMarkStatus;
+  server_mark: ServerMark | null;
+  duplicate_of: string | null;
+  rejection_reason: string | null;
+}
+
+export interface ScheduleToday {
+  start: string | null;
+  end: string | null;
+  break_start: string | null;
+  break_end: string | null;
+}
+
+export interface TodayResponse {
+  date: string;
+  timezone: string | null;
+  schedule_today: ScheduleToday | null;
+  state: DayState;
+  next_mark: MarkType | null;
+  marks: ServerMark[];
+  pending_corrections: number;
+  server_time: string;
+}
+
+export interface TodayView {
+  source: DataSource;
+  server: TodayResponse | null;
+  local_marks: MarkRecord[];
+  server_time_offset_secs: number | null;
+}
+
+export interface AgreedDay {
+  start: string;
+  end: string;
+  break: string | null;
+  break_counts_as_work: boolean;
+}
+
+export interface DaySummary {
+  date: string;
+  agreed: AgreedDay | null;
+  marks: ServerMark[];
+  attended: boolean;
+  absence: string | null;
+  absence_note: string | null;
+  missing: string | null;
+  extra: string | null;
+  anomalies: string[];
+  altered: boolean;
+}
+
+export type CorrectionKind = 'MODIFY' | 'ADD' | 'FIX' | 'UNKNOWN';
+export type CorrectionStatus =
+  | 'PENDING'
+  | 'ACCEPTED'
+  | 'OPPOSED'
+  | 'CONSOLIDATED'
+  | 'WITHDRAWN'
+  | 'UNKNOWN';
+
+export interface Correction {
+  id: string;
+  worker_id: string | null;
+  kind: CorrectionKind;
+  original_mark: ServerMark | null;
+  type: MarkType;
+  proposed_ts: string;
+  reason: string;
+  status: CorrectionStatus;
+  created_at: string | null;
+  notified_at: string | null;
+  respond_before: string | null;
+  responded_at: string | null;
+  resulting_mark_id: string | null;
+}
+
+export interface Pagination {
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+export interface MarksPage {
+  source: DataSource;
+  marks: ServerMark[];
+  local: MarkRecord[];
+  pagination: Pagination | null;
+}
+
+export interface LegalStatus {
+  accepted_version: string | null;
+  required_version: string | null;
+  embedded_terms_version: string | null;
+  embedded_privacy_version: string | null;
+}
+
+export type LegalDocumentKind = 'WORKER_TERMS' | 'PRIVACY';
+
+export interface LegalDocument {
+  document: LegalDocumentKind;
+  version: string;
+  hash: string;
+  text: string;
 }
 
 export type VerificationResult =
@@ -104,4 +274,5 @@ export interface DataDeletionDto {
 export interface CommandError {
   code: string;
   message: string;
+  retry_after_secs?: number;
 }

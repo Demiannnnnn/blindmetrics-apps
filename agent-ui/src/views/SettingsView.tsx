@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, RefreshCw, Copy, Check, AlertTriangle } from 'lucide-react';
+import { Settings, RefreshCw, Copy, Check, AlertTriangle, FileText } from 'lucide-react';
 import * as bridge from '../api/tauri-bridge';
 import type { DiagnosticsInfo } from '../api/types';
 import { formatBytes, formatUptime } from '../lib/helpers';
 import { useApp } from '../context/AppContext';
 import { Modal } from '../components/Modal';
+import { PinSettings } from '../components/PinSettings';
+import { BUTTON_SECONDARY, CARD } from '../components/ui';
 
 export const SettingsView: React.FC = () => {
-  const { setEnrollmentStep } = useApp();
+  const { snapshot, setEnrollmentStep, settingsIntent, setSettingsIntent, setTermsOverlay } = useApp();
+  const pendingMarks = snapshot?.pending_marks ?? 0;
+  const legal = snapshot?.legal;
   const [diag, setDiag] = useState<DiagnosticsInfo | null>(null);
   const [loadingDiag, setLoadingDiag] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<boolean>(false);
@@ -75,6 +79,47 @@ export const SettingsView: React.FC = () => {
         <h1 className="text-base font-semibold text-fg">Ajustes</h1>
       </div>
 
+      {snapshot?.attendance_mode !== 'EXEMPT' && (
+        <PinSettings
+          personalEmail={snapshot?.personal_email}
+          startReset={settingsIntent === 'PIN_RESET'}
+          onResetStarted={() => setSettingsIntent(null)}
+        />
+      )}
+
+      {/* Terms and privacy: accepted version and read again (spec §6). */}
+      <section className={CARD} aria-label="Términos y privacidad">
+        <div className="flex items-center gap-1.5 mb-2">
+          <FileText className="w-4 h-4 text-muted" aria-hidden="true" />
+          <h2 className="text-xs font-semibold text-fg">Términos y privacidad</h2>
+        </div>
+        <dl className="text-xs space-y-1 mb-3">
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted">Versión aceptada</dt>
+            <dd className="text-fg tabular-nums">{legal?.accepted_version ?? 'Sin aceptar'}</dd>
+          </div>
+          {legal?.required_version && (
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted">Versión vigente</dt>
+              <dd className="text-fg tabular-nums">{legal.required_version}</dd>
+            </div>
+          )}
+          {legal?.embedded_terms_version && (
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted">Versión incluida en esta app</dt>
+              <dd className="text-fg tabular-nums">{legal.embedded_terms_version}</dd>
+            </div>
+          )}
+        </dl>
+        <button
+          type="button"
+          className={BUTTON_SECONDARY}
+          onClick={() => setTermsOverlay(snapshot?.terms_update_pending ? 'update' : 'review')}
+        >
+          {snapshot?.terms_update_pending ? 'Leer la nueva versión' : 'Leer de nuevo'}
+        </button>
+      </section>
+
       {/* Diagnostics */}
       <div className="bg-surface border border-default rounded-card p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3 border-b border-default pb-2">
@@ -105,6 +150,16 @@ export const SettingsView: React.FC = () => {
               <span className="font-mono text-[11px] text-fg truncate max-w-[200px]" title={diag.api_base_url}>
                 {diag.api_base_url}
               </span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-default/50">
+              <span className="text-muted">Diferencia con la hora del servidor:</span>
+              <span className="text-fg tabular-nums">
+                {diag.server_time_offset_seconds === null ? 'Sin medir' : `${diag.server_time_offset_seconds} s`}
+              </span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-default/50">
+              <span className="text-muted">Marcas pendientes de envío:</span>
+              <span className="text-fg tabular-nums">{diag.pending_marks}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-default/50">
               <span className="text-muted">Cola de telemetría:</span>
@@ -180,8 +235,15 @@ export const SettingsView: React.FC = () => {
           <h2 className="text-xs font-semibold">Zona de peligro: Desvincular</h2>
         </div>
         <p className="text-xs text-muted mb-3 leading-relaxed">
-          Se borran tus credenciales locales y los datos de telemetría no enviados. Tus marcas siguen guardadas en el servidor.
+          Se borran tus credenciales, tu PIN y los datos de telemetría no enviados. Tus marcas siguen guardadas en el servidor.
         </p>
+        {pendingMarks > 0 && (
+          <p role="alert" className="text-xs text-danger mb-3 leading-relaxed">
+            {pendingMarks === 1
+              ? 'Tienes 1 marca sin enviar. Conéctate antes de desvincular o se perderá.'
+              : `Tienes ${pendingMarks} marcas sin enviar. Conéctate antes de desvincular o se perderán.`}
+          </p>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -202,6 +264,13 @@ export const SettingsView: React.FC = () => {
         onClose={() => setShowUnlinkModal(false)}
       >
         <div className="space-y-3">
+          {pendingMarks > 0 && (
+            <p className="text-xs text-danger leading-relaxed">
+              {pendingMarks === 1
+                ? 'Tienes 1 marca sin enviar. Conéctate antes de desvincular o se perderá.'
+                : `Tienes ${pendingMarks} marcas sin enviar. Conéctate antes de desvincular o se perderán.`}
+            </p>
+          )}
           <p className="text-xs text-muted leading-relaxed">
             Para confirmar, escribe exactamente <span className="font-mono font-bold text-fg">DESVINCULAR</span> a continuación:
           </p>

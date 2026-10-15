@@ -217,6 +217,10 @@ pub struct WorkerSelf {
     pub name: Option<String>,
     #[serde(default)]
     pub organization: Option<String>,
+    /// Personal email where the server sends receipts and PIN reset codes (R38 art. 12 e).
+    /// Only shown masked to the worker in the window; never in notifications or logs.
+    #[serde(default)]
+    pub personal_email: Option<String>,
 }
 
 impl WorkerSelf {
@@ -414,6 +418,7 @@ pub(crate) mod tests {
             run: None,
             name: None,
             organization: None,
+            personal_email: None,
         }
     }
 
@@ -683,5 +688,16 @@ pub(crate) mod tests {
         assert!(me.effective_location_at_mark());
         assert_eq!(me.effective_disconnection().unwrap().start, "20:00");
         assert!(me.is_remote_or_hybrid());
+    }
+
+    #[test]
+    fn test_state_worker_self_reads_optional_personal_email() {
+        // Spec §3/§6 show the personal email masked; an answer without it still parses.
+        let mut v = serde_json::to_value(worker_v3()).unwrap();
+        let me: WorkerSelf = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(me.personal_email, None);
+        v["personal_email"] = "juan.perez@gmail.com".into();
+        let me: WorkerSelf = serde_json::from_value(v).unwrap();
+        assert_eq!(me.personal_email.as_deref(), Some("juan.perez@gmail.com"));
     }
 }

@@ -384,6 +384,10 @@ pub struct AppSnapshot {
     /// The worker's schedule asks for a location reading when marking (ATT-08).
     #[serde(default)]
     pub location_at_mark: bool,
+    /// Worker's personal email, shown masked on receipts and the PIN reset flow (spec §3, §6).
+    /// The worker's own contact data, not a secret (PROC-03).
+    #[serde(default)]
+    pub personal_email: Option<String>,
 }
 
 /// Diagnostics report returned by the service.
