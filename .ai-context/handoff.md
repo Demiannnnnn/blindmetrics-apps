@@ -3,7 +3,7 @@
 Context to resume work without losing what is not in the code. The orchestrator updates it whenever
 work pauses.
 
-Last update: 2026-10-15 05:00 — ADMIN-16 and ADMIN-17 merged. AGENT-12 and AGENT-13 merged — **v3 stage of telemetry-apps complete** (all tasks in `tasks/README.md` §6 🟢). Pending: manual run with a display (link against a mock/real API, terms, PIN, online/offline marks, screenshots); the API must add `personal_email` to the worker's own `/workers/me` (AGENT-13 reads it optionally for receipts and PIN reset texts); in Registros (online) older `HASH_MISMATCH` marks only show in A/receipt. **From AGENT-12:** (1) the existing telemetry location collector returns hard-coded coordinates (fake data, violates PLAT-02) — marks don't use it, but telemetry still does: needs its own task (real OS location backend or remove the category); (2) the contract's example `Mark` (§9.1) lacks `worker_run`/`employer_rut`, which are hashed fields — the API (TASK-20) must return every hashed field or every receipt will show `HASH_MISMATCH`; (3) release builds fail on purpose while legal texts contain owner placeholders (LEG-06). **Contract gaps from ADMIN-17 (fix in telemetry-api TASK-21 and `api-contract.md`):** `DaySummary` needs `absence_id` and `absence_abbreviation` (or a GET for absences) and an `Absence` type in §9.4/§9.5 — until then removing a qualification only works in the session that created it; `CorrectionModal` sends `proposed_ts` as `${date}T${time}Z` (local time treated as UTC — fix in the app). Remote branch naming: the remote has a `dev` branch, so `dev/*` refs can't be pushed; local `dev/*` branches are pushed as `dev-agent/*` / `dev-admin/*` (AGENTS.md §5 should be reconciled by the owner).
+Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 complete** (API TASK-18…23 reviewed and merged into `develop-AGENTS`; TASK-20 and TASK-23 also got a second review by Gemini 4 Argon). Next: telemetry-web v3 (receipt verification, worker secondary login/portal, inspector portal). Pending: manual run with a display and the owner items in §4.
 
 ## 1. State
 
@@ -47,8 +47,8 @@ Last update: 2026-10-15 05:00 — ADMIN-16 and ADMIN-17 merged. AGENT-12 and AGE
 - Legal review of `docs/legal/*` and of telemetry `location`/`productivity_screenshots` under R38.
 - Whether/when to start DT certification + authorization (R38 arts. 64–69).
 - System email account (non-personal sender) and SMTP for receipts and alerts (API `MAIL_FROM`, `SMTP_URL`).
-- Review the Chilean holiday list 2024–2028 seeded by API TASK-22.
-- Decide anonymization of marks older than 5 years (API `ATTENDANCE.md` §9).
+- Review the Chilean holiday list 2024–2028 seeded by API TASK-21 (review flagged: Pueblos Indígenas day is solstice-based; election and ad-hoc holidays must be added when enacted).
+- Decide anonymization of marks older than 5 years (API `ATTENDANCE.md` §9). API TASK-23 only purges personal email/location cause of revoked workers after 90 days; marks are never touched.
 
 ## 5. How to resume on another machine
 
