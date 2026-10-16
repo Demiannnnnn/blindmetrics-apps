@@ -67,4 +67,4 @@ Last update: 2026-10-15 05:00 — ADMIN-16 and ADMIN-17 merged. AGENT-12 and AGE
 | API test PostgreSQL | docker container `telemetry-api-pg` (127.0.0.1:5441), one DB per worktree | `telemetry-api/tools/orchestration/pg.sh` |
 | `.env` files | local | copy `.env.example` |
 
-> **2026-10-16 (original machine):** orchestration worktrees moved to the HDD: `/mnt/games/worktrees/` (ext4). Create new worktrees there; the SSD is nearly full. API agents use the local PostgreSQL cluster on :5434 (no Docker) via `~/.cache/telemetry-orchestration/pg_local.sh`.
+> **2026-10-16 (original machine):** orchestration worktrees live next to the repos in `~/repositorios/` (they were on the HDD briefly). Delete a worktree's `target/`/`node_modules` once its task is merged (SSD space). API agents use the local PostgreSQL cluster on :5434 (no Docker) via `~/.cache/telemetry-orchestration/pg_local.sh`.
