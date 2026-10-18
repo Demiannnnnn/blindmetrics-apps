@@ -204,6 +204,8 @@ contrato v3 en `api-contract.md` §9–§12).
 | **ADMIN-15** | [`admin-client/task-15-attendance-console.md`](admin-client/task-15-attendance-console.md) | Riel agrupado, asistencia en vivo, días y marcas con verificación de hash, correcciones (R38 art. 40), KPIs. | 🟢 |
 | **ADMIN-16** | [`admin-client/task-16-legal-reports.md`](admin-client/task-16-legal-reports.md) | Seis reportes R38 con filtros del art. 25, vista previa fiel, exportar Excel/PDF/Word, acceso de solo lectura con suscripción bloqueada. | 🟢 |
 | **ADMIN-17** | [`admin-client/task-17-absences-effective-time.md`](admin-client/task-17-absences-effective-time.md) | Contrato v3.1: calificación de ausencias (R38 art. 27.1) y hora efectiva de las marcas (`effective_ts`). | 🟢 |
+| **ADMIN-18** | [`admin-client/task-18-csp-and-correction-timezone.md`](admin-client/task-18-csp-and-correction-timezone.md) | CSP del WebView sin `unsafe-inline`/`unsafe-eval` (brecha 5) y `proposed_ts` de correcciones convertido desde la zona del trabajador (no UTC). | ⏳ |
+| **INT-04** | [`integration/task-04-worker-client-layout.md`](integration/task-04-worker-client-layout.md) | App del trabajador en una sola carpeta `worker-client/` (servicio, IPC, ventana) como `admin-client/`; compilar con un comando; README de ambas apps. | ⏳ |
 
 ### 6.2 Orden y paralelismo
 
