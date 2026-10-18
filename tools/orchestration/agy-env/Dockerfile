@@ -28,6 +28,9 @@ RUN CARGO_HOME=/tmp/cargo-build cargo install sqlx-cli --version 0.7.4 --locked 
       --no-default-features --features postgres,rustls --root /opt/tools \
     && rm -rf /tmp/cargo-build && chmod -R a+rX /opt/tools
 
+# cargo wrapper first in PATH: heavy cargo commands take /locks/cargo.lock (memory, parallel agents)
+COPY --chmod=755 cargo-lock-wrapper /opt/tools/bin/cargo
+
 # Compile lock shared between containers (volume "locks")
 RUN mkdir -p /locks && chmod 1777 /locks
 

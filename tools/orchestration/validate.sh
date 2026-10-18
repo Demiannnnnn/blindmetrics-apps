@@ -6,7 +6,8 @@ set -u
 if ! command -v cargo >/dev/null 2>&1; then
   SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
   R=$(cd "${REPO_DIR:?REPO_DIR required}" && pwd) || exit 2
-  exec docker exec -e REPO_DIR="$R" -e LOCK -e TAILN "agy-${VALIDATE_IN:-${AGY_ACCOUNT:-pro}}" bash "$SELF"
+  AGY_PATH="/locks/bin:/opt/tools/bin:/home/agy/.local/bin:/opt/rust/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  exec docker exec -e PATH="$AGY_PATH" -e CARGO_BUILD_JOBS=2 -e CARGO_PROFILE_DEV_DEBUG=line-tables-only -e CARGO_PROFILE_TEST_DEBUG=line-tables-only -e REPO_DIR="$R" -e LOCK -e TAILN "agy-${VALIDATE_IN:-${AGY_ACCOUNT:-pro}}" bash "$SELF"
 fi
 cd ${REPO_DIR:?REPO_DIR required} || exit 2
 B=$(git branch --show-current); echo "branch=$B"

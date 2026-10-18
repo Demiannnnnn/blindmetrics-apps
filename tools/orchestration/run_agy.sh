@@ -36,9 +36,12 @@ Instructions:
 5. NEVER touch main, dev, develop or develop-AGENTS. Never modify sibling repositories.
 $EXTRA_TXT"
 echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) START task=$TASK branch=$BRANCH account=$ACCOUNT model=$MODEL" > "$LOG"
+# /locks/bin (shared volume) first: cargo wrapper that serializes heavy cargo commands across all agy
+# containers (memory) and sqlx; the image has the same in /opt/tools/bin once containers are recreated.
+AGY_PATH="/locks/bin:/opt/tools/bin:/home/agy/.local/bin:/opt/rust/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # One agent per worktree, whatever the account: the lock lives in the volume shared by both containers.
-docker exec -i -w "$PWD" "$CTR" flock -n -E 75 "/locks/agy-$(basename "$PWD").lock" \
-  timeout "${AGY_TIMEOUT:-7200}" agy -p "$PROMPT" --dangerously-skip-permissions --model "$MODEL" >> "$LOG" 2>&1
+docker exec -i -w "$PWD" -e PATH="$AGY_PATH" -e CARGO_BUILD_JOBS=2 -e CARGO_PROFILE_DEV_DEBUG=line-tables-only -e CARGO_PROFILE_TEST_DEBUG=line-tables-only "$CTR" flock -n -E 75 "/locks/agy-$(basename "$PWD").lock" \
+  timeout "${AGY_TIMEOUT:-14400}" agy -p "$PROMPT" --dangerously-skip-permissions --model "$MODEL" >> "$LOG" 2>&1
 RC=$?
 [ "$RC" -eq 75 ] && echo "BUSY: another agent is already running in $PWD" | tee -a "$LOG"
 echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) END rc=$RC" >> "$LOG"

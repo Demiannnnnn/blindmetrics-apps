@@ -59,7 +59,7 @@ echo "Docker OK ($(docker version --format '{{.Server.Version}}' 2>/dev/null))"
 
 say "2/6 Archivos del entorno en $ENV_DIR (WORKSPACE=$WORKSPACE)"
 mkdir -p "$ENV_DIR"
-cp "$HERE/Dockerfile" "$HERE/compose.yml" "$HERE/agy-in" "$HERE/agy-login" "$ENV_DIR/"
+cp "$HERE/Dockerfile" "$HERE/compose.yml" "$HERE/agy-in" "$HERE/agy-login" "$HERE/cargo-lock-wrapper" "$ENV_DIR/"
 chmod +x "$ENV_DIR/agy-in" "$ENV_DIR/agy-login"
 printf 'WORKSPACE=%s\nAGY_UID=%s\n' "$WORKSPACE" "$(id -u)" > "$ENV_DIR/.env"
 

@@ -80,6 +80,14 @@ volumes). Other tools: `agy-pro` / `agy-plus` run agy in the current dir; a shel
 - `main`, `dev` and `develop` are never touched; `develop-AGENTS` only by the orchestrator.
 - One worktree per agent; never two agents in the same directory (enforced by
   `/locks/agy-<worktree>.lock`). Heavy commands through `flock /locks/telemetry-heavy.lock`.
+- Parallelism: each account may run **one task per repo at the same time** (up to 6 agy runs: `ta-`,
+  `tw-`, `tapi-wt-<account>`). Memory is protected by the `cargo` wrapper (`agy-env/cargo-lock-wrapper`,
+  first in PATH): build/check/clippy/test/run take `/locks/cargo.lock`, so Rust compiles are serialized
+  across containers while Node work runs in parallel; `CARGO_BUILD_JOBS=2` and line-table debug info
+  keep each link small. Until containers are recreated with the current image, `run_agy.sh` and
+  `validate.sh` put `/locks/bin` (same wrapper + `sqlx`, staged in the shared volume) first in PATH.
+- Recreating the containers (`docker compose up -d` after an image/compose change) kills running agy
+  runs: do it only when no task is running.
 - Worktrees in `WORKSPACE`: `ta-wt-orch` (orchestrator, `develop-AGENTS`), `ta-wt-pro` (agy-pro),
   `ta-wt-plus` (agy-plus). The owner's checkout `telemetry-apps` is left alone.
 - Delete a worktree's `target/` and `node_modules/` once its task is merged (disk space).

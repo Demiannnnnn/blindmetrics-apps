@@ -1,0 +1,13 @@
+#!/bin/sh
+# cargo wrapper (first in PATH inside the agy containers): serializes heavy cargo commands across ALL
+# agy containers through /locks/cargo.lock, so parallel agents never OOM-kill the linker in the VM.
+# Nested calls (cargo sqlx prepare, build scripts) see AGY_CARGO_LOCKED and do not lock again.
+real=/opt/rust/cargo/bin/cargo
+sub="$1"; case "$sub" in +*) sub="$2";; esac
+case "$sub" in
+  build|b|check|c|clippy|test|t|run|r|doc|bench|rustc|sqlx)
+    if [ -z "${AGY_CARGO_LOCKED:-}" ]; then
+      AGY_CARGO_LOCKED=1 exec flock /locks/cargo.lock "$real" "$@"
+    fi ;;
+esac
+exec "$real" "$@"
