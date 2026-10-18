@@ -36,7 +36,8 @@ needed to rebuild it is versioned in [`agy-env/`](agy-env/); the live copy on ea
    2. Copies `agy-env/` to `~/agy-multi/` and writes `~/agy-multi/.env` (`WORKSPACE`, host UID).
    3. Builds the image and starts `agy-pro` / `agy-plus` (`restart: unless-stopped`).
    4. Installs `agy-pro`, `agy-plus`, `agy-login` in `~/.local/bin`.
-   5. Creates the worktrees `ta-wt-orch` (`develop-AGENTS`), `ta-wt-pro`, `ta-wt-plus` in `WORKSPACE`,
+   5. Creates the worktrees `ta-wt-orch` (`develop-AGENTS`), `ta-wt-pro`, `ta-wt-plus` in `WORKSPACE`
+      (and `tw-wt-*` / `tapi-wt-*` for `telemetry-web` / `telemetry-api` when cloned),
       plus a bootstrap `WORKSPACE/CLAUDE.md` pointing to `ta-wt-orch/CLAUDE.md` (the owner's
       checkouts are on `main`, where these docs are empty).
    6. Checks toolchain and login of each account; exit 4 = some login missing.

@@ -74,14 +74,22 @@ case ":$PATH:" in *":$BIN:"*) ;; *) echo "⚠ Agrega $BIN a tu PATH para usar ag
 
 say "5/6 Worktrees de orquestación en $WORKSPACE"
 git -C "$MAIN" fetch -q origin || echo "⚠ git fetch falló; uso lo que hay en local."
-git -C "$MAIN" show-ref --verify --quiet refs/heads/develop-AGENTS \
-  || git -C "$MAIN" branch -q --track develop-AGENTS origin/develop-AGENTS
-for wt in orch pro plus; do
-  d="$WORKSPACE/ta-wt-$wt"
-  if [ -e "$d" ]; then echo "ta-wt-$wt ya existe"; continue; fi
-  if [ "$wt" = orch ]; then git -C "$MAIN" worktree add -q "$d" develop-AGENTS
-  else git -C "$MAIN" worktree add -q --detach "$d" develop-AGENTS; fi
-  echo "ta-wt-$wt creado"
+# Same three worktrees for each sibling repo already in the orchestrator scheme (has develop-AGENTS)
+for spec in "telemetry-apps:ta" "telemetry-web:tw" "telemetry-api:tapi"; do
+  repo="$WORKSPACE/${spec%%:*}"; pre="${spec##*:}"
+  [ "${spec%%:*}" = telemetry-apps ] && repo="$MAIN"
+  [ -d "$repo/.git" ] || { echo "${spec%%:*} no está clonado en $WORKSPACE (se omite)"; continue; }
+  [ "$repo" = "$MAIN" ] || git -C "$repo" fetch -q origin || true
+  git -C "$repo" show-ref --verify --quiet refs/heads/develop-AGENTS \
+    || git -C "$repo" branch -q --track develop-AGENTS origin/develop-AGENTS 2>/dev/null \
+    || { echo "${spec%%:*} no tiene develop-AGENTS (se omite)"; continue; }
+  for wt in orch pro plus; do
+    d="$WORKSPACE/$pre-wt-$wt"
+    if [ -e "$d" ]; then echo "$pre-wt-$wt ya existe"; continue; fi
+    if [ "$wt" = orch ]; then git -C "$repo" worktree add -q "$d" develop-AGENTS
+    else git -C "$repo" worktree add -q --detach "$d" develop-AGENTS; fi
+    echo "$pre-wt-$wt creado"
+  done
 done
 # Sessions opened in WORKSPACE (or in the owner's checkout on main) would not see develop-AGENTS' CLAUDE.md
 if [ ! -e "$WORKSPACE/CLAUDE.md" ]; then
