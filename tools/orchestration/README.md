@@ -75,6 +75,14 @@ volumes). Other tools: `agy-pro` / `agy-plus` run agy in the current dir; a shel
 4. Accepted ⇒ `git merge --no-ff` into `develop-AGENTS` from `ta-wt-orch`, update
    `tasks/README.md` and `.ai-context/implementation-status.md`, push.
 
+## Live API (contract tests)
+
+`live-api.sh up|down|status` runs the real `telemetry-api` (`origin/develop-AGENTS` of `../telemetry-api`,
+exported with `git archive` into `WORKSPACE/.e2e/telemetry-api`, no write to that repo) inside
+`agy-${LIVE_API_HOST:-plus}` on port 8080 with a fresh database `telemetry_e2e` on the `pg` service.
+Both containers reach it at `http://agy-<host>:8080/api/v1`. Used by TASK-INT-05 (`--features live-api`);
+pass the URL to agy in the notes file as `TELEMETRY_LIVE_API_URL`.
+
 ## Rules
 
 - `main`, `dev` and `develop` are never touched; `develop-AGENTS` only by the orchestrator.
