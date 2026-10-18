@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Validates the current branch of REPO_DIR against develop-AGENTS. Compact output for the orchestrator.
 set -u
-# The host (macOS) has no Rust/Node toolchain: re-run inside an agy container, same image as the implementers.
+# Re-run inside an agy container, same image and tools (flock, GNU coreutils) as the implementers.
 # VALIDATE_IN picks the container (default: AGY_ACCOUNT, else pro); use the one that built the worktree.
-if ! command -v cargo >/dev/null 2>&1; then
+if [ ! -f /.dockerenv ]; then   # always validate inside a container (the host may have its own toolchain)
   SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
   R=$(cd "${REPO_DIR:?REPO_DIR required}" && pwd) || exit 2
   AGY_PATH="/locks/bin:/opt/tools/bin:/home/agy/.local/bin:/opt/rust/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
