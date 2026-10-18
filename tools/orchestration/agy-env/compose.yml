@@ -16,6 +16,11 @@ x-agy: &agy
     - GIT_CONFIG_COUNT=1
     - GIT_CONFIG_KEY_0=safe.directory
     - GIT_CONFIG_VALUE_0=*
+    # Linking the Tauri workspace or the API test binary with full debug info needs GBs; two agents
+    # plus a validation in a 6 GiB VM got the linker OOM-killed. Fewer jobs + line tables only.
+    - CARGO_BUILD_JOBS=${AGY_CARGO_JOBS:-2}
+    - CARGO_PROFILE_DEV_DEBUG=line-tables-only
+    - CARGO_PROFILE_TEST_DEBUG=line-tables-only
 
 services:
   agy-pro:            # Google AI Pro account
