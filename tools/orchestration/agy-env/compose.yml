@@ -36,7 +36,18 @@ services:
       - locks:/locks
       - ${WORKSPACE:?run setup.sh}:${WORKSPACE:?run setup.sh}
 
+  pg:                 # PostgreSQL 16 for telemetry-api agents: one database per worktree (pg.sh)
+    image: postgres:16-alpine
+    container_name: telemetry-pg
+    hostname: pg
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
 volumes:
+  pg-data:
   locks:              # shared compile lock (flock)
   pro-home:
   plus-home:

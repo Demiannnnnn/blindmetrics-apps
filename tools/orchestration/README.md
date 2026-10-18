@@ -14,7 +14,9 @@ needed to rebuild it is versioned in [`agy-env/`](agy-env/); the live copy on ea
 | Google AI **Pro** | `agy-pro` | `ta-wt-pro` | Gemini 3.8 Flash, **Gemini 4 Argon** | Heavier or riskier tasks (crypto, security, contract, cross-crate) and **second reviews** with `gemini-4-argon-high`. Has a 5-hour limit besides the weekly one. |
 | Google AI **Plus** | `agy-plus` | `ta-wt-plus` | Gemini 3.8 Flash | Bounded tasks (UI screens, helpers, tests, small fixes). Weekly limit only. |
 
-- Image: Debian 12 + Rust stable (clippy, rustfmt), Node 24, Tauri/WebKitGTK and xcap libs, `agy`.
+- Image: Debian 12 + Rust stable (clippy, rustfmt), Node 24, Tauri/WebKitGTK and xcap libs,
+  `sqlx-cli` 0.7.4 (for `telemetry-api`), `agy`. Compose also runs `pg` (PostgreSQL 16, container
+  `telemetry-pg`, reachable as host `pg` from the agy containers only) for `telemetry-api` tests.
   Each container keeps its own Google login in a named volume (`pro-home` / `plus-home`).
 - `WORKSPACE` (the folder holding `telemetry-apps`, its siblings and the `ta-wt-*` worktrees) is
   mounted **at the same path** in both containers: host and containers share paths and `.git`.

@@ -23,6 +23,11 @@ RUN curl -fsSL https://sh.rustup.rs | CARGO_HOME=/opt/rust/cargo sh -s -- -y --n
       --profile minimal --component clippy,rustfmt \
     && chmod -R a+rX /opt/rust
 
+# sqlx-cli for telemetry-api agents (migrations, `cargo sqlx prepare`); root-owned like the toolchain
+RUN CARGO_HOME=/tmp/cargo-build cargo install sqlx-cli --version 0.7.4 --locked \
+      --no-default-features --features postgres,rustls --root /opt/tools \
+    && rm -rf /tmp/cargo-build && chmod -R a+rX /opt/tools
+
 # Compile lock shared between containers (volume "locks")
 RUN mkdir -p /locks && chmod 1777 /locks
 
@@ -30,7 +35,7 @@ RUN mkdir -p /locks && chmod 1777 /locks
 ARG UID=1000
 RUN useradd -m -u ${UID} -s /bin/bash agy
 USER agy
-ENV HOME=/home/agy CARGO_HOME=/home/agy/.cargo PATH=/home/agy/.local/bin:/opt/rust/cargo/bin:$PATH
+ENV HOME=/home/agy CARGO_HOME=/home/agy/.cargo PATH=/home/agy/.local/bin:/opt/tools/bin:/opt/rust/cargo/bin:$PATH
 
 # The agy binary lives in HOME (volume) so its self-update persists
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
