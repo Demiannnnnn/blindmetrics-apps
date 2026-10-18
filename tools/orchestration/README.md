@@ -12,7 +12,7 @@ needed to rebuild it is versioned in [`agy-env/`](agy-env/); the live copy on ea
 | Account | Container | Worktree | Models | Use it for |
 |:--|:--|:--|:--|:--|
 | Google AI **Pro** | `agy-pro` | `ta-wt-pro` | Gemini 3.8 Flash, **Gemini 4 Argon** | Heavier or riskier tasks (crypto, security, contract, cross-crate) and **second reviews** with `gemini-4-argon-high`. Has a 5-hour limit besides the weekly one. |
-| Google AI **Plus** | `agy-plus` | `ta-wt-plus` | Gemini 3.8 Flash | Bounded tasks (UI screens, helpers, tests, small fixes). Weekly limit only. |
+| Google AI **Plus** | `agy-plus` | `ta-wt-plus` | Gemini 3.8 Flash; **Claude Sonnet 4.6 / Opus 4.6** (`claude-sonnet-4-6`, `claude-opus-4-6-thinking`, separate quota) | Bounded tasks (UI screens, helpers, tests, small fixes). Weekly limit only. When Plus Gemini is exhausted, run Plus with `claude-sonnet-4-6` (pass the model explicitly as the 3rd argument of `run_agy_retry.sh`) and conserve it. |
 
 - Image: Debian 12 + Rust stable (clippy, rustfmt), Node 24, Tauri/WebKitGTK and xcap libs,
   `sqlx-cli` 0.7.4 (for `telemetry-api`), `agy`. Compose also runs `pg` (PostgreSQL 16, container
