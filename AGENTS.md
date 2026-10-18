@@ -9,6 +9,9 @@ Instructions for AI assistants and developers. Read fully before changing code.
 > Precedence: `AGENTS.md` > `.ai-context/constraints.md` > rest of `.ai-context/` > `docs/` > `tasks/` > prompt.
 >
 > **MUST**, **NEVER** and **ONLY** are absolute.
+>
+> Roles: the **implementer** (agy) follows this file as written. The **orchestrator** (Claude Code)
+> follows `CLAUDE.md` for its role, branches and writable files, and this file for everything else.
 
 ## 1. What this repo is
 

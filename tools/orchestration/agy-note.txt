@@ -1,6 +1,6 @@
-ENVIRONMENT NOTE (Linux, CachyOS): Rust/cargo 1.98 from the system with clippy and rustfmt; there is NO rustup and `cargo install`/installing toolchains is FORBIDDEN. WebKitGTK 4.1 is installed (Tauri compiles). The Tauri CLI is an npm devDependency (use `npx tauri ...` inside the UI folder). Node and npm are installed; use `npm ci`/`npm install` only inside admin-client/ or agent-ui/.
-HEAVY COMMANDS: run every cargo build/clippy/test and npm run build through the shared lock: `flock /tmp/telemetry-heavy.lock <command>` (another agent may be compiling in a parallel worktree).
-There is no display server you can rely on; do not try to open windows. Use unit/integration tests (wiremock) instead.
+ENVIRONMENT NOTE (Linux, Debian 12 Docker container, arm64): Rust/cargo stable from /opt/rust with clippy and rustfmt (read-only, owned by root); `rustup`, `cargo install` and installing toolchains are FORBIDDEN. WebKitGTK 4.1, GTK 3, ayatana-appindicator, libxdo and libdbus dev packages are installed (Tauri compiles). Node 24 + npm are installed; the Tauri CLI is an npm devDependency (use `npx tauri ...` inside the UI folder). Use `npm ci`/`npm install` only inside admin-client/ or agent-ui/. No sudo.
+HEAVY COMMANDS: run every cargo build/clippy/test and npm run build through the shared lock: `flock /locks/telemetry-heavy.lock <command>` (another agent, in another container, may be compiling in a parallel worktree).
+There is no display server; do not try to open windows. Use unit/integration tests (wiremock) instead.
 The API (telemetry-api) does NOT implement contract v3 yet: test v3 calls ONLY against wiremock with the exact JSON of .ai-context/api-contract.md. Never call real external services.
 Do not touch the OS keystore or the real config dir in tests (in-memory credential store, tempfile).
 Write commit messages and code comments in English; UI copy in es-CL (tú).

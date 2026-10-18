@@ -23,7 +23,9 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
 4. Order: `telemetry-apps` first (fully working), then `telemetry-api` (contract v3), then explain it
    on `telemetry-web` (low priority).
 5. Working method: Claude documents and approves/rejects; agy implements; frequent commits; merge to
-   `develop-AGENTS` when done.
+   `develop-AGENTS` when done. Claude never writes product code (`CLAUDE.md`).
+6. (2026-10-18) Claude drives **two agy accounts in parallel**: Google AI Pro (`agy-pro`) and Google AI
+   Plus (`agy-plus`), each in its own Docker container and worktree (`tools/orchestration/README.md`).
 
 ## 3. Orchestrator decisions taken without the owner (review them)
 
@@ -55,7 +57,8 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
 1. `git clone … telemetry-apps && git checkout develop-AGENTS`.
 2. Rust (system or rustup) with clippy + rustfmt; Node ≥ 22; WebKitGTK 4.1 on Linux for Tauri.
 3. `cargo test --workspace`, `cd admin-client && npm ci && npm test && npm run build`.
-4. Orchestration: `tools/orchestration/README.md` (worktrees, agy, validation).
+4. Orchestration: `tools/orchestration/README.md` (worktrees, agy containers, validation). On macOS the
+   toolchain of steps 2–3 lives in the agy containers, not on the host.
 
 ## 6. Not in the repo
 
@@ -63,8 +66,11 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
 |:--|:--|:--|
 | Official text of R38 (PDF) | Diario Oficial 09-05-2024, edition 43.846, CVE 2489163 | `https://www.diariooficial.interior.gob.cl/publicaciones/2024/05/09/43846/01/2489163.pdf` (needs a browser User-Agent) |
 | agy logs | `~/.cache/telemetry-orchestration/logs` | not needed |
+| agy containers (Pro/Plus accounts) | `~/agy-multi/` (Dockerfile, `compose.yml`, `agy-in`, `agy-login`); wrappers `~/.local/bin/agy-pro`, `agy-plus`, `agy-login` | `colima start && docker compose -f ~/agy-multi/compose.yml up -d --build`, then `agy-login pro` / `agy-login plus` |
 | `sqlx-cli` 0.7.4 for API agents | `~/.cache/telemetry-orchestration/tools/bin` | `cargo install sqlx-cli --version 0.7.4 --locked --no-default-features --features postgres,rustls --root ~/.cache/telemetry-orchestration/tools` |
 | API test PostgreSQL | docker container `telemetry-api-pg` (127.0.0.1:5441), one DB per worktree | `telemetry-api/tools/orchestration/pg.sh` |
 | `.env` files | local | copy `.env.example` |
 
 > **2026-10-16 (original machine):** orchestration worktrees live next to the repos in `~/repositorios/` (they were on the HDD briefly). Delete a worktree's `target/`/`node_modules` once its task is merged (SSD space). API agents use the local PostgreSQL cluster on :5434 (no Docker) via `~/.cache/telemetry-orchestration/pg_local.sh`.
+
+> **2026-10-18 (MacBook, after a reformat):** repos and worktrees live in `~/Documents/Github/` (`ta-wt-orch`, `ta-wt-pro`, `ta-wt-plus`). Builds and tests run inside the `agy-pro` / `agy-plus` containers (Rust stable, Node 24); the shared compile lock is `/locks/telemetry-heavy.lock`.
