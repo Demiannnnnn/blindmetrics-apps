@@ -14,7 +14,6 @@ LOGDIR=${SCRATCH:-$HOME/.cache/telemetry-orchestration}/logs
 mkdir -p "$LOGDIR"
 LOG="$LOGDIR/$(basename "$TASK" .md)-$ACCOUNT-$(date +%H%M%S).log"
 cd "$REPO" || exit 2
-[ -f "$TASK" ] || { echo "task file not found: $TASK"; exit 2; }
 case "$BRANCH" in dev/*) ;; *) echo "branch must start with dev/"; exit 2;; esac
 if ! docker ps --format '{{.Names}}' | grep -qx "$CTR"; then
   if command -v colima >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then colima start >/dev/null; fi
@@ -22,7 +21,9 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CTR"; then
     || { echo "cannot start $CTR: run tools/orchestration/agy-env/setup.sh"; exit 2; }
 fi
 docker exec "$CTR" test -d "$PWD" || { echo "$PWD is not mounted in $CTR (outside WORKSPACE of ~/agy-multi/.env)"; exit 2; }
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then git checkout -q "$BRANCH"; else git checkout -q -b "$BRANCH" develop-AGENTS; fi
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then git checkout -q "$BRANCH"; else git checkout -q -b "$BRANCH" develop-AGENTS; fi || exit 2
+# Checked after the checkout: the worktree may still be on an older commit without the task file
+[ -f "$TASK" ] || { echo "task file not found on $BRANCH: $TASK"; exit 2; }
 EXTRA_TXT=""; [ -n "$EXTRA" ] && EXTRA_TXT="$(cat "$EXTRA")"
 PROMPT="You are the implementing agent of this repository. Your assigned task is: $TASK
 You are on git branch '$BRANCH' (already checked out; work and commit only here).

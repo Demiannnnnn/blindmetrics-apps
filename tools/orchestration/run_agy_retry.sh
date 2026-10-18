@@ -14,6 +14,7 @@ for i in $(seq 1 "$RETRIES"); do
   OUT=$(bash "$HERE/run_agy.sh" "$TASK" "$BRANCH" "$MODEL" "$NOTE")
   echo "$OUT"
   LOG=$(echo "$OUT" | sed -n 's/^LOG=\([^ ]*\).*/\1/p')
+  [ -n "$LOG" ] || { rm -f "$NOTE"; exit 2; }   # run_agy.sh refused to start (message above)
   if grep -qE "RESOURCE_EXHAUSTED|[Qq]uota exceeded|[Ll]imit reached" "$LOG" 2>/dev/null; then
     QUOTA_HITS=$((QUOTA_HITS + 1))
     if [ "$QUOTA_HITS" -ge 2 ] || [ "$i" -ge "$RETRIES" ]; then
