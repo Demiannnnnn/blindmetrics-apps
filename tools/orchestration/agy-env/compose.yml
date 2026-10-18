@@ -1,0 +1,42 @@
+# Two agy containers, one Google account each. WORKSPACE and AGY_UID come from .env (written by setup.sh).
+name: agy-multi
+
+x-agy: &agy
+  build:
+    context: .
+    args:
+      UID: ${AGY_UID:-1000}
+  image: agy-multi:latest
+  restart: unless-stopped
+  init: true
+  environment:
+    - TERM=xterm-256color
+    - COLORTERM=truecolor
+    # git sees "dubious" owners on the shared mount; only the owner's repos live there
+    - GIT_CONFIG_COUNT=1
+    - GIT_CONFIG_KEY_0=safe.directory
+    - GIT_CONFIG_VALUE_0=*
+
+services:
+  agy-pro:            # Google AI Pro account
+    <<: *agy
+    container_name: agy-pro
+    hostname: agy-pro
+    volumes:
+      - pro-home:/home/agy
+      - locks:/locks
+      - ${WORKSPACE:?run setup.sh}:${WORKSPACE:?run setup.sh}
+
+  agy-plus:           # Google AI Plus account
+    <<: *agy
+    container_name: agy-plus
+    hostname: agy-plus
+    volumes:
+      - plus-home:/home/agy
+      - locks:/locks
+      - ${WORKSPACE:?run setup.sh}:${WORKSPACE:?run setup.sh}
+
+volumes:
+  locks:              # shared compile lock (flock)
+  pro-home:
+  plus-home:

@@ -12,6 +12,8 @@ Instructions for AI assistants and developers. Read fully before changing code.
 >
 > Roles: the **implementer** (agy) follows this file as written. The **orchestrator** (Claude Code)
 > follows `CLAUDE.md` for its role, branches and writable files, and this file for everything else.
+> On every PC agy runs in the Docker containers `agy-pro` / `agy-plus` (two Google accounts), set up
+> with `tools/orchestration/agy-env/setup.sh` (`tools/orchestration/README.md`).
 
 ## 1. What this repo is
 

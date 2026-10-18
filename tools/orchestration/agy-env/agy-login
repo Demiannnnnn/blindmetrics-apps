@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Usage: agy-login <pro|plus>
+# Login de Google para agy dentro del contenedor, sin copiar la URL a mano.
+set -euo pipefail
+acct="${1:?uso: agy-login <pro|plus>}"; ctr="agy-$acct"
+clean() { sed 's/\x1b\[[0-9;?<>]*[a-zA-Z]//g; s/\x1b\][^\x07]*\x07//g' | tr -d '\r'; }
+
+docker ps --format '{{.Names}}' | grep -qx "$ctr" || docker compose -f "${AGY_ENV_DIR:-$HOME/agy-multi}/compose.yml" up -d "$ctr" >/dev/null
+
+docker exec "$ctr" bash -c 'pkill -x agy; pkill -x script; rm -f /tmp/in /tmp/login.log; mkfifo /tmp/in' || true
+docker exec -d "$ctr" bash -c 'exec 3<>/tmp/in; TERM=xterm-256color script -qfc "stty cols 400 rows 50; agy" /tmp/login.log <&3 >/dev/null 2>&1'
+trap 'docker exec "$ctr" bash -c "pkill -x agy; pkill -x script; rm -f /tmp/in /tmp/login.log" >/dev/null 2>&1 || true' EXIT
+
+sleep 4
+docker exec "$ctr" bash -c 'printf "\r" > /tmp/in'   # opción 1: Google OAuth
+
+url=""
+for _ in $(seq 20); do
+  sleep 1
+  url=$(docker exec "$ctr" cat /tmp/login.log | clean | grep -o -E 'https://accounts\.google\.com/o/oauth2/auth\?[^ ]*state=[A-Za-z0-9_-]{22}' | head -1 || true)
+  [ -n "$url" ] && break
+done
+[ -n "$url" ] || { echo "No apareció la URL de login. ¿Ya estaba logueado? Prueba: agy-$acct"; exit 1; }
+
+echo "Abriendo el navegador para la cuenta: $acct"
+echo "  → Elige la cuenta de Google correcta y autoriza."
+echo "  → Al final copia el código de autorización que muestra la página."
+if command -v open >/dev/null 2>&1 && [ "$(uname)" = Darwin ]; then open "$url"
+elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 &
+else echo "Abre esta URL en tu navegador:"; echo "$url"; fi
+echo
+read -r -p "Pega el código aquí: " code
+code="$(printf '%s' "$code" | tr -d '[:space:]')"
+docker exec -i "$ctr" bash -c 'cat > /tmp/in' <<<"$code"$'\r'
+
+for _ in $(seq 20); do
+  sleep 1
+  if docker exec "$ctr" agy -p "responde solo: ok" --print-timeout 60s >/dev/null 2>&1; then
+    echo "✓ Cuenta $acct autenticada."; exit 0
+  fi
+done
+echo "✗ No se pudo confirmar el login. Últimas líneas:"
+docker exec "$ctr" cat /tmp/login.log | clean | grep -v '^\s*$' | tail -8
+exit 1

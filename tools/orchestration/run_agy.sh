@@ -14,13 +14,14 @@ LOGDIR=${SCRATCH:-$HOME/.cache/telemetry-orchestration}/logs
 mkdir -p "$LOGDIR"
 LOG="$LOGDIR/$(basename "$TASK" .md)-$ACCOUNT-$(date +%H%M%S).log"
 cd "$REPO" || exit 2
-case "$PWD" in /Users/demian/Documents/Github/*) ;; *) echo "worktree must be under ~/Documents/Github (container mount)"; exit 2;; esac
 [ -f "$TASK" ] || { echo "task file not found: $TASK"; exit 2; }
 case "$BRANCH" in dev/*) ;; *) echo "branch must start with dev/"; exit 2;; esac
 if ! docker ps --format '{{.Names}}' | grep -qx "$CTR"; then
-  colima status >/dev/null 2>&1 || colima start >/dev/null
-  docker compose -f "$HOME/agy-multi/compose.yml" up -d "$CTR" >/dev/null || { echo "cannot start $CTR"; exit 2; }
+  if command -v colima >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then colima start >/dev/null; fi
+  docker compose -f "${AGY_ENV_DIR:-$HOME/agy-multi}/compose.yml" up -d "$CTR" >/dev/null \
+    || { echo "cannot start $CTR: run tools/orchestration/agy-env/setup.sh"; exit 2; }
 fi
+docker exec "$CTR" test -d "$PWD" || { echo "$PWD is not mounted in $CTR (outside WORKSPACE of ~/agy-multi/.env)"; exit 2; }
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then git checkout -q "$BRANCH"; else git checkout -q -b "$BRANCH" develop-AGENTS; fi
 EXTRA_TXT=""; [ -n "$EXTRA" ] && EXTRA_TXT="$(cat "$EXTRA")"
 PROMPT="You are the implementing agent of this repository. Your assigned task is: $TASK

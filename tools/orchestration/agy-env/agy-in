@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Usage: agy-in <pro|plus> [agy args...]
+# Runs agy inside that account's container, in the current directory.
+set -euo pipefail
+acct="${1:?usage: agy-in <pro|plus> [args]}"; shift
+ctr="agy-$acct"
+ENV_DIR="${AGY_ENV_DIR:-$HOME/agy-multi}"
+# shellcheck disable=SC1091
+. "$ENV_DIR/.env"
+
+if ! docker ps --format '{{.Names}}' | grep -qx "$ctr"; then
+  if command -v colima >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then colima start >/dev/null; fi
+  docker compose -f "$ENV_DIR/compose.yml" up -d "$ctr" >/dev/null
+fi
+
+# Only WORKSPACE is mounted; outside it, use its root
+dir="$PWD"
+case "$dir" in "$WORKSPACE"|"$WORKSPACE"/*) ;; *) dir="$WORKSPACE" ;; esac
+
+flags=(-i)
+[ -t 0 ] && [ -t 1 ] && flags+=(-t)
+exec docker exec "${flags[@]}" -w "$dir" "$ctr" agy "$@"
