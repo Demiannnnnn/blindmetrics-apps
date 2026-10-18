@@ -505,3 +505,212 @@ export function validateAbsenceForm(input: AbsenceFormInput): Record<string, str
   }
   return errors;
 }
+
+// ============================================================================
+// Timezone conversion for legal corrections (RF-ADMIN-18-3, RF-ADMIN-18-4)
+// ============================================================================
+
+interface ZonedParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+const formattersCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZonedFormatter(tz: string): Intl.DateTimeFormat {
+  let f = formattersCache.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      hourCycle: 'h23',
+    });
+    formattersCache.set(tz, f);
+  }
+  return f;
+}
+
+function getZonedParts(utcMs: number, tz: string): ZonedParts {
+  const d = new Date(utcMs);
+  const formatter = getZonedFormatter(tz);
+  const parts = formatter.formatToParts(d);
+  let year = 0;
+  let month = 0;
+  let day = 0;
+  let hour = 0;
+  let minute = 0;
+  let second = 0;
+  for (const p of parts) {
+    if (p.type === 'year') year = parseInt(p.value, 10);
+    else if (p.type === 'month') month = parseInt(p.value, 10);
+    else if (p.type === 'day') day = parseInt(p.value, 10);
+    else if (p.type === 'hour') hour = parseInt(p.value, 10);
+    else if (p.type === 'minute') minute = parseInt(p.value, 10);
+    else if (p.type === 'second') second = parseInt(p.value, 10);
+  }
+  return { year, month, day, hour, minute, second };
+}
+
+function getOffsetMs(utcMs: number, tz: string): number {
+  const parts = getZonedParts(utcMs, tz);
+  const zonedAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return zonedAsUtc - utcMs;
+}
+
+function matchesZoned(
+  utcMs: number,
+  tz: string,
+  y: number,
+  m: number,
+  d: number,
+  h: number,
+  min: number,
+  s: number,
+): boolean {
+  const p = getZonedParts(utcMs, tz);
+  return (
+    p.year === y &&
+    p.month === m &&
+    p.day === d &&
+    p.hour === h &&
+    p.minute === min &&
+    p.second === s
+  );
+}
+
+/**
+ * Converts a wall-clock date and time in a given IANA timezone to an RFC 3339 UTC string
+ * with second precision ('...Z') using only the standard `Intl` API (RF-ADMIN-18-3).
+ *
+ * Rules:
+ * - Precision: exact seconds ('...Z').
+ * - Nonexistent wall-clock hours (e.g. spring-forward daylight saving gap) throw an Error in es-CL.
+ * - Ambiguous wall-clock hours (e.g. fall-back daylight saving overlap) resolve to the first occurrence
+ *   chronologically (the earlier UTC instant).
+ * - Supported time formats: HH:mm:ss, HH:mm, or H:mm:ss.
+ * - Supported date formats: YYYY-MM-DD.
+ */
+export function zonedLocalToUtcIso(
+  date: string,
+  time: string,
+  timezone = 'America/Santiago',
+): string {
+  const tz = timezone?.trim() || 'America/Santiago';
+
+  if (!date || !date.trim()) {
+    throw new Error('Debes indicar la fecha.');
+  }
+  if (!time || !time.trim()) {
+    throw new Error('Debes indicar la hora.');
+  }
+
+  const dateMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(date.trim());
+  if (!dateMatch) {
+    throw new Error('Formato de fecha inválido. Se espera YYYY-MM-DD.');
+  }
+  const y = parseInt(dateMatch[1], 10);
+  const m = parseInt(dateMatch[2], 10);
+  const d = parseInt(dateMatch[3], 10);
+
+  const timeMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(time.trim());
+  if (!timeMatch) {
+    throw new Error('Formato de hora inválido. Se espera HH:mm:ss.');
+  }
+  const h = parseInt(timeMatch[1], 10);
+  const min = parseInt(timeMatch[2], 10);
+  const s = timeMatch[3] ? parseInt(timeMatch[3], 10) : 0;
+
+  if (m < 1 || m > 12 || d < 1 || d > 31 || h < 0 || h > 23 || min < 0 || min > 59 || s < 0 || s > 59) {
+    throw new Error('Hora o fecha fuera de rango.');
+  }
+
+  // Validate calendar date (e.g. 2026-02-30 is invalid)
+  const testDate = new Date(Date.UTC(y, m - 1, d));
+  if (
+    testDate.getUTCFullYear() !== y ||
+    testDate.getUTCMonth() !== m - 1 ||
+    testDate.getUTCDate() !== d
+  ) {
+    throw new Error('Fecha del calendario no válida.');
+  }
+
+  const targetNaiveMs = Date.UTC(y, m - 1, d, h, min, s);
+
+  // Sample offsets around targetNaiveMs to capture DST transitions
+  const testPoints = [
+    targetNaiveMs - 24 * 3600 * 1000,
+    targetNaiveMs - 12 * 3600 * 1000,
+    targetNaiveMs - 4 * 3600 * 1000,
+    targetNaiveMs - 3600 * 1000,
+    targetNaiveMs,
+    targetNaiveMs + 3600 * 1000,
+    targetNaiveMs + 4 * 3600 * 1000,
+    targetNaiveMs + 12 * 3600 * 1000,
+    targetNaiveMs + 24 * 3600 * 1000,
+  ];
+
+  const offsets = new Set<number>();
+  for (const t of testPoints) {
+    offsets.add(getOffsetMs(t, tz));
+  }
+  for (const off of Array.from(offsets)) {
+    offsets.add(getOffsetMs(targetNaiveMs - off, tz));
+  }
+
+  const candidateUtcs: number[] = [];
+  for (const off of offsets) {
+    const cand = targetNaiveMs - off;
+    if (matchesZoned(cand, tz, y, m, d, h, min, s)) {
+      if (!candidateUtcs.includes(cand)) {
+        candidateUtcs.push(cand);
+      }
+    }
+  }
+
+  if (candidateUtcs.length === 0) {
+    throw new Error('La hora indicada no existe en la zona horaria debido al cambio de horario de verano.');
+  }
+
+  // Sort ascending: in ambiguous fallback times, first occurrence is the earlier UTC instant
+  candidateUtcs.sort((a, b) => a - b);
+  const chosen = new Date(candidateUtcs[0]);
+
+  return chosen.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * Returns a human-readable label in es-CL for a timezone (RF-ADMIN-18-4).
+ */
+export function formatTimezoneLabel(timezone = 'America/Santiago'): string {
+  const tz = timezone?.trim() || 'America/Santiago';
+  switch (tz) {
+    case 'America/Santiago':
+      return 'Hora de Chile continental (America/Santiago)';
+    case 'America/Punta_Arenas':
+      return 'Hora de Magallanes (America/Punta_Arenas)';
+    case 'Pacific/Easter':
+      return 'Hora de Rapa Nui (Pacific/Easter)';
+    case 'UTC':
+      return 'Tiempo Universal Coordinado (UTC)';
+    default:
+      return tz;
+  }
+}
+

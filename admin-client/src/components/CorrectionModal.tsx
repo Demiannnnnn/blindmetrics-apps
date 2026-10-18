@@ -20,6 +20,8 @@ import {
   validateCorrectionForm,
   describeCorrectionError,
   effectiveTs,
+  zonedLocalToUtcIso,
+  formatTimezoneLabel,
 } from '../lib/attendance';
 import { describeError } from '../lib/errors';
 
@@ -99,8 +101,15 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
       return;
     }
 
-    // Construct ISO RFC 3339 UTC timestamp
-    const proposedIso = `${dateStr}T${timeStr}Z`;
+    // Convert local wall-clock time in worker's timezone to RFC 3339 UTC (RF-ADMIN-18-3, RF-ADMIN-18-4)
+    let proposedIso: string;
+    try {
+      proposedIso = zonedLocalToUtcIso(dateStr, timeStr, effectiveTimezone);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'La fecha y hora propuesta no es válida.';
+      setError(msg);
+      return;
+    }
 
     // Local mirror validation (RF-ADMIN-15-5)
     const validation = validateCorrectionForm({
@@ -291,7 +300,9 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
                 onChange={e => setTimeStr(e.target.value)}
                 className="w-full bg-surface-subtle border border-default text-fg text-xs rounded-control px-3 py-2 font-mono focus:outline-hidden focus:border-accent"
               />
-              <span className="text-[10px] text-muted block">Precisión de segundos (UTC)</span>
+              <span className="text-[10px] text-muted block" title={effectiveTimezone}>
+                {formatTimezoneLabel(effectiveTimezone)}
+              </span>
             </div>
           </div>
 
