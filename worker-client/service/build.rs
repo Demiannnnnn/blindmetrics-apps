@@ -5,12 +5,12 @@ include!("build_support/placeholders.rs");
 /// Legal texts embedded by `src/legal.rs` (LEG-04). A release build fails while they still contain
 /// owner placeholders (LEG-06).
 const LEGAL_TEXTS: [&str; 2] = [
-    "../docs/legal/terminos-trabajador.md",
-    "../docs/legal/politica-privacidad.md",
+    "../../docs/legal/terminos-trabajador.md",
+    "../../docs/legal/politica-privacidad.md",
 ];
 
 /// Server URL the agent is built for. The agent only talks to the owner's server, so the URL is
-/// fixed at compile time (from the `TELEMETRY_API_URL` environment variable or `agent/.env`) and
+/// fixed at compile time (from the `TELEMETRY_API_URL` environment variable or `worker-client/service/.env`) and
 /// never asked to the worker.
 const API_URL_KEY: &str = "TELEMETRY_API_URL";
 const DEBUG_DEFAULT_API_URL: &str = "http://localhost:8080/api/v1";
@@ -38,7 +38,7 @@ fn main() {
     let url = match url {
         Some(url) => url,
         None if release => panic!(
-            "{API_URL_KEY} is required for release builds: set it in agent/.env or the environment"
+            "{API_URL_KEY} is required for release builds: set it in worker-client/service/.env or the environment"
         ),
         None => DEBUG_DEFAULT_API_URL.to_string(),
     };

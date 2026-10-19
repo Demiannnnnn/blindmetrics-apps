@@ -29,7 +29,7 @@ impl Default for ConsentSettings {
 }
 
 /// Server the agent is built for, fixed at compile time by `build.rs` from `TELEMETRY_API_URL`
-/// (`agent/.env` or the environment). The worker never types or changes it.
+/// (`worker-client/service/.env` or the environment). The worker never types or changes it.
 pub const API_BASE_URL: &str = env!("TELEMETRY_API_URL");
 
 fn compiled_api_base_url() -> String {

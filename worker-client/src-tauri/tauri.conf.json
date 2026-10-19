@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5174",
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "cargo build -p agent && npm run dev",
     "beforeBuildCommand": "npm run sidecar && npm run build"
   },
   "app": {

@@ -1,5 +1,5 @@
 // Minimal copy of `telemetry_crypto_core::legal::find_placeholders` for `build.rs` (LEG-06):
-// the build script cannot depend on the crate it builds. `agent/src/legal.rs` includes this same
+// the build script cannot depend on the crate it builds. `worker-client/service/src/legal.rs` includes this same
 // file in a test that compares both implementations on the real legal texts.
 
 /// Bracketed owner placeholders (`[RUT]`, `[RAZÓN SOCIAL…]`, `[MIENTRAS …]`), excluding Markdown

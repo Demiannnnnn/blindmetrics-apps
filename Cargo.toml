@@ -2,9 +2,9 @@
 resolver = "2"
 members = [
     "telemetry-crypto-core",
-    "agent-ipc",
-    "agent",
-    "agent-ui/src-tauri",
+    "worker-client/ipc",
+    "worker-client/service",
+    "worker-client/src-tauri",
     "admin-client/src-tauri",
 ]
 
@@ -18,7 +18,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 # Internal shared cryptographic and IPC crates
 telemetry-crypto-core = { path = "telemetry-crypto-core" }
-agent-ipc = { path = "agent-ipc" }
+agent-ipc = { path = "worker-client/ipc" }
 
 # Cryptography
 x25519-dalek = { version = "2.0", features = ["static_secrets", "zeroize"] }
