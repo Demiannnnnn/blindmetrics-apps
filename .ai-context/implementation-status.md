@@ -98,7 +98,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 2. The agent cannot decode a QR from the camera or an image; the payload is pasted (AGENT-08).
 3. Google sign-in has no in-app "cancel" button: closing the browser tab ends at the 180 s timeout (ADMIN-10).
 4. ~~Security: unverified biometric unlock~~ — closed by ADMIN-13 (button and command removed).
-5. The admin WebView CSP (`admin-client/src-tauri/tauri.conf.json`) still allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`; tightening it is pending hardening (see `security-model.md`, XSS row).
+5. ~~Admin WebView CSP allowed `unsafe-inline`/`unsafe-eval`~~ — closed by ADMIN-18 (2026-10-19): production `script-src 'self'`, `devCsp` only for `tauri dev`, test scanning `dist/` for `eval`/`new Function`. ADMIN-18 also fixed correction times sent as UTC (`zonedLocalToUtcIso`).
 6. ~~Privacy: offline withdrawal not re-sent~~ — closed by AGENT-10 (`pending_withdrawal` persisted and re-sent on every lifecycle poll; `test_offline_withdrawal_sets_pending_and_clears_queue`). Audit 2026-10-18.
 7. ~~Privacy: `--headless` without tray~~ — closed by AGENT-10 (flag refused; no tray ⇒ no collectors).
 8. Rate limits and lockouts are enforced by the API only; the apps show the `Retry-After` countdown but do not throttle locally.

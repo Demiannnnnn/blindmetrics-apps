@@ -120,3 +120,7 @@ pass the URL to agy in the notes file as `TELEMETRY_LIVE_API_URL`.
 - Worktrees in `WORKSPACE`: `ta-wt-orch` (orchestrator, `develop-AGENTS`), `ta-wt-pro` (agy-pro),
   `ta-wt-plus` (agy-plus). The owner's checkout `telemetry-apps` is left alone.
 - Delete a worktree's `target/` and `node_modules/` once its task is merged (disk space).
+- In telemetry-apps the remote has a branch named `dev`, so `dev/*` branches **cannot be pushed**
+  ("directory file conflict"). They stay local; their history reaches the remote through the merge
+  into `develop-AGENTS`. To back up unmerged work, push it under another name, e.g.
+  `git push origin dev/x:refs/heads/agents/x`.

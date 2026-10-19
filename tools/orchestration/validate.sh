@@ -29,7 +29,7 @@ if [ -f /.dockerenv ]; then H=(flock "${LOCK:-/locks/telemetry-heavy.lock}"); el
 run fmt cargo fmt --all --check
 run clippy "${H[@]}" cargo clippy --workspace --all-targets -- -D warnings
 run test "${H[@]}" cargo test --workspace
-echo "-- rust test counts:"; "${H[@]}" cargo test --workspace 2>&1 | grep -E "^test result" | awk '{print $4}' | paste -sd+ | bc 2>/dev/null
+echo "-- rust test counts:"; "${H[@]}" cargo test --workspace 2>&1 | grep -E "^test result" | awk '{print $4}' | paste -sd+ - | bc 2>/dev/null
 for ui in admin-client agent-ui; do
   [ -f "$ui/package.json" ] || continue
   run "$ui:install" bash -c "cd $ui && npm ci --silent"
