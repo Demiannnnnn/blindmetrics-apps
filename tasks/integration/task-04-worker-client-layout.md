@@ -102,11 +102,11 @@ con un comando. Es una tarea de **estructura**: el comportamiento no cambia.
 
 ## Reporte
 
-- **Resumen:** Se consolidó la estructura de la aplicación del trabajador en una única carpeta raíz (`worker-client/`) análoga a `admin-client/`, conteniendo `service/` (antiguo `agent/`), `ipc/` (antiguo `agent-ipc/`) y `src-tauri/` con el frontend React en la raíz de `worker-client/`. Se conservó el historial de git usando `git mv`. Se actualizaron los miembros del workspace en `Cargo.toml`, los scripts de sidecar, las rutas de compilación y verificación de textos legales hacia `docs/legal/`, `.gitignore` y `README.md`. No se renombraron paquetes ni binarios (`agent`, `agent-ipc`, `agent-ui-core`, `telemetry-agent`, `com.telemetry.worker`).
+- **Resumen:** Se consolidó la estructura de la aplicación del trabajador en una única carpeta raíz (`worker-client/`) análoga a `admin-client/`, conteniendo `service/` (antiguo `agent/`), `ipc/` (antiguo `agent-ipc/`) y `src-tauri/` con el frontend React en la raíz de `worker-client/`. Se conservó el historial de git usando `git mv`. Se actualizaron los miembros del workspace en `Cargo.toml`, los scripts de sidecar, las rutas de compilación y verificación de textos legales hacia `docs/legal/`, `.gitignore` y `README.md`. No se renombraron paquetes ni binarios (`agent`, `agent-ipc`, `agent-ui-core`, `telemetry-agent`, `com.telemetry.worker`). En `prepare-sidecar.mjs`, se eliminó el fallback automático a debug para garantizar el estricto cumplimiento de los gates de release (LEG-06, SEC-10 y RF-INT-04-3); el perfil debug solo se compila cuando se solicita explícitamente (`TAURI_ENV_DEBUG === 'true'` o `--debug`).
 - **Archivos:**
   - `Cargo.toml`: miembros del workspace (`worker-client/ipc`, `worker-client/service`, `worker-client/src-tauri`) y dependencia `agent-ipc = { path = "worker-client/ipc" }`.
   - `.gitignore`: ruta del binario sidecar actualizada a `worker-client/src-tauri/binaries/`.
-  - `worker-client/scripts/prepare-sidecar.mjs`: ajuste de `repoRoot` y fallback a binario debug para sidecar si release es bloqueado por placeholders LEG-06 en desarrollo.
+  - `worker-client/scripts/prepare-sidecar.mjs`: ajuste de `repoRoot`, soporte explícito de perfil debug (`TAURI_ENV_DEBUG === 'true'` o `--debug`) y salida con código de error inmediato sin fallback en release si fallan los gates de `build.rs` (LEG-06 / SEC-10).
   - `worker-client/service/build.rs`, `worker-client/service/build_support/placeholders.rs`, `worker-client/service/src/{config,legal}.rs`: rutas relativas a `docs/legal/` (`../../docs/legal/` y `../../../docs/legal/`).
   - `worker-client/ipc/src/transport.rs`: fix de clippy para tests de Linux en macOS (`#[cfg(target_os = "linux")]`).
   - `worker-client/src-tauri/{build.rs,tauri.conf.json,src/client.rs}`: comandos `beforeDevCommand`/`beforeBuildCommand`, mensaje descriptivo y resolución de binario en `target/debug`.
@@ -116,14 +116,16 @@ con un comando. Es una tarea de **estructura**: el comportamiento no cambia.
 - **Comandos:**
   - `cargo fmt --all --check`: ✅ limpio.
   - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 advertencias).
-  - `cargo test --workspace`: ✅ 390 pruebas pasadas (`telemetry-crypto-core` 51, `agent` 155, `agent-ipc` 21, `agent-ui-core` 9 [flaky test conocido `test_ensure_service_launches_binary_and_retries_until_socket_is_up` pasa solo y con `--test-threads=1`], `admin-client-core` 154).
+  - `cargo test --workspace`: ✅ 390 pruebas pasadas (`telemetry-crypto-core` 51, `agent` 155, `agent-ipc` 21, `agent-ui-core` 9, `admin-client-core` 154). Nota: la prueba `test_ensure_service_launches_binary_and_retries_until_socket_is_up` (flaky conocida en macOS bajo concurrencia, sujeta a INT-06) corre y pasa en solitario y con `--test-threads=1`.
   - `cd admin-client && npm ci && npm run build && npm test`: ✅ build OK, 91 pruebas pasadas (0 fallas).
   - `cd worker-client && npm ci && npm run build && npm test`: ✅ build OK, 26 pruebas pasadas (0 fallas).
-  - `npm run sidecar` (en `worker-client`): ✅ binario generado en `src-tauri/binaries/telemetry-agent-<triple>`.
-  - `heavy npx tauri build --no-bundle` (en `worker-client`): ✅ genera `target/release/telemetry-worker`.
-  - `env TELEMETRY_API_URL="https://api.telemetry.example.com/api/v1" heavy npx tauri build --debug --no-bundle` (en `admin-client`): ✅ genera `target/debug/admin-client-core`.
+  - `npm run sidecar -- --debug` (en `worker-client`): ✅ binario debug generado en `src-tauri/binaries/telemetry-agent-<triple>`.
+  - `npm run sidecar` (en `worker-client`, release sin placeholders completados): ✅ bloqueado inmediatamente con exit code 101 por LEG-06, sin fallback.
+  - `heavy npx tauri build --debug --no-bundle` (en `worker-client`): ✅ genera `target/debug/telemetry-worker`.
+  - `heavy npx tauri build --no-bundle` (en `worker-client`, release): ✅ bloqueado inmediatamente por placeholders LEG-06, sin fallback.
+  - `heavy npx tauri build --debug --no-bundle` (en `admin-client`): ✅ genera `target/debug/admin-client-core`.
 - **Decisiones:**
-  - En `prepare-sidecar.mjs` se mantiene un fallback a perfil debug cuando `cargo build --release -p agent` falla por los placeholders de dueño pendientes en `docs/legal/` (LEG-06), permitiendo a los desarrolladores compilar la app con Tauri en entornos de desarrollo sin alterar archivos legales protegidos.
+  - En `prepare-sidecar.mjs`, se eliminó el fallback automático a debug ante fallos en release para respetar estrictamente las validaciones de `service/build.rs` (LEG-06 y SEC-10). Solo se genera el binario en perfil debug si se solicita explícitamente vía variable `TAURI_ENV_DEBUG === 'true'` (establecida por Tauri en `tauri build --debug`) o pasando el flag `--debug`.
   - Se añadieron `app:dev` y `app:build` como alias en `package.json` de ambas aplicaciones para que la documentación del README sea simétrica, sin agregar un `package.json` en la raíz del repo.
 - **Pendientes / bloqueos:** Ninguno para esta tarea.
 - **Desviaciones del contrato:** Ninguna.
