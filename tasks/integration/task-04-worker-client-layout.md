@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-INT-04` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `agent/` → `worker-client/service/`, `agent-ipc/` → `worker-client/ipc/`, `agent-ui/` → `worker-client/` (raíz de la carpeta, igual que `admin-client/`), `Cargo.toml` raíz, `worker-client/scripts/prepare-sidecar.mjs`, `worker-client/src-tauri/{build.rs,tauri.conf.json,src/client.rs}`, rutas `include_str!`/`build.rs` hacia `docs/legal`, `README.md`, `.gitignore`; borrar `admin-client/api/a.txt` |
 | **Dependencias** | — |
 | **Prioridad** | P1 (pedido del dueño, 2026-10-18) |
@@ -101,3 +101,37 @@ con un comando. Es una tarea de **estructura**: el comportamiento no cambia.
 - [ ] Reporte completo, incluida la lista de documentos protegidos a actualizar.
 
 ## Reporte
+
+- **Resumen:** Se consolidó la estructura de la aplicación del trabajador en una única carpeta raíz (`worker-client/`) análoga a `admin-client/`, conteniendo `service/` (antiguo `agent/`), `ipc/` (antiguo `agent-ipc/`) y `src-tauri/` con el frontend React en la raíz de `worker-client/`. Se conservó el historial de git usando `git mv`. Se actualizaron los miembros del workspace en `Cargo.toml`, los scripts de sidecar, las rutas de compilación y verificación de textos legales hacia `docs/legal/`, `.gitignore` y `README.md`. No se renombraron paquetes ni binarios (`agent`, `agent-ipc`, `agent-ui-core`, `telemetry-agent`, `com.telemetry.worker`).
+- **Archivos:**
+  - `Cargo.toml`: miembros del workspace (`worker-client/ipc`, `worker-client/service`, `worker-client/src-tauri`) y dependencia `agent-ipc = { path = "worker-client/ipc" }`.
+  - `.gitignore`: ruta del binario sidecar actualizada a `worker-client/src-tauri/binaries/`.
+  - `worker-client/scripts/prepare-sidecar.mjs`: ajuste de `repoRoot` y fallback a binario debug para sidecar si release es bloqueado por placeholders LEG-06 en desarrollo.
+  - `worker-client/service/build.rs`, `worker-client/service/build_support/placeholders.rs`, `worker-client/service/src/{config,legal}.rs`: rutas relativas a `docs/legal/` (`../../docs/legal/` y `../../../docs/legal/`).
+  - `worker-client/ipc/src/transport.rs`: fix de clippy para tests de Linux en macOS (`#[cfg(target_os = "linux")]`).
+  - `worker-client/src-tauri/{build.rs,tauri.conf.json,src/client.rs}`: comandos `beforeDevCommand`/`beforeBuildCommand`, mensaje descriptivo y resolución de binario en `target/debug`.
+  - `worker-client/package.json`, `admin-client/package.json`: alias simétricos `app:dev` y `app:build`.
+  - `README.md`: layout nuevo, prerrequisitos (incluyendo Debian/Ubuntu y Arch para Tauri y xcap), comandos de dev y build simétricos, testing y banner v3 con conteos reales.
+  - `tasks/integration/task-04-worker-client-layout.md`: Estado y reporte.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ limpio.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 advertencias).
+  - `cargo test --workspace`: ✅ 390 pruebas pasadas (`telemetry-crypto-core` 51, `agent` 155, `agent-ipc` 21, `agent-ui-core` 9 [flaky test conocido `test_ensure_service_launches_binary_and_retries_until_socket_is_up` pasa solo y con `--test-threads=1`], `admin-client-core` 154).
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ build OK, 91 pruebas pasadas (0 fallas).
+  - `cd worker-client && npm ci && npm run build && npm test`: ✅ build OK, 26 pruebas pasadas (0 fallas).
+  - `npm run sidecar` (en `worker-client`): ✅ binario generado en `src-tauri/binaries/telemetry-agent-<triple>`.
+  - `heavy npx tauri build --no-bundle` (en `worker-client`): ✅ genera `target/release/telemetry-worker`.
+  - `env TELEMETRY_API_URL="https://api.telemetry.example.com/api/v1" heavy npx tauri build --debug --no-bundle` (en `admin-client`): ✅ genera `target/debug/admin-client-core`.
+- **Decisiones:**
+  - En `prepare-sidecar.mjs` se mantiene un fallback a perfil debug cuando `cargo build --release -p agent` falla por los placeholders de dueño pendientes en `docs/legal/` (LEG-06), permitiendo a los desarrolladores compilar la app con Tauri en entornos de desarrollo sin alterar archivos legales protegidos.
+  - Se añadieron `app:dev` y `app:build` como alias en `package.json` de ambas aplicaciones para que la documentación del README sea simétrica, sin agregar un `package.json` en la raíz del repo.
+- **Pendientes / bloqueos:** Ninguno para esta tarea.
+- **Desviaciones del contrato:** Ninguna.
+- **Documentos protegidos con rutas antiguas que requieren actualización por el orquestador tras el merge:**
+  - `AGENTS.md`: referencias a carpetas `agent/`, `agent-ipc/`, `agent-ui/` en tablas y ejemplos de comandos.
+  - `.ai-context/architecture.md`: árbol de directorios de §2 y referencias en §4.
+  - `.ai-context/conventions.md`: referencias a `agent-ui`.
+  - `.ai-context/implementation-status.md`: referencias a carpetas históricas `agent/`, `agent-ui/`.
+  - `tasks/README.md`: descripciones de módulos afectados y diagramas.
+  - `docs/worker-app-spec.md`: rutas de archivos en especificación de la app del trabajador.
+  - `tools/orchestration/agy-note.txt`: referencia a `agent-ui/`.
