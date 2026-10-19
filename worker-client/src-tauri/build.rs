@@ -33,7 +33,7 @@ fn main() {
             Ok(content) if !is_placeholder(&content) && !content.is_empty() => {}
             _ => panic!(
                 "Release build blocked: the service sidecar {} is missing or a placeholder. \
-                 Run `npm run sidecar` in agent-ui/ to build and copy telemetry-agent.",
+                 Run `npm run sidecar` in worker-client/ to build and copy telemetry-agent.",
                 sidecar.display()
             ),
         }

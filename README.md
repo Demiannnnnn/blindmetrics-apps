@@ -1,10 +1,8 @@
 # Telemetry Apps
 
-Desktop clients of the Telemetry platform: an **Admin** console (Tauri 2 + React) and a **Worker** agent (Rust + egui), sharing one crypto crate. They talk to [`telemetry-api`](https://github.com/Demiannnnnn/telemetry-api), a **zero-knowledge** server that stores only ciphertext, and to the web portal `telemetry-web` only by opening it in the browser (sign-up, billing, downloads).
+Desktop clients of the Telemetry platform: an **Admin** app (`admin-client`, Tauri 2 + React) and a **Worker** app (`worker-client`, Tauri 2 + React window with background service), sharing one crypto crate. Since 2026-10-11 the main purpose is the **legal attendance record** (Chile, R38) with **optional** zero-knowledge telemetry. They talk to [`telemetry-api`](https://github.com/Demiannnnnn/telemetry-api), a server that stamps, chains and verifies attendance marks while keeping telemetry zero-knowledge (ciphertext only), and to the web portal `telemetry-web` only by opening it in the browser (sign-up, billing, verification, downloads).
 
-> **Project status (2026-09-30).** Both apps speak the **API contract v2** (`telemetry-api` TASK-12..17): verified enrollment package v2, granular consent, typed errors, single-flight token refresh, Google sign-in and authorised devices for the admin, the key vault (`.tkb` backups, server backup, recovery, destructive rotation) and the subscription lock screen (TASK-APP-01/02). Verified in the audit: `cargo test --workspace` (crypto-core 33 · agent 86 · admin-client-core 91 tests), `cargo clippy -D warnings`, no `unwrap`/`expect` outside tests, `cargo fmt`, admin UI `tsc`, `npm test` (28) and `npm run build`. The desktop windows were **not** driven end-to-end against a live API in the audit environment.
->
-> **Known production blockers** (details in [`implementation-status.md`](.ai-context/implementation-status.md) §5): the auto-lock "Biometría" button unlocks without any OS verification; a withdrawal that fails offline is not re-sent automatically; `agent --headless` runs without a tray icon.
+> **Project status (2026-10-19 — v3 stage).** Both apps speak the **API contract v3** with legal attendance records (Chile, DT Res. Ex. N°38/2024), versioned terms and privacy policy (`docs/legal/`), and the worker app ported to Tauri 2 with separate processes (background service + window). Verified in the audit: `cargo fmt --all --check` ✅, `cargo clippy --workspace --all-targets -- -D warnings` ✅, `cargo test --workspace` ✅ (390 tests: `telemetry-crypto-core` 51, `agent` 155, `agent-ipc` 21, `agent-ui-core` 9, `admin-client-core` 154), worker UI `npm test` ✅ (26 tests) and `npm run build` ✅, admin UI `npm test` ✅ (91 tests) and `npm run build` ✅.
 
 ---
 
@@ -51,25 +49,23 @@ flowchart LR
         UI["React UI<br/>(no tokens, no keys)"] -- "IPC commands / events" --> RS[Rust core]
         RS --> KS[("OS keystore<br/>K_admin_priv, refresh token,<br/>installation id")]
     end
-    subgraph Worker["agent (egui)"]
-        AG["Collectors → buffer → encrypt<br/>→ send / SQLite queue"]
-        AK[("OS keystore<br/>worker tokens, pinned K_admin_pub")]
-        AG --- AK
+    subgraph Worker["worker-client"]
+        WUI["React window (Tauri 2)<br/>closable at any time"] -- "local IPC (agent-ipc)<br/>token-authenticated" --> SVC["agent service (Rust)<br/>tray + attendance + telemetry"]
+        SVC --> AK[("OS keystore & local state<br/>worker tokens, pinned key,<br/>PIN verifier, offline.db")]
     end
-    API[("telemetry-api<br/>ciphertext only")]
+    API[("telemetry-api<br/>attendance + blind telemetry")]
     WEB["telemetry-web<br/>sign-up, onboarding, billing (Flow), downloads"]
     G["Google OAuth<br/>(system browser)"]
-    RS -- "HTTPS: workers, ciphertext, vault blob,<br/>devices, subscription" --> API
-    AG -- "HTTPS: enroll, consent, encrypted ingest" --> API
+    RS -- "HTTPS: workers, attendance, vault,<br/>devices, subscription" --> API
+    SVC -- "HTTPS: enroll, attendance marks,<br/>encrypted telemetry" --> API
     RS -. "loopback + PKCE" .-> G
     RS -. "opens portal_url" .-> WEB
-    WEB -- "HTTPS (BFF)" --> API
     Admin -. "QR / code in person" .-> Worker
 ```
 
-- **Admin app:** the React UI only calls typed Tauri commands (`src/api/tauri-bridge.ts`); every HTTP request, token, key and Master Password lives in Rust (`admin-client/src-tauri`). Rust emits `session-expired` and `subscription-blocked` events to the UI.
-- **Agent:** the egui window never blocks — async work runs on an engine runtime (`EngineHandle`), commands go over `mpsc`, state comes back over `watch`. The tray runs on its own GTK thread on Linux.
-- **Crypto core:** one crate for both apps, so the envelope format, the enrollment commitment and the key backup format are identical everywhere.
+- **Admin app (`admin-client`):** the React UI only calls typed Tauri commands (`src/api/tauri-bridge.ts`); every HTTP request, token, key and Master Password lives in Rust (`admin-client/src-tauri`). Rust emits `session-expired` and `subscription-blocked` events to the UI.
+- **Worker app (`worker-client`):** two processes (`PROC-01`). The background service (`worker-client/service/`, binary `telemetry-agent`, crate `agent`) runs in the background, displays a visible system tray icon, manages attendance queuing, transparent telemetry and API calls, and hosts a token-authenticated local IPC server (`worker-client/ipc/`, crate `agent-ipc`). The window (`worker-client/`, crate `agent-ui-core`, package `telemetry-worker-ui`) connects via IPC and can be closed at any time without stopping the service.
+- **Crypto core (`telemetry-crypto-core`):** pure library crate shared across the workspace: telemetry envelopes, enrollment commitment and QR, key backups (`.tkb` v2 Argon2id), attendance mark canonical hash chain, legal document verification, PIN policy and Argon2id verifier, Chilean RUT/RUN.
 
 Details: [`.ai-context/architecture.md`](.ai-context/architecture.md).
 
@@ -77,11 +73,14 @@ Details: [`.ai-context/architecture.md`](.ai-context/architecture.md).
 
 | Path | Package | What it is |
 |:-----|:--------|:-----------|
-| `telemetry-crypto-core/` | `telemetry-crypto-core` | Envelope encryption (X25519, HKDF-SHA256, AES-256-GCM, zeroize), enrollment manifest/commitment/safety code/QR payload (CRYPTO-02), key backups: `.tkb` v2 with Argon2id (`backup_v2.rs`, CRYPTO-03) and legacy `.vault` v1 **import only** (`backup.rs`). |
-| `agent/` | `agent` | Worker app: egui window, enrollment, granular consent, background collectors, SQLite offline queue, notifications, tray. |
-| `admin-client/src-tauri/` | `admin-client-core` | Admin app Rust backend: `client.rs` (API client: typed errors, single-flight refresh, events), `google_oauth.rs`, `device.rs`, `keystore.rs`, `commands/{session,keys,vault,devices,subscription,workers,telemetry}.rs`. |
-| `admin-client/src/` | `telemetry-admin` (npm) | Admin UI: React 18, TypeScript, Tailwind, ECharts, Leaflet, `qrcode.react`. Pure helpers in `src/lib/` (`errors.ts`, `subscription.ts`, `vault.ts`) and `components/consentCategories.ts` are unit-tested with `node --test`. |
-| `docs/` | — | Functional specs ([admin](docs/admin-app-spec.md), [worker](docs/worker-app-spec.md)) and [plaintext payload schemas](docs/telemetry-payloads.md). |
+| `telemetry-crypto-core/` | `telemetry-crypto-core` | Envelope encryption (X25519, HKDF-SHA256, AES-256-GCM, zeroize), enrollment manifest/commitment/safety code/QR payload (CRYPTO-02), key backups: `.tkb` v2 with Argon2id (`backup_v2.rs`, CRYPTO-03) and legacy `.vault` v1 **import only** (`backup.rs`), attendance mark hash (SHA-256 chain), legal document hash/placeholders, PIN verifier (Argon2id), Chilean RUT/RUN (CRYPTO-04). |
+| `worker-client/` | `telemetry-worker-ui` (npm) | Worker app UI and Tauri frontend (React 18, TypeScript, Tailwind). |
+| `worker-client/src-tauri/` | `agent-ui-core` | Worker app window Rust backend (Tauri 2, IPC client to background service). |
+| `worker-client/service/` | `agent` (bin `telemetry-agent`) | Worker background service: system tray, IPC server, attendance engine and local queue, transparent telemetry collectors. |
+| `worker-client/ipc/` | `agent-ipc` | Worker app local IPC protocol (service ⇄ window): types, framing, transport and client. |
+| `admin-client/src-tauri/` | `admin-client-core` | Admin app Rust backend: `client.rs` (API client: typed errors, single-flight refresh, events), `google_oauth.rs`, `device.rs`, `keystore.rs`, `commands/{session,keys,vault,devices,subscription,workers,telemetry,attendance,employer,legal}.rs`. |
+| `admin-client/src/` | `telemetry-admin` (npm) | Admin UI: React 18, TypeScript, Tailwind, ECharts, Leaflet, `qrcode.react`. Pure helpers in `src/lib/` and components are unit-tested with `node --test`. |
+| `docs/` | — | Functional specs ([admin](docs/admin-app-spec.md), [worker](docs/worker-app-spec.md)), legal framework ([marco legal Chile](docs/legal/marco-legal-cl.md)) and [plaintext payload schemas](docs/telemetry-payloads.md). |
 | `.ai-context/` | — | Domain, architecture, constraints, security model, **API contract**, implementation status. **Start here.** |
 | `tasks/` | — | Implementation tasks with requirements, validations, DoD and tests ([roadmap](tasks/README.md)). |
 | `AGENTS.md` | — | Rules for AI assistants and contributors. |
@@ -101,16 +100,18 @@ Details: [`.ai-context/architecture.md`](.ai-context/architecture.md).
 | Workers | Paginated list with filters, create with described consent (DP-08), **enrollment package v2 verified locally** before showing the QR, regenerate code (`REVOKE_FIRST` dialog), edit, pause/resume/revoke, delete, consent configuration, **granular evidence** (decision + accepted categories) with formula-safe CSV. | ADMIN-03, ADMIN-08, ADMIN-09 |
 | Telemetry | Parallel decryption (`rayon`) tolerant to corrupted records; system, network, productivity/screenshots (blur mode), files and field map views (location locked for OFFICE). | ADMIN-04/05/06 |
 
-### Worker agent (`agent`)
+### Worker app (`worker-client`)
 
 | Area | What it does | Task |
 |:---|:---|:---|
+| Attendance | Legal Chilean attendance record (R38): start/end of workday and meal breaks with PIN confirmation (ATT-01); offline mark queue with device timestamp (ATT-04); receipt views; 48 h correction opposition (ATT-05); no telemetry dependency. | AGENT-12, AGENT-13 |
+| Terms & PIN | Versioned worker terms and privacy policy acceptance (LEG-04/05); local Argon2id PIN verification in OS keystore (SEC-19); reset via emailed code. | AGENT-12, AGENT-13 |
 | Enrollment | Paste the QR payload (v2 base64 or JSON) or type the code (the server is fixed at build time; a QR for another server is rejected); commitment verification or safety code; pinned key; tamper alert; errors by reason including `ENROLLMENT_LOCKED` countdown. | AGENT-08, AGENT-09 |
 | Consent | One **unchecked** checkbox per category the admin requested, "Mantener mi selección anterior", "Cambiar mi selección", reject all, withdraw (purges buffer and queue first). | AGENT-09 |
 | Collection | Only in `ACTIVE`, only accepted categories, time-bound categories only in work hours; keystroke/click **counts**, active window, idle, CPU/RAM, FQDN-only network, file metadata in designated folders, notified screenshots, FIELD-only location. | AGENT-02/03 |
 | Delivery | One encrypted envelope per category, SQLite WAL queue (7 days, 100 MB, 5 MB/payload), backoff with jitter, single-flight refresh. | AGENT-04/05 |
-| Billing pause | Employer suspended/cancelled ⇒ `EmployerSuspended`: collectors stop, queue kept, yellow light, notifications on enter/leave; rights keep working. | AGENT-09 |
-| Transparency | Traffic light, schedule tab, rights tab (portability / erasure requests), diagnostics, notifications, tray. | AGENT-06/07 |
+| Billing pause | Employer suspended/cancelled ⇒ `EmployerSuspended`: collectors stop, queue kept, yellow light, notifications on enter/leave; rights and attendance keep working. | AGENT-09, BILL-04 |
+| Transparency | Traffic light, schedule tab, rights tab (portability / erasure requests), diagnostics, notifications, system tray icon. | AGENT-06/07, AGENT-10 |
 
 ## Security and privacy guarantees
 
@@ -132,17 +133,23 @@ All rules with IDs: [`.ai-context/constraints.md`](.ai-context/constraints.md) �
 
 ## Prerequisites
 
-- **Rust** ≥ 1.75 (`rustup`).
-- **Node.js 22** + npm for the admin UI (the unit tests import `.ts` modules directly with Node's type stripping; `npm run build` also works on Node 18/20).
-- A running **`telemetry-api`** with PostgreSQL for anything beyond UI work (see its README).
-- **macOS:** `xcode-select --install`. The agent needs the Accessibility (input counts, active window) and Screen Recording (screenshots) permissions, granted in System Settings → Privacy & Security.
+- **Rust stable** with clippy and rustfmt (`rustup`).
+- **Node.js ≥ 22** + npm for both UIs (the unit tests import `.ts` modules directly with Node's type stripping; `npm run build` also works on Node 18/20).
+- A running **`telemetry-api`** with PostgreSQL for live integration (see its README).
+- **macOS:** `xcode-select --install`. The worker agent needs Accessibility (input counts, active window) and Screen Recording (screenshots) permissions, granted in System Settings → Privacy & Security.
 - **Windows:** Visual Studio C++ Build Tools; WebView2 ships with Windows 10/11.
-- **Linux (Debian/Ubuntu)** — packages verified to build the whole workspace:
+- **Linux (Debian/Ubuntu)** — packages verified to build the whole workspace (including Tauri and `xcap`):
   ```bash
   sudo apt install -y build-essential pkg-config libssl-dev \
       libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
       libxdo-dev libxtst-dev libx11-dev libxcb1-dev libxrandr-dev libxkbcommon-dev \
-      libdbus-1-dev libegl1-mesa-dev libwayland-dev libgbm-dev libpipewire-0.3-dev libclang-dev
+      libdbus-1-dev libegl1-mesa-dev libwayland-dev libgbm-dev libdrm-dev libpipewire-0.3-dev libclang-dev
+  ```
+- **Linux (Arch Linux)**:
+  ```bash
+  sudo pacman -S --needed base-devel pkgconf openssl \
+      gtk3 webkit2gtk-4.1 libayatana-appindicator librsvg \
+      xdotool dbus pipewire mesa libdrm wayland libxcb libxrandr clang
   ```
   At runtime the OS keystore needs a Secret Service provider (GNOME Keyring or KWallet) and the tray needs an AppIndicator-capable desktop.
 
@@ -151,11 +158,12 @@ All rules with IDs: [`.ai-context/constraints.md`](.ai-context/constraints.md) �
 ```bash
 cp .env.example .env
 cp .env.example admin-client/.env
+cp .env.example worker-client/service/.env
 ```
 
 | Variable | Used by | Default | Notes |
 |:---------|:--------|:--------|:------|
-| `TELEMETRY_API_URL` | agent (build) | `http://localhost:8080/api/v1` in debug | Server the agent is **built for**: read at compile time from `agent/.env` or the environment and embedded in the binary. Required and `https://` in release builds. The worker never types it; a QR for another server is rejected. |
+| `TELEMETRY_API_URL` | agent (build) | `http://localhost:8080/api/v1` in debug | Server the worker agent is **built for**: read at compile time from `worker-client/service/.env` or the environment and embedded in the binary. Required and `https://` in release builds. The worker never types it; a QR for another server is rejected. |
 | `WORKER_FLUSH_INTERVAL` | agent | `30` | Seconds between flushes; values below 5 are ignored. |
 | `TELEMETRY_API_URL` | admin (build) | `http://localhost:8080/api/v1` in debug | Same for the admin app: read at compile time from `admin-client/.env` or the environment (not exposed to the WebView). Required and `https://` in release builds; the sign-in screen has no server field. |
 | `VITE_DEMO_MODE` | admin (UI) | unset | `true` enables the demo data store for UI work only; never set it in a release build (SEC-06). |
@@ -167,26 +175,39 @@ cp .env.example admin-client/.env
 
 | App | Where | Contents |
 |:---|:---|:---|
-| Agent | `<config_dir>/telemetry-worker/` (`~/Library/Application Support` · `%APPDATA%` · `~/.config`) | `config.json` (no secrets), `offline.db` (encrypted envelopes) |
-| Agent | OS keystore | Worker access/refresh tokens, pinned admin public key and fingerprint, accepted manifest hash and selection |
+| Worker app | `<config_dir>/telemetry-worker/` (`~/Library/Application Support` · `%APPDATA%` · `~/.config`) | `config.json` (no secrets), `offline.db` (encrypted telemetry envelopes + pending marks journal) |
+| Worker app | OS keystore | Worker access/refresh tokens, pinned admin public key and fingerprint, accepted manifest hash and selection, Argon2id PIN verifier |
+| Worker app | `<runtime_dir>/telemetry-worker/` (`$TMPDIR` · `%LOCALAPPDATA%\Temp` · `$XDG_RUNTIME_DIR`) | `ipc.token` (`0600`, per-session IPC authentication token) |
 | Admin | OS keystore, service `TelemetryAdminVault` | `K_admin_priv`, refresh token, installation id (`inst-<32 hex>`) |
 | Admin | Downloads folder | `.tkb` exports (permissions `0600` on Unix; never overwritten — an existing name gets `-2`, `-3`, … before `.tkb`; Downloads falls back to Documents, then home) |
 
 ## Running in development
 
-```bash
-# Worker agent
-cargo run -p agent                 # window + background engine
-# (--headless exists but currently runs without a tray icon: do not use it outside development)
+### Worker app (`worker-client`)
 
-# Admin app
-cd admin-client
+```bash
+# Option A: Run the background service directly (tray + IPC server)
+cargo run -p agent
+
+# Option B: Full worker desktop app with Tauri (compiles service before dev server)
+cd worker-client
 npm install
-npm run tauri dev                  # desktop app (Vite + Tauri)
-npm run dev                        # UI only in a browser; with VITE_DEMO_MODE=true it uses demo data
+npm run app:dev        # alias for npm run tauri dev
+npm run dev            # UI only in a browser
 ```
 
-Typical local flow: start `telemetry-api` → register in the admin app (trial starts) → create the first key and a backup → create a worker → copy the QR payload → `cargo run -p agent` → paste it → choose categories.
+In dev mode, `beforeDevCommand` runs `cargo build -p agent` from the workspace root and starts Vite. The Tauri window connects to the running service or starts `target/debug/telemetry-agent` automatically if absent (`PROC-04`).
+
+### Admin app (`admin-client`)
+
+```bash
+cd admin-client
+npm install
+npm run app:dev        # alias for npm run tauri dev
+npm run dev            # UI only in a browser (with VITE_DEMO_MODE=true for mock data)
+```
+
+Typical local flow: start `telemetry-api` → register in the admin app (trial starts) → create the first key and a backup → create a worker → copy the QR payload → launch worker-client → accept terms and set PIN → choose telemetry categories (optional) → mark attendance.
 
 ## Google sign-in setup (admin app)
 
@@ -215,40 +236,61 @@ Shared with `telemetry-web` (onboarding) and the API vault; specified in [`tasks
 
 ## How the apps use the API
 
-Exact shapes, error mapping and events: [`.ai-context/api-contract.md`](.ai-context/api-contract.md) (contract v2). Summary:
+Exact shapes, error mapping and events: [`.ai-context/api-contract.md`](.ai-context/api-contract.md) (contract v3). Summary:
 
 | App | Endpoints |
 |:---|:---|
-| Admin | `POST /auth/{register,login,google,refresh,logout}` · `GET/PUT /admins/me` · `PUT /admins/me/public-key` · `POST /admins/me/public-key/rotate` · `GET/DELETE /admins/me/vault` · `POST /admins/me/vault/setup` · `GET /admins/me/vault/backup` · `GET /admins/me/devices` · `PATCH/DELETE /admins/me/devices/:id` · `GET /subscriptions/me` · `/workers` CRUD · `POST /workers/:id/enrollment-token` · `PUT /workers/:id/consent-config` · `PATCH /workers/:id/status` · `GET /workers/:id/consent-records` · `GET /telemetry/{category}` |
-| Agent | `GET /health` · `POST /workers/enroll` · `POST /auth/refresh` · `GET /workers/me` · `PATCH /workers/me/consent` · `POST /telemetry/{category}` · `POST /workers/me/data-request` · `POST /workers/me/data-deletion` |
+| Admin | `POST /auth/{register,login,google,refresh,logout}` · `GET/PUT /admins/me` · `PUT /admins/me/public-key` · `POST /admins/me/public-key/rotate` · `GET/DELETE /admins/me/vault` · `POST /admins/me/vault/setup` · `GET /admins/me/vault/backup` · `GET /admins/me/devices` · `PATCH/DELETE /admins/me/devices/:id` · `GET /subscriptions/me` · `/workers` CRUD · `POST /workers/:id/enrollment-token` · `PUT /workers/:id/consent-config` · `PATCH /workers/:id/status` · `GET /workers/:id/consent-records` · `GET /telemetry/{category}` · `GET /attendance/days` · `GET/POST /attendance/corrections` · `GET /reports/*` |
+| Agent | `GET /health` · `POST /workers/enroll` · `POST /auth/refresh` · `GET /workers/me` · `POST /workers/me/terms-acceptance` · `POST /workers/me/pin` · `POST /attendance/marks` · `GET /attendance/me/today` · `GET /attendance/me/days` · `GET /attendance/me/marks` · `GET/POST /attendance/me/corrections` · `PATCH /workers/me/consent` · `POST /telemetry/{category}` · `POST /workers/me/data-request` · `POST /workers/me/data-deletion` |
 
-Rules both apps follow: branch on `error.code` + `error.details.reason` (never on `message`); one refresh in flight; `401 DEVICE_REVOKED` (admin) or a failed refresh (agent) ends the session; `402 SUBSCRIPTION_SUSPENDED` / `403 SUBSCRIPTION_CANCELLED` switch to the lock screen (admin) or to `EmployerSuspended` (agent); `Retry-After` is honoured for `429`. The deprecated `PATCH /workers/:id/consent` is not used.
+Rules both apps follow: branch on `error.code` + `error.details.reason` (never on `message`); one refresh in flight; `401 DEVICE_REVOKED` (admin) or a failed refresh (agent) ends the session; `402 SUBSCRIPTION_SUSPENDED` / `403 SUBSCRIPTION_CANCELLED` switch to the lock screen (admin) or to `EmployerSuspended` (agent); `Retry-After` is honoured for `429`.
 
 ## Testing and quality gates
 
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo clippy --workspace -- -D clippy::unwrap_used -D clippy::expect_used   # no unwrap/expect outside tests
-cargo test --workspace                                                    # crypto-core, agent, admin-client-core
-cd admin-client && npx tsc --noEmit && npm test && npm run build          # UI types, unit tests, production build
+cargo test --workspace
+cd admin-client && npm ci && npm run build && npm test
+cd worker-client && npm ci && npm run build && npm test
 ```
 
 | Suite | Highlights |
 |:---|:---|
-| `telemetry-crypto-core` | Envelope roundtrip/tamper, enrollment commitment vector, QR payload parsing, `.tkb` reference vector (verified independently with Python `argon2-cffi` + `cryptography`), legacy `.vault` fixture, KDF parameter limits |
-| `agent` | Granular consent offer/decision/withdraw, enrollment errors and lockout, single-flight refresh, billing pause and queue retention, collectors gating, offline queue |
-| `admin-client-core` | Typed errors and safe details, single-flight refresh, subscription block event, Google loopback flow with a simulated provider, PKCE (RFC 7636 vector), enrollment package verification, vault export/import/recovery/rotation with rollback, devices |
-| UI (`npm test`) | Lock-screen copy, portal URL checks, Master Password rules, key-state screens, error messages, consent summaries and CSV evidence |
+| `telemetry-crypto-core` | Envelope encryption, enrollment commitment vector, QR payload parsing, `.tkb` reference vector, attendance mark hash chain, legal document hash, PIN verifier, Chilean RUT/RUN (51 tests) |
+| `agent` (service) | Lifecycle contract v3, attendance mark journal & offline queue, hash mismatch detection, 48h corrections, PIN retry backoff, transparent collectors, SQLite offline queue (155 tests) |
+| `agent-ipc` | IPC protocol types, length-prefixed framing, Unix domain socket / named pipe transport, token handshake, snapshot subscriptions (21 tests) |
+| `agent-ui-core` | Worker window IPC client commands, service binary auto-launch, event forwarding (9 tests) |
+| `admin-client-core` | Typed errors and safe details, single-flight refresh, subscription lock, Google OAuth PKCE, enrollment package verification, key vault `.tkb`, R38 attendance reports (154 tests) |
+| Admin UI (`npm test`) | Attendance calculations, R38 formats, form validations, lock screen, portal URL checks, Master Password, CSV evidence (91 tests) |
+| Worker UI (`npm test`) | Attendance views, PIN modal validation, banner priority, legal text scrolling, offline sync (26 tests) |
 
-HTTP code is tested against `wiremock` servers that reproduce the API contract; tests never touch the real config directory or OS keystore (`tempfile`, `keystore::init_test_vault()`).
+HTTP code is tested against `wiremock` servers that reproduce the API contract; tests never touch the real config directory or OS keystore (`tempfile`, in-memory test keystore).
 
 ## Building releases
 
+### Worker app (`worker-client`)
+
 ```bash
-cargo build --release -p agent                 # target/release/agent(.exe)
-cd admin-client && npm run tauri build         # .dmg/.app, .msi/.exe, .deb/.AppImage under src-tauri/target/release/bundle/
+cd worker-client
+npm install
+npm run app:build       # alias for npm run tauri build
 ```
+
+This executes `beforeBuildCommand` (`npm run sidecar && npm run build`), which builds the `telemetry-agent` service sidecar in release mode into `src-tauri/binaries/`, compiles the frontend, and packages both into `target/release/bundle/` (e.g. `target/release/bundle/dmg/` on macOS, `target/release/bundle/deb/` on Linux, `target/release/bundle/msi/` on Windows).
+
+### Admin app (`admin-client`)
+
+```bash
+cd admin-client
+npm install
+npm run app:build       # alias for npm run tauri build
+```
+
+Compiles the admin app and produces the installer under `target/release/bundle/`.
+
+> **Note on release builds:** Release builds of the service and the admin app require `TELEMETRY_API_URL` to be configured (`https://`) and fail if legal documents in `docs/legal/` still contain unpopulated provider placeholders (`LEG-06`). For testing the bundle pipeline in development, use `npx tauri build --no-bundle` or `--debug`.
+
 
 The release profile uses LTO, `strip`, `panic = "abort"` and `opt-level = 3`; the dev profile compiles `argon2`/`blake2` with `opt-level = 3` so key derivation stays fast in debug builds. Code signing and notarization are not configured yet. `telemetry-web` serves the installers from GitHub Releases. Before a production release, fix the blockers listed at the top of this file.
 
@@ -289,7 +331,7 @@ Nothing is collected before the employee accepts, outside the categories the emp
 | [`.ai-context/architecture.md`](.ai-context/architecture.md) | Crates, processes, threads, data flow |
 | [`.ai-context/constraints.md`](.ai-context/constraints.md) | Hard rules with IDs (DP, SEC, PERF, BILL, …) |
 | [`.ai-context/security-model.md`](.ai-context/security-model.md) | Keys, tokens, enrollment, vault, threat model |
-| [`.ai-context/api-contract.md`](.ai-context/api-contract.md) | HTTP contract v2 as the apps use it |
+| [`.ai-context/api-contract.md`](.ai-context/api-contract.md) | HTTP contract v3 as the apps use it |
 | [`.ai-context/implementation-status.md`](.ai-context/implementation-status.md) | What is real, partial or missing, with known gaps |
 | [`docs/admin-app-spec.md`](docs/admin-app-spec.md) · [`docs/worker-app-spec.md`](docs/worker-app-spec.md) | Screens, flows, commands, acceptance scenarios |
 | [`docs/telemetry-payloads.md`](docs/telemetry-payloads.md) | Plaintext payload schemas (agent ⇄ admin) |
@@ -299,4 +341,4 @@ Nothing is collected before the employee accepts, outside the categories the emp
 
 ## Contributing
 
-Branches: never commit to `main`, `dev`, `develop` or `developer`; work on `dev-architecture`, `dev-features`, `dev-admin/<topic>`, `dev-agent/<topic>` or similar and open a pull request. Conventional commits. Read [`AGENTS.md`](AGENTS.md), pick a task from [`tasks/README.md`](tasks/README.md), keep the task checkboxes, `implementation-status.md` and — when the HTTP contract changes — `api-contract.md` updated in the same pull request.
+Branches: never commit to `main`, `dev`, `develop` or `develop-AGENTS`; implementers work only on `dev/<task-topic>` branches. Conventional commits. Read [`AGENTS.md`](AGENTS.md), pick a task from [`tasks/README.md`](tasks/README.md), and follow the Definition of Done.

@@ -88,15 +88,17 @@ pub fn find_service_binary(
         }
     }
 
-    // 3. Fallback to current working directory target/debug
-    let cwd_target = Path::new("target").join("debug").join(bin_name);
-    if cwd_target.is_file() {
-        return Some(cwd_target);
-    }
+    // 3. Fallback to current working directory target/debug (only when current_exe is not specified)
+    if current_exe.is_none() {
+        let cwd_target = Path::new("target").join("debug").join(bin_name);
+        if cwd_target.is_file() {
+            return Some(cwd_target);
+        }
 
-    let parent_cwd_target = Path::new("..").join("target").join("debug").join(bin_name);
-    if parent_cwd_target.is_file() {
-        return Some(parent_cwd_target);
+        let parent_cwd_target = Path::new("..").join("target").join("debug").join(bin_name);
+        if parent_cwd_target.is_file() {
+            return Some(parent_cwd_target);
+        }
     }
 
     None

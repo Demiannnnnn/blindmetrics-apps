@@ -28,16 +28,26 @@ if (!triple) {
 const cross = triple !== hostTriple;
 const exe = triple.includes('windows') ? '.exe' : '';
 
-const buildArgs = ['build', '--release', '-p', 'agent'];
+const isDebug = process.env.TAURI_ENV_DEBUG === 'true' || process.argv.includes('--debug');
+const profile = isDebug ? 'debug' : 'release';
+
+const buildArgs = ['build', '-p', 'agent'];
+if (!isDebug) {
+  buildArgs.splice(1, 0, '--release');
+}
 if (cross) buildArgs.push('--target', triple);
-console.log(`Building telemetry-agent for ${triple}...`);
+console.log(`Building telemetry-agent (${profile}) for ${triple}...`);
 const buildEnv = {
   ...process.env,
   TELEMETRY_API_URL: process.env.TELEMETRY_API_URL || 'https://api.telemetry.example.com/api/v1',
 };
-spawnSync('cargo', buildArgs, { cwd: repoRoot, stdio: 'inherit', env: buildEnv }).status === 0 || process.exit(1);
+const res = spawnSync('cargo', buildArgs, { cwd: repoRoot, stdio: 'inherit', env: buildEnv });
+if (res.status !== 0) {
+  console.error(`cargo ${buildArgs.join(' ')} failed with exit status ${res.status}`);
+  process.exit(res.status ?? 1);
+}
 
-const built = join(repoRoot, 'target', ...(cross ? [triple] : []), 'release', `telemetry-agent${exe}`);
+const built = join(repoRoot, 'target', ...(cross ? [triple] : []), profile, `telemetry-agent${exe}`);
 const dest = join(binDir, `telemetry-agent-${triple}${exe}`);
 mkdirSync(binDir, { recursive: true });
 copyFileSync(built, dest);

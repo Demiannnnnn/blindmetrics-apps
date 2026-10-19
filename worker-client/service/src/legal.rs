@@ -9,9 +9,9 @@ use agent_ipc::{LegalDocument, LegalDocumentKind};
 use telemetry_crypto_core::legal::{document_hash, parse_version};
 
 /// Worker terms (`docs/legal/terminos-trabajador.md`).
-pub const WORKER_TERMS: &str = include_str!("../../docs/legal/terminos-trabajador.md");
+pub const WORKER_TERMS: &str = include_str!("../../../docs/legal/terminos-trabajador.md");
 /// Privacy policy (`docs/legal/politica-privacidad.md`).
-pub const PRIVACY_POLICY: &str = include_str!("../../docs/legal/politica-privacidad.md");
+pub const PRIVACY_POLICY: &str = include_str!("../../../docs/legal/politica-privacidad.md");
 
 /// Wire name of the worker terms in `POST /workers/me/terms-acceptance`.
 pub const WORKER_TERMS_DOCUMENT: &str = "WORKER_TERMS";
