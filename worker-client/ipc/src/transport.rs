@@ -360,6 +360,28 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
+    fn test_runtime_dir_macos_fallback() {
+        let lookup = |key: &str| match key {
+            "TMPDIR" => None,
+            _ => None,
+        };
+        assert_eq!(get_runtime_dir_from_env(lookup), PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn test_runtime_dir_override_env() {
+        let lookup = |key: &str| match key {
+            "TELEMETRY_RUNTIME_DIR" => Some("/custom/runtime".to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            get_runtime_dir_from_env(lookup),
+            PathBuf::from("/custom/runtime")
+        );
+    }
+
+    #[test]
     fn test_sanitize_username() {
         assert_eq!(sanitize_username("alice"), "alice");
         assert_eq!(sanitize_username("domain\\bob"), "domain_bob");

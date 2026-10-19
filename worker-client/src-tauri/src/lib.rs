@@ -166,9 +166,32 @@ mod tests {
     /// Fake service: after `delay` it listens on the runtime dir socket, answers the handshake and,
     /// for a `Subscribe`, pushes `events` and closes the connection.
     fn spawn_fake_server(runtime_dir: &Path, delay: Duration, events: Vec<Event>) {
+        spawn_fake_server_triggered(runtime_dir, None, delay, events);
+    }
+
+    /// Fake service that optionally waits for a trigger file before waiting `delay_after_trigger`
+    /// and listening on the socket (RF-INT-06-2).
+    fn spawn_fake_server_triggered(
+        runtime_dir: &Path,
+        trigger_marker: Option<&Path>,
+        delay_after_trigger: Duration,
+        events: Vec<Event>,
+    ) {
         let runtime_dir = runtime_dir.to_path_buf();
+        let trigger = trigger_marker.map(|p| p.to_path_buf());
         tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+            if let Some(marker) = trigger {
+                let start = std::time::Instant::now();
+                while !marker.exists() && start.elapsed() < Duration::from_secs(5) {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                if !marker.exists() {
+                    return;
+                }
+            }
+            if !delay_after_trigger.is_zero() {
+                tokio::time::sleep(delay_after_trigger).await;
+            }
             let token = write_ipc_token(&token_path(&runtime_dir)).expect("write token");
             let listener = bind_listener(&socket_endpoint(&runtime_dir))
                 .await
@@ -591,13 +614,30 @@ mod tests {
             &script,
             &format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
         );
-        // The "service" starts listening 400 ms after being launched.
-        spawn_fake_server(&runtime_dir, Duration::from_millis(400), Vec::new());
+        // The fake server starts listening 200 ms after the script touches the marker (RF-INT-06-2),
+        // guaranteeing that the binary was launched and ensuring retry until socket is up without test races.
+        spawn_fake_server_triggered(
+            &runtime_dir,
+            Some(&marker),
+            Duration::from_millis(200),
+            Vec::new(),
+        );
 
         client::ensure_service_with(&runtime_dir, script.to_str(), None, Duration::from_secs(5))
             .await
             .expect("service becomes reachable");
-        assert!(marker.exists(), "the service binary was launched");
+
+        // Bounded check for the marker to eliminate race conditions (RF-INT-06-2)
+        let mut marker_found = false;
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if marker.exists() {
+                marker_found = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(marker_found, "the service binary was launched");
     }
 
     #[cfg(unix)]
