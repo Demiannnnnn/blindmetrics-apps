@@ -15,9 +15,10 @@
 Todas las pruebas HTTP de las apps usan `wiremock` con las formas de `.ai-context/api-contract.md`. Nunca
 se ejecutaron contra la API real, así que una diferencia entre el contrato escrito y el servidor (o
 entre el cliente y el contrato) solo aparecería en producción. El orquestador levanta la API real
-(rama `develop-AGENTS` de `telemetry-api`, base PostgreSQL nueva) dentro del entorno Docker con
-`tools/orchestration/live-api.sh up`; queda accesible desde tu contenedor en la URL que trae tu prompt
-como `TELEMETRY_LIVE_API_URL` (p. ej. `http://agy-plus:8080/api/v1`). **No** la reinicies ni la toques;
+(rama `develop-AGENTS` de `telemetry-api`, base PostgreSQL nueva) con
+`tools/orchestration/live-api.sh up` (modo nativo: en este mismo equipo); queda accesible en la URL que
+trae tu prompt como `TELEMETRY_LIVE_API_URL` (p. ej. `http://127.0.0.1:18080/api/v1`). **No** la
+reinicies ni la toques;
 si no responde (`curl -fsS ${URL%/api/v1}/health`), detente y reporta `⛔`.
 
 ## 2. Requerimientos Funcionales
