@@ -2,7 +2,8 @@
 # Same as run_agy.sh but retries (AGY_RETRIES, default 4) on transient agy errors, adding a resume note.
 # Quota exhaustion is not transient: after one retry it stops with exit 3 and "QUOTA_EXHAUSTED", so the
 # orchestrator can relaunch on the other account (AGY_ACCOUNT=pro|plus) on the same branch.
-# Usage: AGY_ACCOUNT=<pro|plus> [REPO_DIR=<worktree>] run_agy_retry.sh <task-file> <branch> [model] [extra-notes-file]
+# Usage: [AGY_SLOT=<pro|plus>] [AGY_MODE=native|container] [REPO_DIR=<worktree>] run_agy_retry.sh <task-file> <branch> [model] [extra-notes-file]
+main() {
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 TASK="$1"; BRANCH="$2"; MODEL="${3:-gemini-3.8-flash-high}"; EXTRA="${4:-}"
@@ -18,7 +19,7 @@ for i in $(seq 1 "$RETRIES"); do
   if grep -qE "RESOURCE_EXHAUSTED|[Qq]uota exceeded|[Ll]imit reached" "$LOG" 2>/dev/null; then
     QUOTA_HITS=$((QUOTA_HITS + 1))
     if [ "$QUOTA_HITS" -ge 2 ] || [ "$i" -ge "$RETRIES" ]; then
-      echo "QUOTA_EXHAUSTED account=${AGY_ACCOUNT:-?} (check tools/orchestration/usage.sh; relaunch with the other account)"
+      echo "QUOTA_EXHAUSTED mode=${AGY_MODE:-native} (check tools/orchestration/usage.sh; wait for the reset, or switch model/account)"
       rm -f "$NOTE"; exit 3
     fi
   elif ! grep -qE "network issue|UNAVAILABLE \(code 503\)|connection reset|read: connection" "$LOG" 2>/dev/null || [ "$i" -ge "$RETRIES" ]; then
@@ -29,3 +30,6 @@ for i in $(seq 1 "$RETRIES"); do
   { [ -n "$EXTRA" ] && cat "$EXTRA"; echo "$RESUME"; } > "$NOTE"
 done
 rm -f "$NOTE"
+}
+main "$@"
+exit $?

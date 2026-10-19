@@ -76,3 +76,5 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
 > **2026-10-16 (original machine):** orchestration worktrees live next to the repos in `~/repositorios/` (they were on the HDD briefly). Delete a worktree's `target/`/`node_modules` once its task is merged (SSD space). API agents use the local PostgreSQL cluster on :5434 (no Docker) via `~/.cache/telemetry-orchestration/pg_local.sh`.
 
 > **2026-10-18 (MacBook, after a reformat):** repos and worktrees live in `~/Documents/Github/` (`ta-wt-orch`, `ta-wt-pro`, `ta-wt-plus`). Builds and tests run inside the `agy-pro` / `agy-plus` containers (Rust stable, Node 24); the shared compile lock is `/locks/telemetry-heavy.lock`.
+
+> **2026-10-19:** native mode is the default (host `agy` with the owner's main account; Plus quota too small). Containers are optional; Colima keeps only `telemetry-pg` for the API. State left on 2026-10-18 (unmerged branches in the slots) is in the orchestrator's notes; check each `*-wt-pro|plus` worktree before reusing it.

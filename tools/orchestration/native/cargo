@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# cargo wrapper (first in PATH for native agy runs): heavy cargo commands take a host-wide lock so
+# parallel agents never compile/link at the same time (RAM). Nested calls see AGY_CARGO_LOCKED.
+self_dir=$(cd "$(dirname "$0")" && pwd)
+real=""
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+  [ "$d" = "$self_dir" ] && continue
+  [ -x "$d/cargo" ] && { real="$d/cargo"; break; }
+done
+[ -n "$real" ] || { echo "cargo wrapper: real cargo not found in PATH" >&2; exit 127; }
+sub="$1"; case "$sub" in +*) sub="$2";; esac
+case "$sub" in
+  build|b|check|c|clippy|test|t|run|r|doc|bench|rustc|sqlx)
+    if [ -z "${AGY_CARGO_LOCKED:-}" ]; then
+      L=${TELEMETRY_CARGO_LOCK:-/tmp/telemetry-cargo.lock}
+      export AGY_CARGO_LOCKED=1
+      if command -v flock >/dev/null 2>&1; then exec flock "$L" "$real" "$@"; else exec lockf -k "$L" "$real" "$@"; fi
+    fi ;;
+esac
+exec "$real" "$@"

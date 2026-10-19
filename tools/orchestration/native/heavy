@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# heavy <command…>: run a heavy command (cargo build/test, npm run build) under the shared host lock,
+# so parallel agy runs do not exhaust the machine's RAM. flock on Linux, lockf on macOS.
+L=${TELEMETRY_HEAVY_LOCK:-/tmp/telemetry-heavy.lock}
+if command -v flock >/dev/null 2>&1; then exec flock "$L" "$@"; else exec lockf -k "$L" "$@"; fi

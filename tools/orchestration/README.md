@@ -3,6 +3,27 @@
 Orchestrator tooling to delegate tasks to `agy` (Antigravity CLI) and validate its work. Not part of
 the product. Same method as the owner's other repos. Claude's role is defined in [`CLAUDE.md`](../../CLAUDE.md).
 
+## Native mode (default since 2026-10-19)
+
+The owner's main Google account (Pro: Gemini Flash + Argon, plus Claude/GPT models, large quota) is
+logged in on the host `agy`; the Plus account's quota proved too small to matter. So:
+
+- `run_agy.sh` / `run_agy_retry.sh` / `validate.sh` default to `AGY_MODE=native`: agy, cargo and npm
+  run on the host. Parallel tasks use worktree **slots**: `AGY_SLOT=pro|plus` ⇒ `../ta-wt-<slot>`
+  (names kept from the account era; add `git worktree add --detach ../ta-wt-3 develop-AGENTS` for more).
+  One agent per worktree (non-blocking lock `/tmp/agy-<worktree>.lock`, exit 75 = BUSY).
+- RAM: `~/.cache/telemetry-orchestration/bin/cargo` (from `native/cargo`) serializes heavy cargo
+  commands host-wide; `heavy <cmd>` (from `native/heavy`) wraps other heavy commands; scripts export
+  `CARGO_BUILD_JOBS=2` and line-table debug info. Colima keeps only `telemetry-pg` (2 GiB VM).
+- One-time per PC: `tools/orchestration/native/setup-native.sh` (installs the wrappers and sqlx-cli
+  0.7.4 into `~/.cache/telemetry-orchestration`; needs agy logged in, Rust stable with clippy/rustfmt,
+  Node ≥ 22). telemetry-api tests: `docker compose -f ~/agy-multi/compose.yml up -d pg`
+  (127.0.0.1:5441) — or any PostgreSQL 16 on that port.
+- Quota: `usage.sh`. Exit 3 `QUOTA_EXHAUSTED` ⇒ wait for the reset (or another model).
+- Scripts wrap their body in `main()`: editing them never breaks a running launch.
+
+The container setup below stays as the fallback (`AGY_MODE=container`, `AGY_ACCOUNT=pro|plus`).
+
 ## Environment (owner decision 2026-10-18: permanent, on every PC)
 
 This scheme is **the** way of working on all of the owner's machines (three PCs, macOS and Linux): Claude

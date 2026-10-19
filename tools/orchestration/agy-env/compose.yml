@@ -45,6 +45,8 @@ services:
     image: postgres:16-alpine
     container_name: telemetry-pg
     hostname: pg
+    ports:
+      - "127.0.0.1:5441:5432"   # native (host) agy runs reach it as 127.0.0.1:5441
     restart: unless-stopped
     environment:
       - POSTGRES_PASSWORD=postgres
