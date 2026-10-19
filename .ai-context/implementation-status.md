@@ -123,3 +123,5 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | `telemetry-api` contract v3 (attendance, legal, employer, emails, reports/exports) | ✅ | API TASK-18..23 (merged 2026-10-16) |
 | `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ❌ | web tasks (to be written) |
 | DT certification and authorization | ❌ | Owner decision (`docs/legal/marco-legal-cl.md` §8) |
+
+- 2026-10-19: **INT-04 merged** — the worker app lives in `worker-client/` (window at its root + `src-tauri/`, service in `service/`, IPC in `ipc/`), like `admin-client/`; package names unchanged; `npm run tauri build` in each app builds it (worker: sidecar service included). **ADMIN-18 merged** earlier the same day. Known macOS-only test race in `agent-ui-core` → INT-06.

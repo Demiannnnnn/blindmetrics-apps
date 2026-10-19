@@ -35,9 +35,9 @@ Read this directory before touching code. It is the source of truth for *what th
 
 | Concept | Directory | Cargo package | Binary / bundle | Old names you may still see |
 |:--------|:----------|:--------------|:----------------|:----------------------------|
-| Worker app — service | `agent/` | `agent` | `telemetry-agent` | "Worker Desktop App" (egui, removed in AGENT-10) |
-| Worker app — window | `agent-ui/` | `agent-ui-core` + npm `telemetry-worker-ui` | `telemetry-worker` (`com.telemetry.worker`) | — |
-| Worker app IPC | `agent-ipc/` | `agent-ipc` | library | — |
+| Worker app — service | `worker-client/service/` | `agent` | `telemetry-agent` | "Worker Desktop App" (egui, removed in AGENT-10) |
+| Worker app — window | `worker-client/` | `agent-ui-core` + npm `telemetry-worker-ui` | `telemetry-worker` (`com.telemetry.worker`) | — |
+| Worker app IPC | `worker-client/ipc/` | `agent-ipc` | library | — |
 | Admin app (Rust side) | `admin-client/src-tauri/` | `admin-client-core` | `Telemetry Admin` (`com.telemetry.admin`) | `telemetry-admin`, `telemetry-admin-core` |
 | Admin app (UI) | `admin-client/src/` | npm `telemetry-admin` | — | `telemetry-admin-ui` |
 | Shared crypto | `telemetry-crypto-core/` | `telemetry-crypto-core` | library | — |

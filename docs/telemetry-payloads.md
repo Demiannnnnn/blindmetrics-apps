@@ -1,6 +1,6 @@
 # Telemetry Plaintext Payloads
 
-The contract between `agent` (producer) and `admin-client` (consumer). The server never sees these structures — only their ciphertext. Both sides must use the **same Rust types**; they live in `telemetry-crypto-core::payloads` (moved there from `agent/src/core/metrics.rs` under TASK-INT-01) so they cannot drift.
+The contract between `agent` (producer) and `admin-client` (consumer). The server never sees these structures — only their ciphertext. Both sides must use the **same Rust types**; they live in `telemetry-crypto-core::payloads` (moved there from `worker-client/service/src/core/metrics.rs` under TASK-INT-01) so they cannot drift.
 
 ## 1. Envelope → plaintext
 

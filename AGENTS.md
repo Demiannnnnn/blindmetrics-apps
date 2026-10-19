@@ -24,9 +24,9 @@ purpose is the **legal attendance record** (Chile, R38) with **optional** zero-k
 | Directory | Package | Role |
 |:----------|:--------|:-----|
 | `telemetry-crypto-core/` | `telemetry-crypto-core` | Shared pure library: telemetry envelopes, enrollment commitment, key backup, **attendance mark hash, legal document hash, PIN verifier, RUT**. |
-| `agent-ipc/` | `agent-ipc` | Worker app local IPC protocol (service ⇄ window). |
-| `agent/` | `agent` (bin `telemetry-agent`) | Worker **background service**: tray, API, keystore, mark queue, telemetry engine, IPC server. |
-| `agent-ui/` | `agent-ui-core` (Rust) + React UI | Worker **window** (Tauri 2). Talks only to the service. |
+| `worker-client/ipc/` | `agent-ipc` | Worker app local IPC protocol (service ⇄ window). |
+| `worker-client/service/` | `agent` (bin `telemetry-agent`) | Worker **background service**: tray, API, keystore, mark queue, telemetry engine, IPC server. |
+| `worker-client/` | `agent-ui-core` (Rust) + React UI | Worker **window** (Tauri 2). Talks only to the service. |
 | `admin-client/` | `admin-client-core` (Rust) + React UI | **Admin app** (Tauri 2): employer data, attendance console and reports, workers, key custody, telemetry decryption. |
 
 "Worker" = the employee. "Agent" = the software on their machine (service + window).
@@ -133,7 +133,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cd admin-client && npm ci && npm run build && npm test     # if admin-client touched
-cd agent-ui && npm ci && npm run build && npm test         # if agent-ui touched (from AGENT-11)
+cd worker-client && npm ci && npm run build && npm test         # if worker-client touched
 ```
 
 Plus every acceptance criterion and test of the task, and `git status` clean (everything committed on
@@ -157,7 +157,7 @@ without verifying is the worst possible fault.
 
 ```bash
 cargo run -p agent                         # worker service (tray + IPC)
-cd agent-ui && npm install && npx tauri dev   # worker window (starts the service if needed)
+cd worker-client && npm install && npx tauri dev   # worker window (starts the service if needed)
 cd admin-client && npm install && npx tauri dev
 ```
 

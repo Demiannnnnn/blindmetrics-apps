@@ -49,12 +49,12 @@ Rules that shape everything:
 
 ```
 telemetry-apps/
-├── Cargo.toml                 # workspace: telemetry-crypto-core, agent-ipc, agent, agent-ui/src-tauri, admin-client/src-tauri
+├── Cargo.toml                 # workspace: telemetry-crypto-core, agent-ipc, agent, worker-client/src-tauri, admin-client/src-tauri
 ├── .cargo/config.toml         # release profile (LTO, strip, panic=abort), -D warnings
 ├── telemetry-crypto-core/     # library, no I/O, no async
-├── agent-ipc/                 # protocol types + framing + client for the worker app IPC (new, AGENT-10)
+├── worker-client/ipc/                 # protocol types + framing + client for the worker app IPC (new, AGENT-10)
 ├── agent/                     # worker background service (bin `telemetry-agent`): engine, tray, IPC server
-├── agent-ui/                  # worker window (Tauri 2 + Vite/React), package `agent-ui-core` (new, AGENT-11)
+├── worker-client/                  # worker window (Tauri 2 + Vite/React), package `agent-ui-core` (new, AGENT-11)
 │   ├── src/                   # UI
 │   └── src-tauri/             # thin Rust backend: IPC client only
 ├── admin-client/              # admin app (Tauri 2 + Vite/React)
@@ -133,13 +133,13 @@ Two derived modes, never set by the UI:
 ### 4.2 Module layout
 
 ```
-agent-ipc/src/
+worker-client/ipc/src/
 ├── lib.rs        # PROTOCOL_VERSION, Request/Response/Event enums (serde, tagged), IpcError
 ├── framing.rs    # length-prefixed JSON frames (u32 BE, max 1 MiB)
 ├── transport.rs  # local socket path/pipe name per user, connect/listen (crate `interprocess`)
 └── client.rs     # IpcClient: handshake(token), call(Request) -> Response, subscribe() -> events
 
-agent/src/
+worker-client/service/src/
 ├── main.rs                  # service bootstrap: tracing, single instance, runtime, IPC server, tray
 ├── ipc_server.rs            # dispatch Request → engine/attendance/telemetry handlers (new)
 ├── state.rs                 # AgentState, AttendanceMode, RunMode, ServerView
@@ -151,7 +151,7 @@ agent/src/
 ├── background/              # runtime tasks
 └── ui/tray.rs               # tray only (egui removed)
 
-agent-ui/
+worker-client/
 ├── src/                     # React: screens of docs/worker-app-spec.md
 └── src-tauri/src/           # commands = thin wrappers over agent_ipc::IpcClient; starts the service if absent
 ```
