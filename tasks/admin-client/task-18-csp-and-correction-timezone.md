@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-18` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `admin-client/src-tauri/tauri.conf.json`, `admin-client/src/components/CorrectionModal.tsx`, `admin-client/src/lib/attendance.ts`, componentes que necesiten dejar de depender de `eval`/scripts en línea, `admin-client/test/*.test.mjs` |
 | **Dependencias** | `TASK-ADMIN-15`, `TASK-ADMIN-17` |
 | **Prioridad** | P0 (seguridad y exactitud de un registro legal) |
@@ -72,8 +72,30 @@ Dos defectos conocidos del admin, ambos previos a producción:
 
 ## 5. DoD
 
-- [ ] RF-ADMIN-18-1..4.
-- [ ] DoD AGENTS.md §9 en verde (incluye `cd admin-client && npm ci && npm run build && npm test`).
-- [ ] Reporte completo (con el CSP final copiado tal cual).
+- [x] RF-ADMIN-18-1..4.
+- [x] DoD AGENTS.md §9 en verde (incluye `cd admin-client && npm ci && npm run build && npm test`).
+- [x] Reporte completo (con el CSP final copiado tal cual).
 
 ## Reporte
+
+- **Resumen:** Se eliminaron `'unsafe-inline'` y `'unsafe-eval'` del `script-src` del CSP de producción en `admin-client/src-tauri/tauri.conf.json`, aislando los permisos permisivos únicamente a `devCsp` para el servidor de desarrollo Vite. Se verificó que el bundle de producción en `dist/` no contiene usos de `eval(` ni `new Function(`. Se implementó la función pura `zonedLocalToUtcIso` en `src/lib/attendance.ts` (usando únicamente la API estándar `Intl` sin dependencias nuevas) para convertir hora de pared en la zona del trabajador a RFC 3339 UTC con precisión de segundos (`…Z`), con manejo estricto de horas inexistentes por salto de horario de verano hacia adelante (error descriptivo en es-CL), resolución de horas ambiguas por salto hacia atrás a la primera ocurrencia cronológica, y exactitud de ida y vuelta (`round-trip`). `CorrectionModal` ahora usa `zonedLocalToUtcIso` para construir `proposed_ts` y validar el formulario, mostrando la zona horaria del trabajador junto al campo de hora con `formatTimezoneLabel`.
+- **Archivos:**
+  - `admin-client/src-tauri/tauri.conf.json` (CSP estricto de producción y `devCsp`)
+  - `admin-client/src/lib/attendance.ts` (`zonedLocalToUtcIso`, `formatTimezoneLabel`)
+  - `admin-client/src/components/CorrectionModal.tsx` (conversión a UTC en la zona del trabajador y muestra de zona horaria)
+  - `admin-client/test/correction-timezone.test.mjs` (nuevo: pruebas de `zonedLocalToUtcIso`, DST, zonas de media hora, medianoche y roundtrip)
+  - `admin-client/test/csp.test.mjs` (nuevo: pruebas de CSP en `tauri.conf.json` y escaneo de `eval`/`Function` en `dist/`)
+- **Comandos:**
+  - `cargo fmt --all --check` ✅
+  - `cargo clippy --workspace --all-targets -- -D warnings` ✅
+  - `cargo test --workspace` ✅ (154 admin-client-core, 1 cli, 16 agent-ipc, 6 ipc_tests, 9 agent-ui-core, 51 telemetry-crypto-core; total 237 pasados, 0 fallos; ejecutado con `CARGO_BUILD_JOBS=1` bajo lock para evitar OOM del linker en Docker arm64)
+  - `cd admin-client && npm ci && npm run build && npm test` ✅ (102/102 pruebas en verde, 11 nuevas de ADMIN-18; build de producción en `dist/` sin errores)
+- **Decisiones:**
+  - CSP de producción (`app.security.csp`): `"default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self';"`
+  - CSP de desarrollo (`app.security.devCsp`): `"default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval';"`
+  - `zonedLocalToUtcIso` valida fechas de calendario inválidas (ej. 30 de febrero) y formatos antes de calcular candidatos de huso horario.
+  - Para horas inexistentes durante el salto de horario de verano hacia adelante (spring-forward), se arroja un `Error` con el mensaje claro en es-CL: `"La hora indicada no existe en la zona horaria debido al cambio de horario de verano."`.
+  - Para horas ambiguas durante el salto de horario hacia atrás (fall-back fold), se ordenan los candidatos UTC en orden cronológico ascendente y se selecciona el primero (el instante UTC más temprano), documentado en la función.
+  - Se agregó `formatTimezoneLabel` para desplegar nombres legibles en es-CL para las zonas horarias chilenas e internacionales (`America/Santiago`, `America/Punta_Arenas`, `Pacific/Easter`, `UTC`, y el identificador IANA para el resto).
+- **Pendientes / bloqueos:** Ninguno. Todo el alcance de la tarea está completo y verificado.
+- **Desviaciones del contrato:** Ninguna. `proposed_ts` continúa siendo RFC 3339 UTC con precisión de segundos (`api-contract.md` §9).
