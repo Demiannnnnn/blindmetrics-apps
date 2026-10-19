@@ -22,6 +22,13 @@ logged in on the host `agy`; the Plus account's quota proved too small to matter
 - Quota: `usage.sh`. Exit 3 `QUOTA_EXHAUSTED` ⇒ wait for the reset (or another model).
 - Scripts wrap their body in `main()`: editing them never breaks a running launch.
 
+**Token-efficient pipeline (2026-10-19):** `pipeline.sh <orch-dir> <slot> <queue-file>` runs a queue
+on one slot entirely in shell — implement → `validate.sh` → `review_agy.sh` (agy reviews the diff in a
+throwaway read-only worktree, model `gemini-4-argon-high`, verdict PASS/FAIL + findings) → one automatic
+fix round with the failures as notes → summary in `~/.cache/telemetry-orchestration/summary/`. The
+orchestrator reads only the summaries (`STATUS: READY` ⇒ merge after a quick look), so reviews burn agy
+quota instead of the orchestrator's. Prefer this over long-lived orchestrator subagents.
+
 The container setup below stays as the fallback (`AGY_MODE=container`, `AGY_ACCOUNT=pro|plus`).
 
 ## Environment (owner decision 2026-10-18: permanent, on every PC)
