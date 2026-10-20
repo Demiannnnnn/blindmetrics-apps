@@ -25,7 +25,7 @@ while read -r TASK BRANCH MODEL FLAG XNOTE; do
     echo "## round $round run: $(echo "$R" | tr '\n' ' ')" >> "$S"
     echo "$R" | grep -q QUOTA_EXHAUSTED && { echo "STATUS: NEEDS_ORCHESTRATOR (quota)" >> "$S"; break; }
     V=$(cd "$ORCH" && REPO_DIR=$WT TAILN=20 bash "$OT/validate.sh" 2>&1)
-    VFAIL=$(echo "$V" | grep -E ': FAIL' ; echo "$V" | awk '/-- protected files touched:/{f=1;next} /^--/{f=0} f && !/\(none\)/' ; echo "$V" | awk '/-- cheats:/{f=1;next} /^--/{f=0} f')
+    VFAIL=$(echo "$V" | grep -E ': FAIL' ; echo "$V" | awk '/-- protected files touched:/{f=1;next} /^--/{f=0} f && !/\(none\)/')   # cheat patterns are judged by the reviewer (unwrap/expect are legal in tests)
     RV=$(bash "$HERE/review_agy.sh" "$WT" "$TASK" ${REVIEW_MODEL:-} 2>&1 | tail -1)
     RF=$(echo "$RV" | sed -n 's/^REVIEW_FILE=\([^ ]*\).*/\1/p'); VERD=$(echo "$RV" | sed -n 's/.*VERDICT=\(.*\)$/\1/p')
     { echo "## round $round validate"; echo "$V" | grep -E ': (OK|FAIL)|^branch=|Tests +[0-9]|^[0-9]+$' ; echo "## round $round review: $VERD ($RF)"; sed -n '/^FINDINGS:/,$p' "$RF" 2>/dev/null | head -25; } >> "$S"
