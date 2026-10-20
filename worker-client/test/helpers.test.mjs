@@ -8,6 +8,10 @@ import {
   getRunModeBanner,
   formatUptime,
   formatBytes,
+  qrImageFileIssue,
+  isEnrollmentTampered,
+  isTamperedError,
+  extractCodeFromQrPayload,
 } from '../src/lib/helpers.ts';
 
 test('normalizeCode: strips invalid characters and groups into XXXX-XXXX-XXXX', () => {
@@ -109,4 +113,62 @@ test('formatUptime and formatBytes format appropriately', () => {
   assert.equal(formatBytes(500), '500 B');
   assert.equal(formatBytes(2048), '2.0 KB');
   assert.equal(formatBytes(5 * 1024 * 1024), '5.0 MB');
+});
+
+test('qrImageFileIssue: accepts valid PNG, JPEG, WebP under 10 MiB', () => {
+  assert.equal(qrImageFileIssue({ size: 1024, type: 'image/png', name: 'qr.png' }), null);
+  assert.equal(qrImageFileIssue({ size: 5000, type: 'image/jpeg', name: 'qr.jpg' }), null);
+  assert.equal(qrImageFileIssue({ size: 2000, type: 'image/webp', name: 'qr.webp' }), null);
+  assert.equal(qrImageFileIssue({ size: 10 * 1024 * 1024, type: 'image/png' }), null);
+});
+
+test('qrImageFileIssue: rejects empty files, oversized files and unsupported types', () => {
+  // Empty
+  const empty = qrImageFileIssue({ size: 0, type: 'image/png', name: 'qr.png' });
+  assert.notEqual(empty, null);
+  assert.match(empty || '', /vacío/i);
+
+  // Oversized (> 10 MiB)
+  const oversized = qrImageFileIssue({ size: 10 * 1024 * 1024 + 1, type: 'image/png', name: 'qr.png' });
+  assert.notEqual(oversized, null);
+  assert.match(oversized || '', /10 MiB/i);
+
+  // Unsupported MIME / extension
+  const svg = qrImageFileIssue({ size: 1024, type: 'image/svg+xml', name: 'code.svg' });
+  assert.notEqual(svg, null);
+  assert.match(svg || '', /no soportado/i);
+
+  const pdf = qrImageFileIssue({ size: 1024, type: 'application/pdf', name: 'doc.pdf' });
+  assert.notEqual(pdf, null);
+  assert.match(pdf || '', /no soportado/i);
+
+  const txt = qrImageFileIssue({ size: 1024, type: 'text/plain', name: 'info.txt' });
+  assert.notEqual(txt, null);
+  assert.match(txt || '', /no soportado/i);
+});
+
+test('isEnrollmentTampered: detects ENROLLMENT_TAMPERED code to trigger tamper alert E3', () => {
+  assert.equal(isEnrollmentTampered({ code: 'ENROLLMENT_TAMPERED' }), true);
+  assert.equal(isTamperedError({ code: 'ENROLLMENT_TAMPERED' }), true);
+  assert.equal(isEnrollmentTampered({ code: 'ENROLLMENT_ERROR' }), false);
+  assert.equal(isEnrollmentTampered({ code: 'API_ERROR' }), false);
+  assert.equal(isEnrollmentTampered(null), false);
+  assert.equal(isEnrollmentTampered(undefined), false);
+  assert.equal(isEnrollmentTampered('ENROLLMENT_TAMPERED'), false);
+});
+
+test('extractCodeFromQrPayload: extracts normalized 12-char code from JSON or base64 payload', () => {
+  const jsonPayload = JSON.stringify({
+    t: 'telemetry-enroll',
+    v: 1,
+    code: 'a68k-2pzs-pc4h',
+    commitment: 'a'.repeat(64),
+  });
+  assert.equal(extractCodeFromQrPayload(jsonPayload), 'A68K-2PZS-PC4H');
+
+  const b64Payload = Buffer.from(jsonPayload).toString('base64');
+  assert.equal(extractCodeFromQrPayload(b64Payload), 'A68K-2PZS-PC4H');
+
+  assert.equal(extractCodeFromQrPayload('invalid json'), null);
+  assert.equal(extractCodeFromQrPayload(JSON.stringify({ t: 'other' })), null);
 });

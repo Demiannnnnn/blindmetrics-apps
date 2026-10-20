@@ -1,6 +1,7 @@
 pub mod client;
 pub mod commands;
 pub mod error;
+pub mod qr;
 
 pub use error::CommandError;
 
@@ -103,6 +104,7 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::attendance_marks,
             commands::list_corrections,
             commands::respond_correction,
+            commands::decode_enrollment_qr_image,
         ])
         .run(tauri::generate_context!())
 }
@@ -655,5 +657,72 @@ mod tests {
         .await
         .expect_err("service never listens");
         assert_eq!(err.code, "SERVICE_TIMEOUT");
+    }
+
+    #[tokio::test]
+    async fn test_qr_decoded_payload_feeds_ipc_enroll_flow() {
+        use telemetry_crypto_core::EnrollmentQr;
+
+        let qr = EnrollmentQr::new(
+            "https://api.telemetry.local/api/v1".into(),
+            "A68K-2PZS-PC4H".into(),
+            "a".repeat(64),
+        )
+        .expect("enrollment qr");
+        let pasted_payload = qr.to_payload().expect("payload");
+
+        let code = qrcode::QrCode::new(pasted_payload.as_bytes()).expect("qr code");
+        let img: image::RgbImage = code
+            .render::<image::Rgb<u8>>()
+            .min_dimensions(300, 300)
+            .build();
+        let mut png_bytes = Vec::new();
+        img.write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .expect("png write");
+
+        let decoded_payload =
+            qr::decode_qr_from_image_bytes(&png_bytes).expect("decode from image");
+        assert_eq!(decoded_payload, pasted_payload);
+
+        let dir = tempdir().expect("tempdir");
+        let rt = dir.path().to_path_buf();
+        let seen = spawn_fake_call_server(
+            &rt,
+            Arc::new(|req| match req {
+                Request::Enroll { .. } => Response::Enroll {
+                    result: agent_ipc::VerificationResult::Verified,
+                },
+                _ => Response::Error {
+                    code: "UNHANDLED".into(),
+                    message: "not handled".into(),
+                    retry_after_secs: None,
+                },
+            }),
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let res_decoded = client::enroll(&rt, Some(decoded_payload), None)
+            .await
+            .expect("enroll with decoded");
+        assert_eq!(res_decoded, agent_ipc::VerificationResult::Verified);
+
+        let res_pasted = client::enroll(&rt, Some(pasted_payload.clone()), None)
+            .await
+            .expect("enroll with pasted");
+        assert_eq!(res_pasted, agent_ipc::VerificationResult::Verified);
+
+        let requests = seen.lock().expect("lock").clone();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0],
+            Request::Enroll {
+                qr_payload: Some(pasted_payload.clone()),
+                code: None,
+            }
+        );
+        assert_eq!(requests[0], requests[1]);
     }
 }

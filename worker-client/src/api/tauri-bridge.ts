@@ -137,6 +137,13 @@ export async function enrollWorker(
   });
 }
 
+export async function decodeEnrollmentQrImage(imageBytes: Uint8Array): Promise<string> {
+  if (isDemo) demoUnsupported();
+  return invoke<string>('decode_enrollment_qr_image', {
+    imageBytes: Array.from(imageBytes),
+  });
+}
+
 export async function verifySafetyCode(matches: boolean): Promise<void> {
   if (isDemo) {
     if (!matches) {

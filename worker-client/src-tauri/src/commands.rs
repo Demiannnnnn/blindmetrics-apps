@@ -176,3 +176,11 @@ pub async fn list_corrections() -> Result<Vec<Correction>, CommandError> {
 pub async fn respond_correction(id: String, accept: bool) -> Result<Correction, CommandError> {
     client::respond_correction(&default_runtime_dir(), id, accept).await
 }
+
+/// Decodes an enrollment QR from image bytes without blocking the main async thread (PERF-06).
+#[tauri::command]
+pub async fn decode_enrollment_qr_image(image_bytes: Vec<u8>) -> Result<String, CommandError> {
+    tokio::task::spawn_blocking(move || crate::qr::decode_qr_from_image_bytes(&image_bytes))
+        .await
+        .map_err(|e| CommandError::new("TASK_ERROR", format!("Fallo en tarea asíncrona: {}", e)))?
+}
