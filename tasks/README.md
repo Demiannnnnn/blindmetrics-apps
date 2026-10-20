@@ -209,6 +209,8 @@ contrato v3 en `api-contract.md` §9–§12).
 | **ADMIN-19** | [`admin-client/task-19-google-sign-in-cancel.md`](admin-client/task-19-google-sign-in-cancel.md) | Botón Cancelar mientras se espera el inicio de sesión con Google (brecha 3). | 🟢 |
 | **INT-05** | [`integration/task-05-live-api-contract-tests.md`](integration/task-05-live-api-contract-tests.md) | Pruebas opt-in (`--features live-api`) de los clientes HTTP de ambas apps contra la API real (`tools/orchestration/live-api.sh`); tabla de diferencias con el contrato (brecha 9). | 🟢 |
 | **CRYPTO-05** | [`crypto-core/task-05-portal-mark-vector.md`](crypto-core/task-05-portal-mark-vector.md) | Vector de marca `PORTAL` idéntico al de la API (TASK-24). | 🟢 |
+| **AGENT-14** | [`agent/task-14-qr-from-image.md`](agent/task-14-qr-from-image.md) | QR de enrolamiento desde imagen/portapapeles, decodificado localmente (brecha 2). | ⏳ |
+| **INT-07** | [`integration/task-07-release-pipeline.md`](integration/task-07-release-pipeline.md) | CI en PRs y releases con instaladores de ambas apps (GitHub Actions), LEG-06 en release. | ⏳ |
 | **INT-06** | [`integration/task-06-macos-green-baseline.md`](integration/task-06-macos-green-baseline.md) | DoD verde también en macOS: tests solo-Linux de `agent-ipc` bajo `cfg` y carrera del test de lanzamiento del servicio. | 🟢 |
 
 ### 6.2 Orden y paralelismo
