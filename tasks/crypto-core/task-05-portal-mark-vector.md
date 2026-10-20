@@ -72,5 +72,6 @@ idéntico para que las apps verifiquen también los hashes de marcas hechas en e
 - **Decisiones:**
   - Se mantuvieron intactos `admin-client/src/lib/attendance.ts` y `worker-client/src/lib/attendance.ts` dado que ambos ya incluían la etiqueta `"Portal web"` para `MarkSource::PORTAL` (`MARK_SOURCE_LABELS.PORTAL = 'Portal web'` y `markSourceLabel('PORTAL') = 'Portal web'`).
   - Se agregó la aserción explícita de encadenamiento `doc.vectors[3].mark.prev_hash == doc.vectors[2].hash` para verificar la cadena continua con la marca 3 (`CORRECTION`).
+  - En la ronda de corrección (fix round), se reemplazó el uso de `.expect(...)` en `test_attendance_portal_mark_vector` por propagación de errores con `?` retornando `Result<(), Box<dyn std::error::Error>>`, satisfaciendo las reglas de validación sin `.expect()`/`.unwrap()`.
 - **Pendientes / bloqueos:** Ninguno.
 - **Desviaciones del contrato:** Ninguna.
