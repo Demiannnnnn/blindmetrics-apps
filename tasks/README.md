@@ -206,7 +206,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **ADMIN-17** | [`admin-client/task-17-absences-effective-time.md`](admin-client/task-17-absences-effective-time.md) | Contrato v3.1: calificación de ausencias (R38 art. 27.1) y hora efectiva de las marcas (`effective_ts`). | 🟢 |
 | **ADMIN-18** | [`admin-client/task-18-csp-and-correction-timezone.md`](admin-client/task-18-csp-and-correction-timezone.md) | CSP del WebView sin `unsafe-inline`/`unsafe-eval` (brecha 5) y `proposed_ts` de correcciones convertido desde la zona del trabajador (no UTC). | 🟢 |
 | **INT-04** | [`integration/task-04-worker-client-layout.md`](integration/task-04-worker-client-layout.md) | App del trabajador en una sola carpeta `worker-client/` (servicio, IPC, ventana) como `admin-client/`; compilar con un comando; README de ambas apps. | 🟢 |
-| **ADMIN-19** | [`admin-client/task-19-google-sign-in-cancel.md`](admin-client/task-19-google-sign-in-cancel.md) | Botón Cancelar mientras se espera el inicio de sesión con Google (brecha 3). | ⏳ |
+| **ADMIN-19** | [`admin-client/task-19-google-sign-in-cancel.md`](admin-client/task-19-google-sign-in-cancel.md) | Botón Cancelar mientras se espera el inicio de sesión con Google (brecha 3). | 🟢 |
 | **INT-05** | [`integration/task-05-live-api-contract-tests.md`](integration/task-05-live-api-contract-tests.md) | Pruebas opt-in (`--features live-api`) de los clientes HTTP de ambas apps contra la API real (`tools/orchestration/live-api.sh`); tabla de diferencias con el contrato (brecha 9). | ⏳ |
 | **INT-06** | [`integration/task-06-macos-green-baseline.md`](integration/task-06-macos-green-baseline.md) | DoD verde también en macOS: tests solo-Linux de `agent-ipc` bajo `cfg` y carrera del test de lanzamiento del servicio. | 🟢 |
 

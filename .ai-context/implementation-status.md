@@ -96,7 +96,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 
 1. Dashboard alerts for rejections / "ACTIVE without data 24 h" need a `last_seen`/last-decision field in the API (ADMIN-08).
 2. The agent cannot decode a QR from the camera or an image; the payload is pasted (AGENT-08).
-3. Google sign-in has no in-app "cancel" button: closing the browser tab ends at the 180 s timeout (ADMIN-10).
+3. ~~Google sign-in without cancel~~ — closed by ADMIN-19 (2026-10-20).
 4. ~~Security: unverified biometric unlock~~ — closed by ADMIN-13 (button and command removed).
 5. ~~Admin WebView CSP allowed `unsafe-inline`/`unsafe-eval`~~ — closed by ADMIN-18 (2026-10-19): production `script-src 'self'`, `devCsp` only for `tauri dev`, test scanning `dist/` for `eval`/`new Function`. ADMIN-18 also fixed correction times sent as UTC (`zonedLocalToUtcIso`).
 6. ~~Privacy: offline withdrawal not re-sent~~ — closed by AGENT-10 (`pending_withdrawal` persisted and re-sent on every lifecycle poll; `test_offline_withdrawal_sets_pending_and_clears_queue`). Audit 2026-10-18.
