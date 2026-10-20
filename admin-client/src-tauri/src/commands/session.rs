@@ -1,8 +1,8 @@
-//! Session commands (TASK-INT-01, TASK-INT-02, TASK-ADMIN-07, TASK-ADMIN-10).
+//! Session commands (TASK-INT-01, TASK-INT-02, TASK-ADMIN-07, TASK-ADMIN-10, TASK-ADMIN-19).
 
 use super::CommandError;
 use crate::client::{get_api_client, AdminApiClient, AdminMeResponse, AdminProfile};
-use crate::google_oauth::{self, GoogleConfig, GoogleError, SignInEndpoints};
+use crate::google_oauth::{self, GoogleConfig, GoogleError, GoogleLoginState, SignInEndpoints};
 use serde::Deserialize;
 
 const MIN_PROFILE_FIELD_CHARS: usize = 2;
@@ -51,21 +51,56 @@ pub fn google_sign_in_available() -> bool {
     GoogleConfig::from_env().is_some()
 }
 
-/// Google sign-in through the system browser (loopback + PKCE + nonce, RF-ADMIN-10-2).
-#[tauri::command]
-pub async fn admin_login_google() -> Result<AdminProfile, CommandError> {
-    let client = get_api_client();
+/// Google sign-in through the system browser with dependency injection for testability.
+pub async fn admin_login_google_with_deps<F>(
+    client: &AdminApiClient,
+    state: &GoogleLoginState,
+    endpoints: &SignInEndpoints<'_>,
+    open_browser: F,
+) -> Result<AdminProfile, CommandError>
+where
+    F: FnOnce(&str) -> Result<(), GoogleError>,
+{
     let cfg = GoogleConfig::from_env().ok_or(GoogleError::NotConfigured)?;
-    let id_token = google_oauth::sign_in(
-        client.http(),
-        &cfg,
-        &SignInEndpoints::default(),
-        google_oauth::open_system_browser,
-    )
-    .await?;
+    let (attempt_id, cancel_rx) = state.start_login().await;
+    let sign_in_result =
+        google_oauth::sign_in(client.http(), &cfg, endpoints, open_browser, cancel_rx).await;
+    state.finish(attempt_id).await;
+    let id_token = sign_in_result?;
     client.login_google(&id_token).await?;
     tracing::info!("google sign-in completed");
     after_sign_in(client).await
+}
+
+/// Google sign-in through the system browser (loopback + PKCE + nonce, RF-ADMIN-10-2, RF-ADMIN-19-1).
+#[tauri::command]
+pub async fn admin_login_google(
+    state: tauri::State<'_, GoogleLoginState>,
+) -> Result<AdminProfile, CommandError> {
+    admin_login_google_with_deps(
+        get_api_client(),
+        &state,
+        &SignInEndpoints::default(),
+        google_oauth::open_system_browser,
+    )
+    .await
+}
+
+/// Cancels an in-progress Google sign-in attempt (RF-ADMIN-19-2).
+/// Idempotent: returns `Ok(())` even if no login is currently in progress.
+pub async fn admin_cancel_google_login_with_state(
+    state: &GoogleLoginState,
+) -> Result<(), CommandError> {
+    state.cancel().await;
+    Ok(())
+}
+
+/// Cancels an in-progress Google sign-in attempt (RF-ADMIN-19-2).
+#[tauri::command]
+pub async fn admin_cancel_google_login(
+    state: tauri::State<'_, GoogleLoginState>,
+) -> Result<(), CommandError> {
+    admin_cancel_google_login_with_state(&state).await
 }
 
 /// Revokes the refresh token on the server (best effort) and clears the local session.
@@ -274,5 +309,56 @@ mod tests {
     fn test_google_available_follows_env() {
         // Only asserts the function does not panic without configuration.
         let _ = google_sign_in_available();
+    }
+
+    #[tokio::test]
+    async fn test_admin_cancel_google_login_idempotent() {
+        let state = GoogleLoginState::new();
+        // Cancel without active login is Ok (RF-ADMIN-19-2)
+        assert!(admin_cancel_google_login_with_state(&state).await.is_ok());
+
+        // Cancel with active login
+        let (_id, mut rx) = state.start_login().await;
+        assert!(state.is_in_progress().await);
+        assert!(admin_cancel_google_login_with_state(&state).await.is_ok());
+        assert!(rx.try_recv().is_ok());
+        assert!(!state.is_in_progress().await);
+
+        // Subsequent cancel is still Ok
+        assert!(admin_cancel_google_login_with_state(&state).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_admin_login_google_cancelled_flow() {
+        let state = GoogleLoginState::new();
+        let client = AdminApiClient::new("http://127.0.0.1:1".to_string());
+        let endpoints = SignInEndpoints {
+            auth_url: "https://accounts.example.test/auth",
+            token_url: "http://127.0.0.1:1/token",
+            timeout: std::time::Duration::from_secs(5),
+        };
+
+        // Inject configuration for test
+        std::env::set_var("ADMIN_GOOGLE_CLIENT_ID", "test-client-id");
+
+        let state_clone = state.clone();
+        let cancel_browser = move |_url: &str| {
+            // Cancel immediately after browser "opens"
+            let state_inner = state_clone.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                let _ = state_inner.cancel().await;
+            });
+            Ok(())
+        };
+
+        let err = admin_login_google_with_deps(&client, &state, &endpoints, cancel_browser)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "GOOGLE_SIGN_IN_CANCELLED");
+        assert_eq!(err.message, "Cancelaste el inicio de sesión con Google.");
+        assert!(!state.is_in_progress().await);
+
+        std::env::remove_var("ADMIN_GOOGLE_CLIENT_ID");
     }
 }

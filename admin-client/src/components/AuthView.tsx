@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ShieldCheck, KeyRound, User, Building, ArrowRight, AlertTriangle } from 'lucide-react';
 import {
+  adminCancelGoogleLogin,
   adminLogin,
   adminLoginGoogle,
   adminRegister,
@@ -8,7 +9,7 @@ import {
   googleSignInAvailable,
   isDemoMode,
 } from '../api/tauri-bridge';
-import { describeError, describeLoginError, ERROR_MESSAGES } from '../lib/errors';
+import { describeError, describeLoginError, getGoogleErrorMessage, ERROR_MESSAGES } from '../lib/errors';
 
 interface AuthViewProps {
   onLoginSuccess: (profile: AdminProfile) => void;
@@ -29,6 +30,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
     expiredReason ? ERROR_MESSAGES[expiredReason] ?? ERROR_MESSAGES.SESSION_EXPIRED : null,
   );
   const [googleAvailable, setGoogleAvailable] = useState(false);
+  const [waitingGoogle, setWaitingGoogle] = useState(false);
+  const cancelledByButtonRef = useRef(false);
 
   useEffect(() => {
     googleSignInAvailable().then(setGoogleAvailable);
@@ -36,14 +39,33 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
 
   const handleGoogle = async () => {
     setLoading(true);
+    setWaitingGoogle(true);
     setErrorMessage(null);
+    cancelledByButtonRef.current = false;
     try {
       onLoginSuccess(await adminLoginGoogle());
     } catch (err) {
-      setErrorMessage(describeError(err, 'No se pudo iniciar sesión con Google.'));
+      const msg = getGoogleErrorMessage(err, cancelledByButtonRef.current);
+      if (msg) {
+        setErrorMessage(msg);
+      }
     } finally {
       setLoading(false);
+      setWaitingGoogle(false);
+      cancelledByButtonRef.current = false;
     }
+  };
+
+  const handleCancelGoogle = async () => {
+    cancelledByButtonRef.current = true;
+    try {
+      await adminCancelGoogleLogin();
+    } catch (err) {
+      console.warn('Error cancelling Google login:', err);
+    }
+    setLoading(false);
+    setWaitingGoogle(false);
+    setErrorMessage(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -114,7 +136,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
           <button
             type="button"
             onClick={() => { setTab('login'); setErrorMessage(null); }}
-            className={`flex-1 py-1.5 text-xs font-medium rounded-control transition-colors ${
+            disabled={loading}
+            className={`flex-1 py-1.5 text-xs font-medium rounded-control transition-colors disabled:opacity-50 ${
               tab === 'login'
                 ? 'bg-surface text-fg border border-default'
                 : 'text-muted hover:text-fg border border-transparent'
@@ -125,7 +148,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
           <button
             type="button"
             onClick={() => { setTab('register'); setErrorMessage(null); }}
-            className={`flex-1 py-1.5 text-xs font-medium rounded-control transition-colors ${
+            disabled={loading}
+            className={`flex-1 py-1.5 text-xs font-medium rounded-control transition-colors disabled:opacity-50 ${
               tab === 'register'
                 ? 'bg-surface text-fg border border-default'
                 : 'text-muted hover:text-fg border border-transparent'
@@ -155,8 +179,9 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  disabled={loading}
                   placeholder="Tu nombre completo"
-                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
+                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent disabled:opacity-50"
                 />
               </div>
 
@@ -170,8 +195,9 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
                   required
                   value={organization}
                   onChange={(e) => setOrganization(e.target.value)}
+                  disabled={loading}
                   placeholder="Nombre de tu empresa"
-                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
+                  className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent disabled:opacity-50"
                 />
               </div>
             </>
@@ -184,8 +210,9 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
               placeholder="admin@empresa.com"
-              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent disabled:opacity-50"
             />
           </div>
 
@@ -199,8 +226,9 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
               placeholder="••••••••••••"
-              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 bg-bg border border-default rounded-control text-sm text-fg placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent disabled:opacity-50"
             />
           </div>
 
@@ -221,27 +249,44 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
           </button>
         </form>
 
-        {/* TASK-ADMIN-10: Google sign-in through the system browser (loopback + PKCE). */}
+        {/* TASK-ADMIN-10, TASK-ADMIN-19: Google sign-in through the system browser (loopback + PKCE) with cancellation. */}
         <div className="mt-4">
-          <button
-            type="button"
-            onClick={handleGoogle}
-            disabled={loading || !googleAvailable}
-            title={googleAvailable ? undefined : 'El inicio con Google no está configurado en esta versión'}
-            className="w-full py-2.5 bg-surface hover:bg-surface-subtle text-muted font-medium rounded-control text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
-          >
-            <span className="font-bold text-accent">G</span>
-            <span>Continuar con Google</span>
-          </button>
-          {!googleAvailable && (
-            <p className="text-[11px] text-muted text-center mt-1.5">
-              El inicio con Google no está configurado en esta versión.
-            </p>
-          )}
-          {googleAvailable && (
-            <p className="text-[11px] text-muted text-center mt-1.5">
-              Se abrirá tu navegador; esta app nunca ve tu contraseña de Google.
-            </p>
+          {waitingGoogle ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted text-center py-1">
+                Completa el inicio de sesión en tu navegador…
+              </p>
+              <button
+                type="button"
+                onClick={handleCancelGoogle}
+                className="w-full py-2.5 bg-surface-subtle hover:bg-surface border border-default text-fg font-medium rounded-control text-sm flex items-center justify-center gap-2 transition"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleGoogle}
+                disabled={loading || !googleAvailable}
+                title={googleAvailable ? undefined : 'El inicio con Google no está configurado en esta versión'}
+                className="w-full py-2.5 bg-surface hover:bg-surface-subtle text-muted font-medium rounded-control text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
+              >
+                <span className="font-bold text-accent">G</span>
+                <span>Continuar con Google</span>
+              </button>
+              {!googleAvailable && (
+                <p className="text-[11px] text-muted text-center mt-1.5">
+                  El inicio con Google no está configurado en esta versión.
+                </p>
+              )}
+              {googleAvailable && (
+                <p className="text-[11px] text-muted text-center mt-1.5">
+                  Se abrirá tu navegador; esta app nunca ve tu contraseña de Google.
+                </p>
+              )}
+            </>
           )}
         </div>
 

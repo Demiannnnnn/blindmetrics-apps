@@ -903,6 +903,17 @@ export async function adminLoginGoogle(): Promise<AdminProfile> {
   return requireTauri('admin_login_google');
 }
 
+export async function adminCancelGoogleLogin(): Promise<void> {
+  if (isTauri()) {
+    await invoke('admin_cancel_google_login');
+    return;
+  }
+  if (isDemoMode) {
+    return;
+  }
+  return requireTauri('admin_cancel_google_login');
+}
+
 export async function adminUpdateProfile(update: { name?: string; organization?: string }): Promise<AdminProfile> {
   if (isTauri()) {
     const profile = await invoke<AdminProfile>('admin_update_profile', { update });

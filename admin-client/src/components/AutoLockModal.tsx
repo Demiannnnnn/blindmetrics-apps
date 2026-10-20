@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Lock, KeyRound, ShieldAlert, LogOut, AlertCircle } from 'lucide-react';
-import { adminLoginGoogle, adminUnlock, AdminProfile } from '../api/tauri-bridge';
-import { describeError, errorIs } from '../lib/errors';
+import { adminCancelGoogleLogin, adminLoginGoogle, adminUnlock, AdminProfile } from '../api/tauri-bridge';
+import { describeError, errorIs, getGoogleErrorMessage } from '../lib/errors';
 
 interface AutoLockModalProps {
   isLocked: boolean;
@@ -20,7 +20,9 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [waitingGoogle, setWaitingGoogle] = useState(false);
   const [attempts, setAttempts] = useState(0);
+  const cancelledByButtonRef = useRef(false);
 
   if (!isLocked) return null;
 
@@ -55,14 +57,33 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
 
   const handleGoogleUnlock = async () => {
     setLoading(true);
+    setWaitingGoogle(true);
     setErrorMessage(null);
+    cancelledByButtonRef.current = false;
     try {
       onUnlock(await adminLoginGoogle());
     } catch (err) {
-      setErrorMessage(describeError(err, 'No se pudo iniciar sesión con Google.'));
+      const msg = getGoogleErrorMessage(err, cancelledByButtonRef.current);
+      if (msg) {
+        setErrorMessage(msg);
+      }
     } finally {
       setLoading(false);
+      setWaitingGoogle(false);
+      cancelledByButtonRef.current = false;
     }
+  };
+
+  const handleCancelGoogleUnlock = async () => {
+    cancelledByButtonRef.current = true;
+    try {
+      await adminCancelGoogleLogin();
+    } catch (err) {
+      console.warn('Error cancelling Google unlock:', err);
+    }
+    setLoading(false);
+    setWaitingGoogle(false);
+    setErrorMessage(null);
   };
 
 
@@ -86,15 +107,30 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
         </div>
 
         {!hasPassword && (
-          <button
-            type="button"
-            onClick={handleGoogleUnlock}
-            disabled={loading}
-            className="w-full py-2.5 bg-surface hover:bg-surface-subtle text-muted font-medium rounded-card text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
-          >
-            <span className="font-bold text-accent">G</span>
-            Continuar con Google
-          </button>
+          waitingGoogle ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted text-center py-1">
+                Completa el inicio de sesión en tu navegador…
+              </p>
+              <button
+                type="button"
+                onClick={handleCancelGoogleUnlock}
+                className="w-full py-2.5 bg-surface-subtle hover:bg-surface border border-default text-fg font-medium rounded-card text-sm flex items-center justify-center gap-2 transition"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleGoogleUnlock}
+              disabled={loading}
+              className="w-full py-2.5 bg-surface hover:bg-surface-subtle text-muted font-medium rounded-card text-sm flex items-center justify-center gap-2 transition disabled:opacity-40"
+            >
+              <span className="font-bold text-accent">G</span>
+              Continuar con Google
+            </button>
+          )
         )}
 
         <form onSubmit={handleUnlock} className="space-y-4">
@@ -141,7 +177,8 @@ export const AutoLockModal: React.FC<AutoLockModalProps> = ({
           <span className="font-mono">Intentos: {attempts}/5</span>
           <button
             onClick={onForcedLogout}
-            className="text-danger hover:text-danger flex items-center gap-1 transition"
+            disabled={loading}
+            className="text-danger hover:text-danger flex items-center gap-1 transition disabled:opacity-50"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Cerrar sesión completamente</span>
