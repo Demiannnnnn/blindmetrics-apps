@@ -305,8 +305,33 @@ Compiles the admin app and produces the installer under `target/release/bundle/`
 
 > **Note on release builds:** Release builds of the service and the admin app require `TELEMETRY_API_URL` to be configured (`https://`) and fail if legal documents in `docs/legal/` still contain unpopulated provider placeholders (`LEG-06`). For testing the bundle pipeline in development, use `npx tauri build --no-bundle` or `--debug`.
 
+### Automated release pipeline (GitHub Actions)
 
-The release profile uses LTO, `strip`, `panic = "abort"` and `opt-level = 3`; the dev profile compiles `argon2`/`blake2` with `opt-level = 3` so key derivation stays fast in debug builds. Code signing and notarization are not configured yet. `telemetry-web` serves the installers from GitHub Releases. Before a production release, fix the blockers listed at the top of this file.
+Multiplatform releases are automated via `.github/workflows/release.yml` (triggered on `v*` tag pushes or manual `workflow_dispatch`). The workflow builds both desktop apps across macOS Apple Silicon (`aarch64-apple-darwin`), macOS Intel (`x86_64-apple-darwin`), Windows x64 (`x86_64-pc-windows-msvc`), and Linux x64 (`x86_64-unknown-linux-gnu`), computes SHA-256 checksums (`SHA256SUMS.txt`), and uploads all installers to a draft GitHub Release.
+
+Continuous integration is handled by `.github/workflows/ci.yml` on every pull request and push to `main` and `develop-AGENTS`, verifying all five quality gates of `AGENTS.md` §9.
+
+#### Release workflow variables and secrets
+
+| Name | Type | Required? | Purpose |
+|:-----|:-----|:---------:|:--------|
+| `TELEMETRY_API_URL` | Var or Secret | **Yes** | Server API base URL embedded at compile time (must start with `https://`, SEC-10). |
+| `APPLE_CERTIFICATE` | Secret | Optional | Base64-encoded Developer ID Application `.p12` certificate for macOS code signing. |
+| `APPLE_CERTIFICATE_PASSWORD` | Secret | Optional | Password for the macOS `.p12` signing certificate. |
+| `APPLE_SIGNING_IDENTITY` | Secret | Optional | Code signing identity name (e.g. `Developer ID Application: ...`). |
+| `APPLE_ID` | Secret | Optional | Apple ID email address used for macOS app notarization (`notarytool`). |
+| `APPLE_PASSWORD` | Secret | Optional | App-specific password for the Apple ID notarization account. |
+| `APPLE_TEAM_ID` | Secret | Optional | 10-character Apple Developer Team ID for notarization. |
+| `WINDOWS_CERTIFICATE` | Secret | Optional | Base64-encoded code signing certificate (`.pfx` / `.p12`) for Windows installer signing. |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Secret | Optional | Password for the Windows `.pfx` code signing certificate. |
+| `TAURI_SIGNING_PRIVATE_KEY` | Secret | Optional | Private key for signing Tauri automatic updates. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Secret | Optional | Password for the Tauri update signing private key. |
+| `ADMIN_GOOGLE_CLIENT_ID` | Var or Secret | Optional | Google OAuth Desktop client ID for Google sign-in in the admin desktop client. |
+| `ADMIN_GOOGLE_CLIENT_SECRET` | Var or Secret | Optional | Google OAuth Desktop client secret for Google sign-in in the admin desktop client. |
+
+> **Note on code signing:** When signing secrets are not configured or are left empty, the release workflow continues and produces unsigned installers (`.dmg`, `.app.tar.gz`, `.deb`, `.AppImage`, `.msi`, `-setup.exe`) alongside `SHA256SUMS.txt`.
+
+The release profile uses LTO, `strip`, `panic = "abort"` and `opt-level = 3`; the dev profile compiles `argon2`/`blake2` with `opt-level = 3` so key derivation stays fast in debug builds. Code signing and notarization are executed when the secrets above are configured in GitHub. `telemetry-web` serves the installers from GitHub Releases. Before a production release, fix the blockers listed at the top of this file.
 
 ## Troubleshooting
 
