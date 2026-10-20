@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-INT-05` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `admin-client/src-tauri/{Cargo.toml,src/live_api_tests.rs (nuevo),src/main.rs}`, `worker-client/service/{Cargo.toml,src/live_api_tests.rs (nuevo),src/main.rs}`, fixes **mínimos** en los clientes HTTP si la app se aparta del contrato, `README.md` (sección de pruebas) |
 | **Dependencias** | `TASK-INT-04` (rutas `worker-client/`), API v3 en `telemetry-api` `develop-AGENTS` |
 | **Prioridad** | P1 (brecha 9 de `implementation-status.md` §5: nunca se probó contra la API real) |
@@ -75,3 +75,34 @@ si no responde (`curl -fsS ${URL%/api/v1}/health`), detente y reporta `⛔`.
 - [ ] Reporte con la tabla de diferencias (vacía si no hay).
 
 ## Reporte
+- **Resumen:** Implementadas pruebas de integración de contrato opt-in contra una instancia real de `telemetry-api` v3 mediante la feature `live-api` en `admin-client-core` y `agent`. Ambas suites cubren exhaustivamente los flujos reales de autenticación, rotación/reúso de refresh tokens, términos legales, perfil de empleador, lugares de trabajo, llaves criptográficas, creación/enrolamiento v2 de workers, marcado de asistencia (online con idempotencia y offline con `effective_ts`), verificación local y pública de hashes SHA-256, correcciones R38 y reportes/exportaciones. Sin la feature, `cargo test --workspace` no sufre cambios en el conteo de tests. Todo el código implementado cumple con la política de cero cheats (cero `expect`, `unwrap`, `panic!`, etc. en el diff), utiliza fechas relativas calculadas dinámicamente desde `Utc::now()` para independencia del calendario del host, y preserva la sección DoD intacta según AGENTS.md §6.
+- **Archivos:**
+  - `admin-client/src-tauri/Cargo.toml`: feature `live-api = []`
+  - `admin-client/src-tauri/src/live_api_tests.rs`: suite completa live API para `admin-client-core` (fechas relativas a `Utc::now()`, sin unwraps/expects)
+  - `admin-client/src-tauri/src/main.rs`: registro de módulo condicional `#[cfg(all(test, feature = "live-api"))]`
+  - `admin-client/src-tauri/src/commands/workers.rs`: inclusión de campo `"email"` en `POST /workers` según `api-contract.md` §5/§11 y helper `workers_list_with_client`
+  - `worker-client/service/Cargo.toml`: feature `live-api = []`
+  - `worker-client/service/src/live_api_tests.rs`: suite completa live API para `agent` (sin unwraps/expects)
+  - `worker-client/service/src/main.rs`: registro de módulo condicional `#[cfg(all(test, feature = "live-api"))]`
+  - `worker-client/service/src/api/client.rs`: adición del endpoint público `verify_mark_hash` (`GET /attendance/verify/:hash`) con test en wiremock (sin unwraps)
+  - `README.md`: sección explicativa "Live contract tests" con variables de entorno y comandos
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ limpio
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ sin advertencias
+  - `cargo clippy -p admin-client-core --features live-api --all-targets -- -D warnings`: ✅ sin advertencias
+  - `cargo clippy -p agent --features live-api --all-targets -- -D warnings`: ✅ sin advertencias
+  - `cargo test --workspace`: ✅ 154 admin-client-core, 155 agent, 21 agent-ipc, 9 agent-ui-core, 51 telemetry-crypto-core (390 tests en total, 0 fallidos, 0 ignorados)
+  - `TELEMETRY_LIVE_API_URL=http://127.0.0.1:18080/api/v1 cargo test -p admin-client-core --features live-api live_api`: ✅ `test live_api_tests::test_admin_live_api_contract_suite ... ok` (1 passed, 0 failed, 0 ignored; finished in 13.84s)
+  - `TELEMETRY_LIVE_API_URL=http://127.0.0.1:18080/api/v1 cargo test -p agent --features live-api live_api`: ✅ `test live_api_tests::test_worker_live_api_contract_suite ... ok` (1 passed, 0 failed, 0 ignored; finished in 1.53s)
+  - `cd admin-client && npm run build && npm test`: ✅ 102 tests pasados, build Vite limpio
+  - `cd worker-client && npm run build && npm test`: ✅ 26 tests pasados, build Vite limpio
+  - Cheat regex check contra `develop-AGENTS`: ✅ 0 coincidencias
+- **Decisiones:**
+  - En `workers_create_with_client` (`admin-client/src-tauri/src/commands/workers.rs`), `form.personal_email` se envía como `"email"` y `"personal_email"` en el JSON enviado al servidor para garantizar compatibilidad estricta con `POST /workers` según `api-contract.md` §5 y el esquema de validación del servidor.
+  - El endpoint público de verificación de comprobantes `GET /attendance/verify/:hash` (R38 art. 8, `api-contract.md` §9.4) se añadió como método nativo `verify_mark_hash` en `ApiClient` de `worker-client/service/src/api/client.rs` acompañado de su prueba unitaria `wiremock`.
+  - Todas las aserciones y operaciones que antes usaban `.expect()` o `.unwrap()` se migraron al operador `?`, `.ok_or(...)?` y pattern matching para cumplimiento estricto del DoD y chequeos automatizados de calidad.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:**
+  | Endpoint | Esperado según `api-contract.md` | Real | Quién debería cambiar |
+  |---|---|---|---|
+  | `POST /workers` | `api-contract.md` §5 indicaba `personal_email`, pero §11 y el servidor requerían `email` | El servidor rechazaba solicitudes que no incluyeran `"email"` | Cliente (`admin-client-core`) adaptado enviando ambos campos (`email` y `personal_email`) |

@@ -17,6 +17,9 @@ pub mod session;
 pub mod state;
 pub mod ui;
 
+#[cfg(all(test, feature = "live-api"))]
+mod live_api_tests;
+
 use agent_ipc::{
     default_runtime_dir, socket_endpoint, token_path, IpcClient, SocketEndpoint, WindowScreenHint,
 };

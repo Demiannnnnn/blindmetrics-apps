@@ -1079,12 +1079,19 @@ fn validate_worker_id(id: &str) -> Result<(), CommandError> {
     }
 }
 
+pub async fn workers_list_with_client(
+    client: &AdminApiClient,
+    query: Option<WorkerListQuery>,
+) -> Result<CollectionResponse<WorkerResponse>, CommandError> {
+    let endpoint = query.unwrap_or_default().to_endpoint()?;
+    Ok(client.get_collection(&endpoint).await?)
+}
+
 #[tauri::command]
 pub async fn workers_list(
     query: Option<WorkerListQuery>,
 ) -> Result<CollectionResponse<WorkerResponse>, CommandError> {
-    let endpoint = query.unwrap_or_default().to_endpoint()?;
-    Ok(get_api_client().get_collection(&endpoint).await?)
+    workers_list_with_client(get_api_client(), query).await
 }
 
 pub async fn workers_get_with_client(
@@ -1119,6 +1126,7 @@ pub async fn workers_create_with_client(
     // app never sends (nor invents) them. An art. 22 exempt worker carries no schedule.
     let mut body = serde_json::json!({
         "name": form.name.trim(),
+        "email": form.personal_email.trim(),
         "personal_email": form.personal_email.trim(),
         "run": canonical_run,
         "job_title": form.job_title.trim(),
@@ -2396,6 +2404,7 @@ mod tests {
 
         let expected_body = serde_json::json!({
             "name": "Pedro Morales",
+            "email": "pedro@acme.cl",
             "personal_email": "pedro@acme.cl",
             "run": "12.345.678-5",
             "job_title": "Técnico",
