@@ -208,7 +208,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **INT-04** | [`integration/task-04-worker-client-layout.md`](integration/task-04-worker-client-layout.md) | App del trabajador en una sola carpeta `worker-client/` (servicio, IPC, ventana) como `admin-client/`; compilar con un comando; README de ambas apps. | 🟢 |
 | **ADMIN-19** | [`admin-client/task-19-google-sign-in-cancel.md`](admin-client/task-19-google-sign-in-cancel.md) | Botón Cancelar mientras se espera el inicio de sesión con Google (brecha 3). | ⏳ |
 | **INT-05** | [`integration/task-05-live-api-contract-tests.md`](integration/task-05-live-api-contract-tests.md) | Pruebas opt-in (`--features live-api`) de los clientes HTTP de ambas apps contra la API real (`tools/orchestration/live-api.sh`); tabla de diferencias con el contrato (brecha 9). | ⏳ |
-| **INT-06** | [`integration/task-06-macos-green-baseline.md`](integration/task-06-macos-green-baseline.md) | DoD verde también en macOS: tests solo-Linux de `agent-ipc` bajo `cfg` y carrera del test de lanzamiento del servicio. | ⏳ |
+| **INT-06** | [`integration/task-06-macos-green-baseline.md`](integration/task-06-macos-green-baseline.md) | DoD verde también en macOS: tests solo-Linux de `agent-ipc` bajo `cfg` y carrera del test de lanzamiento del servicio. | 🟢 |
 
 ### 6.2 Orden y paralelismo
 
