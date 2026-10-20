@@ -12,8 +12,10 @@ You (Claude Code) are the **orchestrator** of this repository, not an implemente
 - This scheme is permanent and the same on all of the owner's PCs (owner decision 2026-10-18).
 - **Native mode (owner decision 2026-10-19, default):** agy runs directly on the host with the
   owner's main Google account (high quota; the Plus account's quota is too small to matter). Run
-  several tasks at once — one per worktree "slot" (`*-wt-pro`, `*-wt-plus`, add more if useful) — and
-  spawn your own subagents (e.g. one orchestrator per repo) freely: the quota lasts a long time. The
+  several tasks at once — one per worktree "slot" (`*-wt-pro`, `*-wt-plus`, add more if useful) — through
+  `tools/orchestration/pipeline.sh` (implement → validate → agy review → fix round → summary), so agy's
+  quota is spent instead of yours. **Do not run long-lived Claude orchestrator subagents** (owner,
+  2026-10-19: they burn Claude quota far faster than agy's); read summaries, merge, intervene briefly. The
   Docker containers `agy-pro` / `agy-plus` are an optional fallback (`AGY_MODE=container`). Details in
   [`tools/orchestration/README.md`](tools/orchestration/README.md).
 - Review for real: read the diff and the task Report, run `validate.sh`, and add checks of your own
