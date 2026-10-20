@@ -719,9 +719,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_google_wait_for_redirect_cancelled_releases_port_in_under_1s() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let port = listener.local_addr().unwrap().port();
+    async fn test_google_wait_for_redirect_cancelled_releases_port_in_under_1s(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let port = listener.local_addr()?.port();
         let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
@@ -730,12 +731,10 @@ mod tests {
         });
 
         let start = std::time::Instant::now();
-        let err = wait_for_redirect(listener, "expected", Duration::from_secs(10), cancel_rx)
-            .await
-            .unwrap_err();
+        let res = wait_for_redirect(listener, "expected", Duration::from_secs(10), cancel_rx).await;
         let elapsed = start.elapsed();
 
-        assert_eq!(err, GoogleError::Cancelled);
+        assert_eq!(res, Err(GoogleError::Cancelled));
         assert!(
             elapsed < Duration::from_secs(1),
             "cancellation must complete in under 1 second (elapsed: {elapsed:?})"
@@ -747,6 +746,7 @@ mod tests {
             rebind.is_ok(),
             "port must be free to re-bind immediately after cancellation"
         );
+        Ok(())
     }
 
     #[tokio::test]
@@ -859,7 +859,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_google_sign_in_full_loopback_flow() {
+    async fn test_google_sign_in_full_loopback_flow() -> Result<(), Box<dyn std::error::Error>> {
         let token_server = MockServer::start().await;
         let seen_nonce: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let nonce_for_token = seen_nonce.clone();
@@ -898,8 +898,8 @@ mod tests {
             fake_browser,
             cancel_rx,
         )
-        .await
-        .unwrap();
+        .await?;
         assert_eq!(id_token.split('.').count(), 3);
+        Ok(())
     }
 }
