@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop-AGENTS
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gates:
+    name: Quality Gates (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libxtst-dev libx11-dev \
+            libxcb1-dev libxrandr-dev libxkbcommon-dev libdbus-1-dev libegl1-mesa-dev \
+            libwayland-dev libgbm-dev libdrm-dev libpipewire-0.3-dev libclang-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check Rust formatting (AGENTS.md §9)
+        run: cargo fmt --all --check
+
+      - name: Lint with Clippy (AGENTS.md §9)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run workspace tests (AGENTS.md §9)
+        run: cargo test --workspace
+
+      - name: Admin UI build and tests (AGENTS.md §9)
+        run: cd admin-client && npm ci && npm run build && npm test
+
+      - name: Worker UI build and tests (AGENTS.md §9)
+        run: cd worker-client && npm ci && npm run build && npm test

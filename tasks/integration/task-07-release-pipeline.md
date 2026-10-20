@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-INT-07` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `.github/workflows/ci.yml` (nuevo), `.github/workflows/release.yml` (nuevo), `worker-client/scripts/prepare-sidecar.mjs`, `worker-client/test/workflows.test.mjs` (nuevo), `README.md` |
 | **Dependencias** | `TASK-INT-04`, `TASK-INT-06`, `TASK-ADMIN-18` |
 | **Prioridad** | P1 (empaquetado y verificación continua para distribución en GitHub Releases) |
@@ -144,3 +144,29 @@ o `TELEMETRY_API_URL` no sea `https://` (`SEC-10`).
 - [ ] Reporte completo.
 
 ## Reporte
+- **Resumen:** Se implementaron los workflows de CI (`.github/workflows/ci.yml`) y de release multiplataforma (`.github/workflows/release.yml`) para ambas aplicaciones (`admin-client` y `worker-client`) en macOS (Apple Silicon y Intel), Windows x64 y Linux x64 con generación de sumas `SHA256SUMS.txt` y publicación en borrador (`draft: true`). Se eliminó el fallback silencioso de URL en `worker-client/scripts/prepare-sidecar.mjs` para activar de forma estricta las compuertas `SEC-10` y `LEG-06` en release. Se añadieron pruebas estáticas automatizadas en `worker-client/test/workflows.test.mjs` y se documentó la tabla de variables y secretos en `README.md`.
+- **Archivos:**
+  - `.github/workflows/ci.yml` (nuevo)
+  - `.github/workflows/release.yml` (nuevo)
+  - `worker-client/scripts/prepare-sidecar.mjs` (modificado)
+  - `worker-client/test/workflows.test.mjs` (nuevo)
+  - `README.md` (modificado)
+  - `tasks/integration/task-07-release-pipeline.md` (estado y reporte)
+- **Comandos:**
+  - `cargo fmt --all --check` ✅ limpio
+  - `cargo clippy --workspace --all-targets -- -D warnings` ✅ limpio (0 warnings)
+  - `cargo test --workspace` ✅ (396 tests: `admin-client-core` 159, `agent` 155, `agent-ipc` 21, `agent-ui-core` 9, `telemetry-crypto-core` 52, 0 fallos)
+  - `cd admin-client && npm ci && npm run build && npm test` ✅ (109 tests pasaron, build de producción exitoso)
+  - `cd worker-client && npm ci && npm run build && npm test` ✅ (35 tests pasaron, build de producción exitoso)
+  - Dry runs locales:
+    - Compuerta `SEC-10`: `env -u TELEMETRY_API_URL npm --prefix worker-client run sidecar` ❌ falló con salida 101 (`TELEMETRY_API_URL is required for release builds: set it in worker-client/service/.env or the environment`), verificado.
+    - Compuerta `LEG-06`: `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npm --prefix worker-client run sidecar` ❌ falló con salida 101 (`LEG-06: docs/legal/terminos-trabajador.md still contains owner placeholders`), verificado; `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npx --prefix admin-client tauri build --no-bundle` ❌ falló con salida 101 (`Release build blocked by unpopulated legal placeholders in docs/legal/terminos-empleador.md`), verificado.
+    - Compilación debug: `cd worker-client && npx tauri build --debug --no-bundle` ✅ código 0 (`target/debug/telemetry-worker`), `cd admin-client && npx tauri build --debug --no-bundle` ✅ código 0 (`target/debug/admin-client-core`).
+- **Decisiones:**
+  - En `worker-client/scripts/prepare-sidecar.mjs` se pasa `process.env` tal cual en modo release para que `worker-client/service/build.rs` exija `TELEMETRY_API_URL` explícita con `https://` y valide los placeholders de `docs/legal/` (`LEG-06`), manteniendo el fallback `http://localhost:8080/api/v1` únicamente cuando `profile === 'debug'`.
+  - En `.github/workflows/release.yml` se incorporó un job temprano `pre-check` que valida el formato HTTPS de `TELEMETRY_API_URL` y ejecuta las pruebas de `telemetry-crypto-core` antes de disparar la matriz multiplataforma.
+  - Para macOS se crearon dos entradas de matriz (`aarch64-apple-darwin` y `x86_64-apple-darwin`) y en el staging de artefactos se añade el sufijo del target triple a los `.app.tar.gz` si no lo tienen para evitar colisión de nombres al consolidar en `all-artifacts/`.
+- **Pendientes / bloqueos:**
+  - Ninguno. Workflows y pruebas completos. Compilar releases de producción reales en GitHub Actions requerirá que el dueño complete los placeholders pendientes en `docs/legal/` y configure `TELEMETRY_API_URL`.
+- **Desviaciones del contrato:**
+  - Ninguna.

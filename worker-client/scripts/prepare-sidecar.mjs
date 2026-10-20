@@ -37,10 +37,11 @@ if (!isDebug) {
 }
 if (cross) buildArgs.push('--target', triple);
 console.log(`Building telemetry-agent (${profile}) for ${triple}...`);
-const buildEnv = {
-  ...process.env,
-  TELEMETRY_API_URL: process.env.TELEMETRY_API_URL || 'https://api.telemetry.example.com/api/v1',
-};
+// RF-INT-07-3: In release mode pass process.env as-is so service/build.rs enforces
+// explicit https:// TELEMETRY_API_URL (SEC-10) and checks legal placeholders (LEG-06).
+const buildEnv = isDebug
+  ? { ...process.env, TELEMETRY_API_URL: process.env.TELEMETRY_API_URL || 'http://localhost:8080/api/v1' }
+  : process.env;
 const res = spawnSync('cargo', buildArgs, { cwd: repoRoot, stdio: 'inherit', env: buildEnv });
 if (res.status !== 0) {
   console.error(`cargo ${buildArgs.join(' ')} failed with exit status ${res.status}`);
