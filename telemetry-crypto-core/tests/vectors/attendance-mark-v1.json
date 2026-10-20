@@ -64,6 +64,26 @@
       },
       "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000003\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_END\",\"server_ts\":\"2026-10-11T18:05:00Z\",\"device_ts\":\"2026-10-11T18:04:55Z\",\"offline\":true,\"source\":\"CORRECTION\",\"workplace_id\":null,\"location\":null,\"prev_hash\":\"337a1302c1f5a973ed40b8decb1e7f2ace94ad4adac63f19d222cb0026d1c6a9\"}",
       "hash": "c97b27ef981f8286f3a63bb1ba51ee2c6371f54fe98a4a9bdb18a00e49ba4bc7"
+    },
+    {
+      "comment": "Mark 4: Workday start via web portal, chained to mark 3 hash (R38 art. 7 g, ATTENDANCE.md §11.4)",
+      "mark": {
+        "v": 1,
+        "mark_id": "01927d3b-65e1-7000-8000-000000000004",
+        "worker_id": "01927d3b-65e1-7000-8000-0000000000aa",
+        "worker_run": "12.345.678-5",
+        "employer_rut": "76.123.456-0",
+        "type": "WORKDAY_START",
+        "server_ts": "2026-10-12T09:00:00Z",
+        "device_ts": "2026-10-12T09:00:00Z",
+        "offline": false,
+        "source": "PORTAL",
+        "workplace_id": "01927d3b-65e1-7000-8000-0000000000b1",
+        "location": null,
+        "prev_hash": "c97b27ef981f8286f3a63bb1ba51ee2c6371f54fe98a4a9bdb18a00e49ba4bc7"
+      },
+      "canonical_json": "{\"v\":1,\"mark_id\":\"01927d3b-65e1-7000-8000-000000000004\",\"worker_id\":\"01927d3b-65e1-7000-8000-0000000000aa\",\"worker_run\":\"12.345.678-5\",\"employer_rut\":\"76.123.456-0\",\"type\":\"WORKDAY_START\",\"server_ts\":\"2026-10-12T09:00:00Z\",\"device_ts\":\"2026-10-12T09:00:00Z\",\"offline\":false,\"source\":\"PORTAL\",\"workplace_id\":\"01927d3b-65e1-7000-8000-0000000000b1\",\"location\":null,\"prev_hash\":\"c97b27ef981f8286f3a63bb1ba51ee2c6371f54fe98a4a9bdb18a00e49ba4bc7\"}",
+      "hash": "002d02647514a0ff791598508e50cf467419208f4a819472e4dfef36853f108f"
     }
   ]
 }

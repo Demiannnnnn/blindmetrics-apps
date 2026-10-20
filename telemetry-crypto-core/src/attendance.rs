@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn test_attendance_mark_hash_matches_vector() {
         let doc: VectorDocument = serde_json::from_str(VECTOR_FILE).expect("valid vector json");
-        assert!(doc.vectors.len() >= 3);
+        assert!(doc.vectors.len() >= 4);
 
         for item in &doc.vectors {
             // Check canonical serialization matches expected compact JSON byte-for-byte
@@ -298,12 +298,38 @@ mod tests {
         assert_eq!(doc.vectors[0].mark.prev_hash, GENESIS_PREV_HASH);
         assert_eq!(doc.vectors[1].mark.prev_hash, doc.vectors[0].hash);
         assert_eq!(doc.vectors[2].mark.prev_hash, doc.vectors[1].hash);
+        assert_eq!(doc.vectors[3].mark.prev_hash, doc.vectors[2].hash);
 
         // Tampering mark 1 breaks the chain
         let mut tampered_mark_1 = doc.vectors[0].mark.clone();
         tampered_mark_1.offline = !tampered_mark_1.offline;
         let tampered_hash = mark_hash(&tampered_mark_1).expect("hash tampered");
         assert_ne!(tampered_hash, doc.vectors[1].mark.prev_hash);
+    }
+
+    #[test]
+    fn test_attendance_portal_mark_vector() -> Result<(), Box<dyn std::error::Error>> {
+        let doc: VectorDocument = serde_json::from_str(VECTOR_FILE)?;
+        let portal_item = doc
+            .vectors
+            .iter()
+            .find(|v| v.mark.source == MarkSource::Portal)
+            .ok_or("vector has at least one PORTAL mark")?;
+
+        assert_eq!(portal_item.mark.source, MarkSource::Portal);
+        assert!(!portal_item.mark.offline);
+        assert_eq!(portal_item.mark.device_ts, portal_item.mark.server_ts);
+
+        // Check canonical serialization matches expected compact JSON byte-for-byte
+        let serialized = serde_json::to_string(&portal_item.mark)?;
+        assert_eq!(serialized, portal_item.canonical_json);
+
+        // Check mark_hash computes exact expected hash
+        let computed_hash = mark_hash(&portal_item.mark)?;
+        assert_eq!(computed_hash, portal_item.hash);
+        assert!(verify_mark_hash(&portal_item.mark, &portal_item.hash));
+
+        Ok(())
     }
 
     #[test]
