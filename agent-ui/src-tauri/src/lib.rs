@@ -597,6 +597,11 @@ mod tests {
         client::ensure_service_with(&runtime_dir, script.to_str(), None, Duration::from_secs(5))
             .await
             .expect("service becomes reachable");
+
+        let start = std::time::Instant::now();
+        while !marker.exists() && start.elapsed() < Duration::from_secs(2) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         assert!(marker.exists(), "the service binary was launched");
     }
 
