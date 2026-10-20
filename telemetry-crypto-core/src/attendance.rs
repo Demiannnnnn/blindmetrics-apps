@@ -308,26 +308,28 @@ mod tests {
     }
 
     #[test]
-    fn test_attendance_portal_mark_vector() {
-        let doc: VectorDocument = serde_json::from_str(VECTOR_FILE).expect("valid vector json");
+    fn test_attendance_portal_mark_vector() -> Result<(), Box<dyn std::error::Error>> {
+        let doc: VectorDocument = serde_json::from_str(VECTOR_FILE)?;
         let portal_item = doc
             .vectors
             .iter()
             .find(|v| v.mark.source == MarkSource::Portal)
-            .expect("vector has at least one PORTAL mark");
+            .ok_or("vector has at least one PORTAL mark")?;
 
         assert_eq!(portal_item.mark.source, MarkSource::Portal);
         assert!(!portal_item.mark.offline);
         assert_eq!(portal_item.mark.device_ts, portal_item.mark.server_ts);
 
         // Check canonical serialization matches expected compact JSON byte-for-byte
-        let serialized = serde_json::to_string(&portal_item.mark).expect("serialize portal mark");
+        let serialized = serde_json::to_string(&portal_item.mark)?;
         assert_eq!(serialized, portal_item.canonical_json);
 
         // Check mark_hash computes exact expected hash
-        let computed_hash = mark_hash(&portal_item.mark).expect("mark_hash succeeds");
+        let computed_hash = mark_hash(&portal_item.mark)?;
         assert_eq!(computed_hash, portal_item.hash);
         assert!(verify_mark_hash(&portal_item.mark, &portal_item.hash));
+
+        Ok(())
     }
 
     #[test]
