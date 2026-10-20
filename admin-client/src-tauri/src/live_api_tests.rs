@@ -16,15 +16,14 @@ use reqwest::StatusCode;
 use telemetry_crypto_core::attendance::MarkType;
 use telemetry_crypto_core::rut::{compute_dv, format_rut};
 
-fn live_api_url() -> String {
+fn live_api_url() -> Result<String, Box<dyn std::error::Error>> {
     let url = std::env::var("TELEMETRY_LIVE_API_URL")
-        .expect("TELEMETRY_LIVE_API_URL is required when running with feature live-api");
+        .map_err(|_| "TELEMETRY_LIVE_API_URL is required when running with feature live-api")?;
     let trimmed = url.trim().trim_end_matches('/').to_string();
-    assert!(
-        !trimmed.is_empty(),
-        "TELEMETRY_LIVE_API_URL must not be empty"
-    );
-    trimmed
+    if trimmed.is_empty() {
+        return Err("TELEMETRY_LIVE_API_URL must not be empty".into());
+    }
+    Ok(trimmed)
 }
 
 fn generate_unique_rut(prefix: u32) -> String {
@@ -34,11 +33,11 @@ fn generate_unique_rut(prefix: u32) -> String {
 }
 
 #[tokio::test]
-async fn test_admin_live_api_contract_suite() {
+async fn test_admin_live_api_contract_suite() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = KEYSTORE_TEST_MUTEX.lock().await;
     init_test_vault();
 
-    let api_url = live_api_url();
+    let api_url = live_api_url()?;
     let client = AdminApiClient::new(api_url.clone());
     let http = client.http().clone();
 
@@ -53,23 +52,16 @@ async fn test_admin_live_api_contract_suite() {
     // 1. Register + login with password (with device)
     let reg_profile = client
         .register("Admin Real", &admin_email, password, &org_name)
-        .await
-        .expect("Admin registration must succeed");
+        .await?;
     assert_eq!(reg_profile.email, admin_email);
     assert_eq!(reg_profile.organization, org_name);
 
-    let login_profile = client
-        .login(&admin_email, password)
-        .await
-        .expect("Admin login must succeed");
+    let login_profile = client.login(&admin_email, password).await?;
     assert_eq!(login_profile.id, reg_profile.id);
 
     // 2. Single-use refresh
-    let stored_refresh = load_admin_refresh_token().expect("refresh token in keystore");
-    let refresh_profile = client
-        .unlock_with_refresh()
-        .await
-        .expect("unlock with refresh must succeed");
+    let stored_refresh = load_admin_refresh_token()?;
+    let refresh_profile = client.unlock_with_refresh().await?;
     assert_eq!(refresh_profile.id, login_profile.id);
 
     // Verify refresh token is single-use: attempting reuse triggers 401 TOKEN_REUSE_DETECTED
@@ -77,25 +69,19 @@ async fn test_admin_live_api_contract_suite() {
         .post(client.url("/auth/refresh"))
         .json(&serde_json::json!({ "refresh_token": stored_refresh.as_str() }))
         .send()
-        .await
-        .expect("reuse request failed");
+        .await?;
     assert_eq!(reuse_resp.status(), StatusCode::UNAUTHORIZED);
-    let reuse_body: serde_json::Value = reuse_resp.json().await.expect("json");
+    let reuse_body: serde_json::Value = reuse_resp.json().await?;
     assert_eq!(
         reuse_body["error"]["details"]["reason"], "TOKEN_REUSE_DETECTED",
         "Reused refresh token must trigger TOKEN_REUSE_DETECTED"
     );
 
     // Re-login to obtain a fresh session for the rest of the test
-    let _ = client
-        .login(&admin_email, password)
-        .await
-        .expect("re-login must succeed");
+    let _ = client.login(&admin_email, password).await?;
 
     // 3. Employer terms acceptance (must be accepted before accessing console resources, LEG-05)
-    let terms_resp = legal_accept_terms_with_client(&client)
-        .await
-        .expect("employer terms acceptance must succeed");
+    let terms_resp = legal_accept_terms_with_client(&client).await?;
     assert_eq!(terms_resp.status, "ACTIVE");
 
     // 4. Employer profile and workplace
@@ -113,15 +99,12 @@ async fn test_admin_live_api_contract_suite() {
             region: "Región Metropolitana de Santiago".to_string(),
         },
     };
-    let saved_emp = employer_update_with_client(&client, emp_profile)
-        .await
-        .expect("employer update must succeed");
+    let saved_emp = employer_update_with_client(&client, emp_profile).await?;
     assert_eq!(saved_emp.rut, employer_rut);
 
     let fetched_emp = employer_get_with_client(&client)
-        .await
-        .expect("employer get must succeed")
-        .expect("employer profile must exist");
+        .await?
+        .ok_or("employer profile must exist")?;
     assert_eq!(fetched_emp.rut, employer_rut);
 
     let wp_form = WorkplaceForm {
@@ -136,24 +119,16 @@ async fn test_admin_live_api_contract_suite() {
             region: "Región Metropolitana de Santiago".to_string(),
         },
     };
-    let wp = workplaces_create_with_client(&client, wp_form)
-        .await
-        .expect("workplace create must succeed");
-    let wp_list = workplaces_list_with_client(&client)
-        .await
-        .expect("workplaces list must succeed");
+    let wp = workplaces_create_with_client(&client, wp_form).await?;
+    let wp_list = workplaces_list_with_client(&client).await?;
     assert!(wp_list.iter().any(|w| w.id == wp.id));
 
     // 5. Register admin public key (with telemetry-crypto-core)
-    let master_pub = generate_and_save_master_keys().expect("generate master keys");
-    let registered_pub = keys_register_on_server_with_client(&client)
-        .await
-        .expect("register public key on server");
+    let master_pub = generate_and_save_master_keys().map_err(|e| format!("{e:?}"))?;
+    let registered_pub = keys_register_on_server_with_client(&client).await?;
     assert_eq!(registered_pub, master_pub);
 
-    let k_status = keys_status_with_client(&client)
-        .await
-        .expect("keys status must succeed");
+    let k_status = keys_status_with_client(&client).await?;
     assert!(k_status.matches_server);
     assert!(k_status.is_registered_on_server);
 
@@ -191,9 +166,7 @@ async fn test_admin_live_api_contract_suite() {
         timezone: Some("America/Santiago".to_string()),
         enrollment_ttl_hours: Some(24),
     };
-    let created = workers_create_with_client(&client, worker_form)
-        .await
-        .expect("worker create must succeed");
+    let created = workers_create_with_client(&client, worker_form).await?;
     assert_eq!(created.worker.run, worker_run);
     assert_eq!(created.worker.personal_email, worker_email);
 
@@ -201,9 +174,7 @@ async fn test_admin_live_api_contract_suite() {
     assert!(!created.enrollment.code.is_empty());
     let initial_code = created.enrollment.code.clone();
 
-    let regen = workers_regenerate_token_with_client(&client, &created.worker.id, Some(48))
-        .await
-        .expect("regenerate enrollment token must succeed");
+    let regen = workers_regenerate_token_with_client(&client, &created.worker.id, Some(48)).await?;
     assert!(!regen.code.is_empty());
     let active_code = regen.code;
     assert_ne!(active_code, initial_code);
@@ -222,8 +193,7 @@ async fn test_admin_live_api_contract_suite() {
             work_mode: None,
         }),
     )
-    .await
-    .expect("workers list must succeed");
+    .await?;
     assert!(list.data.iter().any(|w| w.id == created.worker.id));
 
     // 9. Prepare attendance mark via worker flow (HTTP calls against live API)
@@ -236,26 +206,22 @@ async fn test_admin_live_api_contract_suite() {
             "device_info": { "hostname": "TEST-HOST", "os": "macOS", "app_version": "0.1.0" }
         }))
         .send()
-        .await
-        .expect("enroll request failed")
+        .await?
         .json()
-        .await
-        .expect("enroll json failed");
+        .await?;
 
     let worker_access_token = enroll_resp["data"]["auth"]["access_token"]
         .as_str()
-        .expect("worker access token")
+        .ok_or("worker access token")?
         .to_string();
 
     // Accept worker terms
     let legal_cur: serde_json::Value = http
         .get(client.url("/legal/current"))
         .send()
-        .await
-        .expect("legal current")
+        .await?
         .json()
-        .await
-        .expect("legal json");
+        .await?;
     let w_terms = &legal_cur["data"]["worker_terms"];
     let priv_doc = &legal_cur["data"]["privacy"];
 
@@ -270,8 +236,7 @@ async fn test_admin_live_api_contract_suite() {
             "privacy_hash": priv_doc["hash"]
         }))
         .send()
-        .await
-        .expect("accept terms failed");
+        .await?;
 
     // Post an online mark
     let mark_now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -286,30 +251,37 @@ async fn test_admin_live_api_contract_suite() {
             "identification": "DEVICE_PIN"
         }))
         .send()
-        .await
-        .expect("mark request failed")
+        .await?
         .json()
-        .await
-        .expect("mark json failed");
+        .await?;
 
     let mark_id = mark_resp["data"]["mark"]["id"]
         .as_str()
-        .expect("mark id")
+        .ok_or("mark id")?
         .to_string();
     assert!(!mark_id.is_empty());
 
     // 10. Attendance board, days and marks from admin client + hash verification
-    let board = attendance_board_with_client(&client)
-        .await
-        .expect("attendance board must succeed");
+    let board = attendance_board_with_client(&client).await?;
     assert!(
         board.iter().any(|b| b.worker_id == created.worker.id),
         "Board must contain the created worker"
     );
 
-    let days = attendance_days_with_client(&client, &created.worker.id, "2026-10-18", "2026-10-22")
-        .await
-        .expect("attendance days must succeed");
+    // Compute relative dates from Utc::now() so the test is independent of host calendar date
+    let now = chrono::Utc::now();
+    let days_from = (now - chrono::Duration::days(2))
+        .format("%Y-%m-%d")
+        .to_string();
+    let days_to = (now + chrono::Duration::days(1))
+        .format("%Y-%m-%d")
+        .to_string();
+    let proposed_ts = (now - chrono::Duration::days(1))
+        .format("%Y-%m-%dT09:00:00Z")
+        .to_string();
+
+    let days =
+        attendance_days_with_client(&client, &created.worker.id, &days_from, &days_to).await?;
     assert!(!days.is_empty(), "Days must return summaries");
 
     let marks = attendance_marks_with_client(
@@ -322,8 +294,7 @@ async fn test_admin_live_api_contract_suite() {
             per_page: Some(10),
         },
     )
-    .await
-    .expect("attendance marks must succeed");
+    .await?;
     assert!(!marks.data.is_empty(), "Marks list must not be empty");
 
     // Verification of hash of that mark with the same function the app uses:
@@ -331,7 +302,7 @@ async fn test_admin_live_api_contract_suite() {
         .data
         .iter()
         .find(|m| m.id == mark_id)
-        .expect("target mark must be found");
+        .ok_or("target mark must be found")?;
     assert_eq!(
         target_mark.hash_verified,
         Some(true),
@@ -346,15 +317,14 @@ async fn test_admin_live_api_contract_suite() {
             kind: CorrectionKind::Add,
             original_mark_id: None,
             r#type: MarkType::WorkdayStart,
-            proposed_ts: "2026-10-19T09:00:00Z".to_string(),
+            proposed_ts,
             reason: "Marca omitida por corte de energia".to_string(),
             confirm_no_harm: true,
             original_mark_ts: None,
             timezone: Some("America/Santiago".to_string()),
         },
     )
-    .await
-    .expect("propose correction must succeed");
+    .await?;
     assert_eq!(proposed.len(), 1);
     let correction_id = proposed[0].id.clone();
 
@@ -367,8 +337,7 @@ async fn test_admin_live_api_contract_suite() {
             per_page: Some(10),
         },
     )
-    .await
-    .expect("list corrections must succeed");
+    .await?;
     assert!(
         corr_list.data.iter().any(|c| c.id == correction_id),
         "Proposed correction must appear in corrections list"
@@ -387,13 +356,12 @@ async fn test_admin_live_api_contract_suite() {
         job_title: None,
         hash: None,
     };
-    let report_json = attendance_report_with_client(&client, ReportKind::Attendance, &filters)
-        .await
-        .expect("attendance report JSON must succeed");
+    let report_json =
+        attendance_report_with_client(&client, ReportKind::Attendance, &filters).await?;
     assert_eq!(report_json.report, ReportKind::Attendance);
     assert!(!report_json.sections.is_empty());
 
-    let temp_export_dir = tempfile::tempdir().expect("tempdir for export");
+    let temp_export_dir = tempfile::tempdir()?;
     let xlsx_path = attendance_export_report_with_client(
         &client,
         ReportKind::Attendance,
@@ -401,9 +369,8 @@ async fn test_admin_live_api_contract_suite() {
         ExportFormat::Xlsx,
         temp_export_dir.path(),
     )
-    .await
-    .expect("export XLSX must succeed");
-    let xlsx_bytes = std::fs::read(&xlsx_path).expect("read exported xlsx file");
+    .await?;
+    let xlsx_bytes = std::fs::read(&xlsx_path)?;
     assert!(
         xlsx_bytes.starts_with(b"PK"),
         "XLSX export must start with PK signature"
@@ -416,9 +383,8 @@ async fn test_admin_live_api_contract_suite() {
         ExportFormat::Pdf,
         temp_export_dir.path(),
     )
-    .await
-    .expect("export PDF must succeed");
-    let pdf_bytes = std::fs::read(&pdf_path).expect("read exported pdf file");
+    .await?;
+    let pdf_bytes = std::fs::read(&pdf_path)?;
     assert!(
         pdf_bytes.starts_with(b"%PDF"),
         "PDF export must start with %PDF signature"
@@ -458,13 +424,16 @@ async fn test_admin_live_api_contract_suite() {
         timezone: Some("America/Santiago".to_string()),
         enrollment_ttl_hours: Some(24),
     };
-    let err = workers_create_with_client(&client, dup_worker)
-        .await
-        .unwrap_err();
+    let err = match workers_create_with_client(&client, dup_worker).await {
+        Err(e) => e,
+        Ok(_) => return Err("duplicate worker creation should have failed".into()),
+    };
     assert_eq!(err.code, "CONFLICT");
     assert_eq!(err.reason.as_deref(), Some("RUN_ALREADY_EXISTS"));
     assert!(
         err.is("RUN_ALREADY_EXISTS"),
         "Error must map to RUN_ALREADY_EXISTS"
     );
+
+    Ok(())
 }

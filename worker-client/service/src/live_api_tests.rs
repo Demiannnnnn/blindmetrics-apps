@@ -19,15 +19,14 @@ use telemetry_crypto_core::enrollment::{
 use telemetry_crypto_core::rut::{compute_dv, format_rut};
 use telemetry_crypto_core::{derive_public_key, generate_admin_keypair};
 
-fn live_api_url() -> String {
+fn live_api_url() -> Result<String, Box<dyn std::error::Error>> {
     let url = std::env::var("TELEMETRY_LIVE_API_URL")
-        .expect("TELEMETRY_LIVE_API_URL is required when running with feature live-api");
+        .map_err(|_| "TELEMETRY_LIVE_API_URL is required when running with feature live-api")?;
     let trimmed = url.trim().trim_end_matches('/').to_string();
-    assert!(
-        !trimmed.is_empty(),
-        "TELEMETRY_LIVE_API_URL must not be empty"
-    );
-    trimmed
+    if trimmed.is_empty() {
+        return Err("TELEMETRY_LIVE_API_URL must not be empty".into());
+    }
+    Ok(trimmed)
 }
 
 fn generate_unique_rut(prefix: u32) -> String {
@@ -37,8 +36,8 @@ fn generate_unique_rut(prefix: u32) -> String {
 }
 
 #[tokio::test]
-async fn test_worker_live_api_contract_suite() {
-    let api_url = live_api_url();
+async fn test_worker_live_api_contract_suite() -> Result<(), Box<dyn std::error::Error>> {
+    let api_url = live_api_url()?;
     let http = Client::new();
 
     let test_suffix = uuid::Uuid::new_v4().simple().to_string();
@@ -59,26 +58,22 @@ async fn test_worker_live_api_contract_suite() {
             "organization": org_name,
         }))
         .send()
-        .await
-        .expect("register admin failed")
+        .await?
         .json()
-        .await
-        .expect("register json");
+        .await?;
 
     let admin_token = reg_res["data"]["access_token"]
         .as_str()
-        .expect("admin access token")
+        .ok_or("admin access token")?
         .to_string();
 
     // Legal current versions
     let legal_cur: serde_json::Value = http
         .get(format!("{api_url}/legal/current"))
         .send()
-        .await
-        .expect("legal current")
+        .await?
         .json()
-        .await
-        .expect("legal json");
+        .await?;
     let emp_terms = &legal_cur["data"]["employer_terms"];
     let priv_doc = &legal_cur["data"]["privacy"];
 
@@ -94,8 +89,7 @@ async fn test_worker_live_api_contract_suite() {
             "privacy_hash": priv_doc["hash"]
         }))
         .send()
-        .await
-        .expect("accept employer terms");
+        .await?;
 
     // Employer profile
     let _ = http
@@ -116,8 +110,7 @@ async fn test_worker_live_api_contract_suite() {
             }
         }))
         .send()
-        .await
-        .expect("set employer profile");
+        .await?;
 
     // Workplace
     let wp_res: serde_json::Value = http
@@ -136,28 +129,28 @@ async fn test_worker_live_api_contract_suite() {
             }
         }))
         .send()
-        .await
-        .expect("create workplace")
+        .await?
         .json()
-        .await
-        .expect("workplace json");
+        .await?;
     let workplace_id = wp_res["data"]["id"]
         .as_str()
-        .expect("workplace id")
+        .ok_or("workplace id")?
         .to_string();
 
     // Register admin public key
     let (admin_priv_b64, _) = generate_admin_keypair();
-    let admin_pub_b64 = derive_public_key(&admin_priv_b64).expect("derive pubkey");
+    let admin_pub_b64 = derive_public_key(&admin_priv_b64).map_err(|e| format!("{e:?}"))?;
     let _ = http
         .put(format!("{api_url}/admins/me/public-key"))
         .bearer_auth(&admin_token)
         .json(&serde_json::json!({ "public_key": admin_pub_b64 }))
         .send()
-        .await
-        .expect("register public key");
+        .await?;
 
     // Create worker v3
+    let schedule_effective_from = (chrono::Utc::now() - chrono::Duration::days(7))
+        .format("%Y-%m-%d")
+        .to_string();
     let create_res: serde_json::Value = http
         .post(format!("{api_url}/workers"))
         .bearer_auth(&admin_token)
@@ -195,34 +188,32 @@ async fn test_worker_live_api_contract_suite() {
                 ],
                 "break_counts_as_work": false,
                 "location_at_mark": false,
-                "effective_from": "2026-10-14",
+                "effective_from": schedule_effective_from,
                 "requested_by": "EMPLOYER"
             }
         }))
         .send()
-        .await
-        .expect("create worker request")
+        .await?
         .json()
-        .await
-        .expect("create worker json");
+        .await?;
 
     let enrollment = &create_res["data"]["enrollment"];
-    let enroll_code = enrollment["code"].as_str().expect("code").to_string();
+    let enroll_code = enrollment["code"].as_str().ok_or("code")?.to_string();
     let server_commitment = enrollment["commitment"]
         .as_str()
-        .expect("commitment")
+        .ok_or("commitment")?
         .to_string();
     let server_safety_code = enrollment["safety_code"]
         .as_str()
-        .expect("safety code")
+        .ok_or("safety code")?
         .to_string();
     let server_qr_payload = enrollment["qr_payload"]
         .as_str()
-        .expect("qr_payload")
+        .ok_or("qr_payload")?
         .to_string();
 
     // 2. Worker client instantiation
-    let client = ApiClient::new(api_url.clone()).expect("create ApiClient");
+    let client = ApiClient::new(api_url.clone())?;
 
     // 3. Complete Enrollment v2 (package, safety_code, commitment)
     let device_id = format!("agent_device_{test_suffix}_{}", "a".repeat(32));
@@ -230,8 +221,7 @@ async fn test_worker_live_api_contract_suite() {
 
     let enroll_response = client
         .enroll(&enroll_code, &device_id, &device_info)
-        .await
-        .expect("client.enroll must succeed");
+        .await?;
 
     assert_eq!(enroll_response.status, WorkerStatus::PendingTerms);
     assert_eq!(enroll_response.admin_public_key, admin_pub_b64);
@@ -267,8 +257,8 @@ async fn test_worker_live_api_contract_suite() {
             location: enroll_response.consent_descriptions.location.clone(),
         },
     };
-    let local_commitment = manifest_commitment(&manifest).expect("commitment calculation");
-    let local_safety_code = safety_code(&local_commitment).expect("safety code calculation");
+    let local_commitment = manifest_commitment(&manifest).map_err(|e| format!("{e:?}"))?;
+    let local_safety_code = safety_code(&local_commitment).map_err(|e| format!("{e:?}"))?;
 
     assert_eq!(
         local_commitment, server_commitment,
@@ -280,17 +270,15 @@ async fn test_worker_live_api_contract_suite() {
     );
 
     // Verify QR payload matches
-    let parsed_qr = EnrollmentQr::parse_payload(&server_qr_payload).expect("parse QR payload");
+    let parsed_qr =
+        EnrollmentQr::parse_payload(&server_qr_payload).map_err(|e| format!("{e:?}"))?;
     assert_eq!(parsed_qr.code, enroll_code);
     assert_eq!(parsed_qr.commitment, local_commitment);
 
     let worker_access_token = enroll_response.auth.access_token;
 
     // 4. GET /workers/me (includes personal_email, v3.2)
-    let worker_self = client
-        .get_me(&worker_access_token)
-        .await
-        .expect("get_me must succeed");
+    let worker_self = client.get_me(&worker_access_token).await?;
     assert_eq!(worker_self.status, WorkerStatus::PendingTerms);
     assert_eq!(
         worker_self.personal_email.as_deref(),
@@ -311,25 +299,19 @@ async fn test_worker_live_api_contract_suite() {
     };
     let terms_resp = client
         .accept_terms(&worker_access_token, &terms_req)
-        .await
-        .expect("accept_terms must succeed");
+        .await?;
     assert_eq!(terms_resp.status, WorkerStatus::Active);
 
-    let worker_active = client
-        .get_me(&worker_access_token)
-        .await
-        .expect("get_me active");
+    let worker_active = client.get_me(&worker_access_token).await?;
     assert_eq!(worker_active.status, WorkerStatus::Active);
 
     // 6. PIN credential events
     client
         .post_credential_event(&worker_access_token, CredentialEvent::PinSet)
-        .await
-        .expect("post PIN_SET credential event");
+        .await?;
     client
         .post_credential_event(&worker_access_token, CredentialEvent::PinChanged)
-        .await
-        .expect("post PIN_CHANGED credential event");
+        .await?;
 
     // 7. Online mark with client_mark_id (and idempotent retry => duplicate_of)
     let client_mark_id = uuid::Uuid::now_v7().to_string();
@@ -342,10 +324,7 @@ async fn test_worker_live_api_contract_suite() {
         identification: "DEVICE_PIN",
         location: None,
     };
-    let mark_resp = client
-        .post_mark(&worker_access_token, &online_req)
-        .await
-        .expect("post_mark online must succeed");
+    let mark_resp = client.post_mark(&worker_access_token, &online_req).await?;
     assert!(mark_resp.duplicate_of.is_none());
     let mark1 = mark_resp.mark;
     assert_eq!(mark1.r#type, MarkType::WorkdayStart);
@@ -353,10 +332,7 @@ async fn test_worker_live_api_contract_suite() {
     assert_eq!(mark1.source, MarkSource::Agent);
 
     // Retry idempotently with same client_mark_id
-    let retry_resp = client
-        .post_mark(&worker_access_token, &online_req)
-        .await
-        .expect("post_mark retry must succeed");
+    let retry_resp = client.post_mark(&worker_access_token, &online_req).await?;
     assert_eq!(
         retry_resp.duplicate_of.as_deref(),
         Some(mark1.id.as_str()),
@@ -371,11 +347,11 @@ async fn test_worker_live_api_contract_suite() {
         worker_run: mark1
             .worker_run
             .clone()
-            .expect("worker_run must be present"),
+            .ok_or("worker_run must be present")?,
         employer_rut: mark1
             .employer_rut
             .clone()
-            .expect("employer_rut must be present"),
+            .ok_or("employer_rut must be present")?,
         r#type: mark1.r#type,
         server_ts: mark1.server_ts.clone(),
         device_ts: mark1.device_ts.clone(),
@@ -391,19 +367,13 @@ async fn test_worker_live_api_contract_suite() {
     );
 
     // 9. GET /attendance/me/today with expected state
-    let today = client
-        .get_today(&worker_access_token)
-        .await
-        .expect("get_today must succeed");
+    let today = client.get_today(&worker_access_token).await?;
     assert_eq!(today.state, DayState::Working);
     assert!(!today.marks.is_empty());
     assert_eq!(today.marks[0].id, mark1.id);
 
     // 10. Public receipt query GET /attendance/verify/:hash
-    let verify_pub = client
-        .verify_mark_hash(&mark1.hash)
-        .await
-        .expect("verify_mark_hash must succeed");
+    let verify_pub = client.verify_mark_hash(&mark1.hash).await?;
     assert!(verify_pub.valid);
     assert_eq!(verify_pub.r#type, Some(MarkType::WorkdayStart));
     assert_eq!(verify_pub.offline, Some(false));
@@ -427,10 +397,7 @@ async fn test_worker_live_api_contract_suite() {
         identification: "DEVICE_PIN",
         location: None,
     };
-    let offline_resp = client
-        .post_mark(&worker_access_token, &offline_req)
-        .await
-        .expect("post offline mark must succeed");
+    let offline_resp = client.post_mark(&worker_access_token, &offline_req).await?;
     let mark2 = offline_resp.mark;
     assert!(mark2.offline);
     assert_eq!(
@@ -448,8 +415,8 @@ async fn test_worker_live_api_contract_suite() {
         v: 1,
         mark_id: mark2.id.clone(),
         worker_id: mark2.worker_id.clone(),
-        worker_run: mark2.worker_run.clone().expect("worker_run"),
-        employer_rut: mark2.employer_rut.clone().expect("employer_rut"),
+        worker_run: mark2.worker_run.clone().ok_or("worker_run")?,
+        employer_rut: mark2.employer_rut.clone().ok_or("employer_rut")?,
         r#type: mark2.r#type,
         server_ts: mark2.server_ts.clone(),
         device_ts: mark2.device_ts.clone(),
@@ -463,4 +430,6 @@ async fn test_worker_live_api_contract_suite() {
         verify_mark_hash(&canonical2, &mark2.hash),
         "Offline mark hash must verify without HASH_MISMATCH"
     );
+
+    Ok(())
 }

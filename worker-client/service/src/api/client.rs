@@ -986,9 +986,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_verify_mark_hash_wiremock() {
+    async fn test_verify_mark_hash_wiremock() -> Result<(), Box<dyn std::error::Error>> {
         let server = MockServer::start().await;
-        let client = ApiClient::new(server.uri()).unwrap();
+        let client = ApiClient::new(server.uri())?;
 
         Mock::given(method("GET"))
             .and(path(
@@ -1009,10 +1009,10 @@ mod tests {
 
         let res = client
             .verify_mark_hash("e3bb5518ebb00d41e6e0d071a5c220228ba832f1510d6f190a127e448f68c52c")
-            .await
-            .unwrap();
+            .await?;
         assert!(res.valid);
         assert_eq!(res.r#type, Some(agent_ipc::MarkType::WorkdayStart));
         assert_eq!(res.employer_legal_name.as_deref(), Some("Acme SpA"));
+        Ok(())
     }
 }
