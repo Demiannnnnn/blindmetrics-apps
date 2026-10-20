@@ -267,6 +267,20 @@ cd worker-client && npm ci && npm run build && npm test
 
 HTTP code is tested against `wiremock` servers that reproduce the API contract; tests never touch the real config directory or OS keystore (`tempfile`, in-memory test keystore).
 
+### Live contract tests
+
+Opt-in contract verification tests against a real running `telemetry-api` (v3 API with empty or test database):
+
+```bash
+# Admin client suite:
+TELEMETRY_LIVE_API_URL=http://127.0.0.1:18080/api/v1 cargo test -p admin-client-core --features live-api live_api
+
+# Worker service suite:
+TELEMETRY_LIVE_API_URL=http://127.0.0.1:18080/api/v1 cargo test -p agent --features live-api live_api
+```
+
+These require `TELEMETRY_LIVE_API_URL` pointing to an active API v3 instance. When compiled without `--features live-api`, these tests are excluded from the binary, leaving `cargo test --workspace` unchanged.
+
 ## Building releases
 
 ### Worker app (`worker-client`)

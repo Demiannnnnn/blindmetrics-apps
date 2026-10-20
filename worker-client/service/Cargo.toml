@@ -40,6 +40,10 @@ tray-icon = "0.24"
 name = "telemetry-agent"
 path = "src/main.rs"
 
+[features]
+default = []
+live-api = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"

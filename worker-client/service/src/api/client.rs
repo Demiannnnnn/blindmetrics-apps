@@ -588,6 +588,26 @@ pub struct CollectionResponse<T> {
     pub pagination: Option<agent_ipc::Pagination>,
 }
 
+/// `GET /attendance/verify/:hash` response (R38 art. 8, api-contract §9.4).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct PublicVerifyResponse {
+    pub valid: bool,
+    #[serde(default)]
+    pub r#type: Option<agent_ipc::MarkType>,
+    #[serde(default)]
+    pub effective_date: Option<String>,
+    #[serde(default)]
+    pub effective_time: Option<String>,
+    #[serde(default)]
+    pub employer_legal_name: Option<String>,
+    #[serde(default)]
+    pub workplace_name: Option<String>,
+    #[serde(default)]
+    pub offline: Option<bool>,
+    #[serde(default)]
+    pub corrected: Option<bool>,
+}
+
 impl ApiClient {
     fn url(&self, path: &str) -> String {
         format!(
@@ -793,6 +813,25 @@ impl ApiClient {
             .json(&serde_json::json!({ "accept": accept }));
         Self::send_data(req).await
     }
+
+    /// `GET /attendance/verify/:hash` (public receipt verification, api-contract §9.4).
+    pub async fn verify_mark_hash(&self, hash: &str) -> Result<PublicVerifyResponse, AgentError> {
+        let url = self.url(&format!("attendance/verify/{hash}"));
+        let resp = self
+            .client
+            .get(&url)
+            .header(APP_VERSION_HEADER, APP_VERSION)
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+        let status = resp.status();
+        if status.is_success() || status == StatusCode::NOT_FOUND {
+            let res: PublicVerifyResponse = resp.json().await.map_err(AgentError::Reqwest)?;
+            Ok(res)
+        } else {
+            Self::handle_error_response(status, resp).await
+        }
+    }
 }
 
 #[cfg(test)]
@@ -944,5 +983,36 @@ mod tests {
         let del_data = del_res.unwrap();
         assert_eq!(del_data.request_id, "DEL-789012");
         assert_eq!(del_data.status, "QUEUED");
+    }
+
+    #[tokio::test]
+    async fn test_verify_mark_hash_wiremock() {
+        let server = MockServer::start().await;
+        let client = ApiClient::new(server.uri()).unwrap();
+
+        Mock::given(method("GET"))
+            .and(path(
+                "/attendance/verify/e3bb5518ebb00d41e6e0d071a5c220228ba832f1510d6f190a127e448f68c52c",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "valid": true,
+                "type": "WORKDAY_START",
+                "effective_date": "20/10/26",
+                "effective_time": "01:08:04",
+                "employer_legal_name": "Acme SpA",
+                "workplace_name": "Casa Matriz",
+                "offline": false,
+                "corrected": false
+            })))
+            .mount(&server)
+            .await;
+
+        let res = client
+            .verify_mark_hash("e3bb5518ebb00d41e6e0d071a5c220228ba832f1510d6f190a127e448f68c52c")
+            .await
+            .unwrap();
+        assert!(res.valid);
+        assert_eq!(res.r#type, Some(agent_ipc::MarkType::WorkdayStart));
+        assert_eq!(res.employer_legal_name.as_deref(), Some("Acme SpA"));
     }
 }

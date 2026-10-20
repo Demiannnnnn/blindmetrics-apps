@@ -6,6 +6,9 @@ pub mod device;
 pub mod google_oauth;
 pub mod keystore;
 
+#[cfg(all(test, feature = "live-api"))]
+mod live_api_tests;
+
 use client::{get_api_client, ClientEvents, SubscriptionBlock};
 use commands::attendance::{
     attendance_board, attendance_corrections, attendance_days, attendance_delete_absence,

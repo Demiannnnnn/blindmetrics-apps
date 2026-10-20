@@ -38,6 +38,10 @@ open = "5"
 tauri-build = { version = "2", features = [] }
 telemetry-crypto-core = { path = "../../telemetry-crypto-core" }
 
+[features]
+default = []
+live-api = []
+
 [dev-dependencies]
 tempfile = "3"
 wiremock = "0.6"
