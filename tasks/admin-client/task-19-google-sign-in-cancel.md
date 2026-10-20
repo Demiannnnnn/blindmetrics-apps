@@ -77,5 +77,6 @@ app queda "Esperando a Google…" hasta 3 minutos: no hay forma de cancelar (bre
   - RF-ADMIN-19-2: Un segundo `admin_login_google` mientras hay un intento en curso cancela el intento anterior (disparando su señal oneshot y liberando el listener) e inicia un nuevo intento. Esto previene que el usuario quede bloqueado si cerró la pestaña del navegador o si hubo un descarte previo.
   - Se utilizó `tokio::sync::oneshot` sin añadir dependencias externas, ya que `tokio` ya provee canales oneshot suficientes y eficientes para cancelación única.
   - Para evitar duplicación de código en la UI, los helpers puros `shouldShowGoogleError` y `getGoogleErrorMessage` en `src/lib/errors.ts` aíslan la lógica que diferencia entre cancelación manual iniciada por el botón de la UI (no muestra error) y cancelación devuelta por Google (`access_denied`, muestra mensaje informativo en es-CL).
+  - En la ronda de corrección (fix round), se reemplazaron los usos de `.unwrap()` en las pruebas de `admin-client/src-tauri/src/google_oauth.rs` haciendo que las funciones de test retornen `Result<(), Box<dyn std::error::Error>>` y utilicen el operador `?` y aserciones directas de resultados, garantizando 0 coincidencias en la validación de trucos/unwraps.
 - **Pendientes / bloqueos:** Ninguno.
 - **Desviaciones del contrato:** Ninguna.
