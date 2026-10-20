@@ -305,11 +305,15 @@ fn states_match(received: &str, expected: &str) -> bool {
     received.len() == expected.len() && bool::from(received.as_bytes().ct_eq(expected.as_bytes()))
 }
 
-/// Waits for the single valid redirect (RF-ADMIN-10-2 step 4) and returns the code.
+/// Waits for the single valid redirect (RF-ADMIN-10-2 step 4, RF-ADMIN-19-1) and returns the code.
+/// Ends immediately with `GoogleError::Cancelled` if `cancel` triggers or if Google redirects
+/// with `error=access_denied`. In all exit paths (success, error, timeout, cancel) the listener
+/// is dropped and the loopback port is freed immediately.
 pub async fn wait_for_redirect(
     listener: TcpListener,
     expected_state: &str,
     timeout: Duration,
+    mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<Zeroizing<String>, GoogleError> {
     let wait = async {
         loop {
@@ -343,9 +347,12 @@ pub async fn wait_for_redirect(
             }
         }
     };
-    tokio::time::timeout(timeout, wait)
-        .await
-        .map_err(|_| GoogleError::Timeout)?
+    tokio::select! {
+        _ = &mut cancel => Err(GoogleError::Cancelled),
+        res = tokio::time::timeout(timeout, wait) => {
+            res.map_err(|_| GoogleError::Timeout)?
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -429,12 +436,83 @@ impl Default for SignInEndpoints<'static> {
     }
 }
 
+#[derive(Debug)]
+struct ActiveLogin {
+    id: u64,
+    sender: tokio::sync::oneshot::Sender<()>,
+}
+
+/// Tracks the in-progress Google sign-in attempt and its cancellation sender (RF-ADMIN-19-1, RF-ADMIN-19-2).
+#[derive(Default, Clone)]
+pub struct GoogleLoginState {
+    next_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    inner: std::sync::Arc<tokio::sync::Mutex<Option<ActiveLogin>>>,
+}
+
+impl GoogleLoginState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers a new sign-in attempt. If an attempt is already in progress, cancels it
+    /// and replaces it with the new attempt (RF-ADMIN-19-2).
+    pub async fn start_login(&self) -> (u64, tokio::sync::oneshot::Receiver<()>) {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let mut lock = self.inner.lock().await;
+        if let Some(active) = lock.take() {
+            tracing::info!(
+                previous_attempt_id = active.id,
+                new_attempt_id = id,
+                "cancelling previous in-progress Google sign-in for new attempt"
+            );
+            let _ = active.sender.send(());
+        }
+        *lock = Some(ActiveLogin { id, sender: tx });
+        (id, rx)
+    }
+
+    /// Cancels the current sign-in attempt if one is in progress (RF-ADMIN-19-2).
+    /// Returns `true` if an active attempt was cancelled, `false` otherwise.
+    pub async fn cancel(&self) -> bool {
+        let mut lock = self.inner.lock().await;
+        if let Some(active) = lock.take() {
+            tracing::info!(
+                attempt_id = active.id,
+                "cancelling Google sign-in by user request"
+            );
+            let _ = active.sender.send(());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clears the active attempt if its id matches `id`.
+    pub async fn finish(&self, id: u64) {
+        let mut lock = self.inner.lock().await;
+        if let Some(active) = lock.as_ref() {
+            if active.id == id {
+                *lock = None;
+            }
+        }
+    }
+
+    /// Returns `true` if a sign-in attempt is currently in progress.
+    pub async fn is_in_progress(&self) -> bool {
+        self.inner.lock().await.is_some()
+    }
+}
+
 /// Complete browser round-trip; returns a Google ID token whose nonce was checked.
 pub async fn sign_in(
     http: &reqwest::Client,
     cfg: &GoogleConfig,
     endpoints: &SignInEndpoints<'_>,
     open_browser: impl FnOnce(&str) -> Result<(), GoogleError>,
+    cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<Zeroizing<String>, GoogleError> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -457,7 +535,7 @@ pub async fn sign_in(
     );
     tracing::info!(port, "google sign-in started");
     open_browser(&url)?;
-    let code = wait_for_redirect(listener, &state, endpoints.timeout).await?;
+    let code = wait_for_redirect(listener, &state, endpoints.timeout, cancel).await?;
     let id_token = exchange_code(
         http,
         endpoints.token_url,
@@ -598,7 +676,8 @@ mod tests {
             assert!(favicon.starts_with("HTTP/1.1 404"));
             browser_get(port, "/?code=the-code&state=expected").await
         });
-        let code = wait_for_redirect(listener, "expected", Duration::from_secs(5))
+        let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let code = wait_for_redirect(listener, "expected", Duration::from_secs(5), cancel_rx)
             .await
             .unwrap();
         assert_eq!(code.as_str(), "the-code");
@@ -613,7 +692,8 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let browser = tokio::spawn(async move { browser_get(port, "/?code=c&state=forged").await });
-        let err = wait_for_redirect(listener, "expected", Duration::from_secs(5))
+        let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let err = wait_for_redirect(listener, "expected", Duration::from_secs(5), cancel_rx)
             .await
             .unwrap_err();
         assert_eq!(err, GoogleError::StateMismatch);
@@ -623,17 +703,104 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let browser =
             tokio::spawn(async move { browser_get(port, "/?error=access_denied&state=x").await });
-        let err = wait_for_redirect(listener, "expected", Duration::from_secs(5))
+        let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let err = wait_for_redirect(listener, "expected", Duration::from_secs(5), cancel_rx)
             .await
             .unwrap_err();
         assert_eq!(err, GoogleError::Cancelled);
         browser.await.unwrap();
 
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let err = wait_for_redirect(listener, "expected", Duration::from_millis(100))
+        let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let err = wait_for_redirect(listener, "expected", Duration::from_millis(100), cancel_rx)
             .await
             .unwrap_err();
         assert_eq!(err, GoogleError::Timeout);
+    }
+
+    #[tokio::test]
+    async fn test_google_wait_for_redirect_cancelled_releases_port_in_under_1s(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let port = listener.local_addr()?.port();
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = cancel_tx.send(());
+        });
+
+        let start = std::time::Instant::now();
+        let res = wait_for_redirect(listener, "expected", Duration::from_secs(10), cancel_rx).await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(res, Err(GoogleError::Cancelled));
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "cancellation must complete in under 1 second (elapsed: {elapsed:?})"
+        );
+
+        // Verify the listener was dropped and the port is immediately available to bind
+        let rebind = TcpListener::bind(("127.0.0.1", port)).await;
+        assert!(
+            rebind.is_ok(),
+            "port must be free to re-bind immediately after cancellation"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_google_login_state_idempotent_cancel_and_flow() {
+        let state = GoogleLoginState::new();
+        // Cancel without login in progress is Ok (idempotent)
+        assert!(!state.cancel().await);
+        assert!(!state.is_in_progress().await);
+
+        // Start login 1
+        let (id1, mut rx1) = state.start_login().await;
+        assert!(state.is_in_progress().await);
+
+        // Cancel login 1
+        assert!(state.cancel().await);
+        assert!(rx1.try_recv().is_ok());
+
+        // Cancel again when none is active
+        assert!(!state.cancel().await);
+
+        // Finish call does not panic
+        state.finish(id1).await;
+        assert!(!state.is_in_progress().await);
+    }
+
+    #[tokio::test]
+    async fn test_google_login_state_second_login_cancels_previous() {
+        let state = GoogleLoginState::new();
+
+        let (id1, mut rx1) = state.start_login().await;
+        assert!(state.is_in_progress().await);
+
+        // Starting a second login must cancel the first (RF-ADMIN-19-2)
+        let (id2, mut rx2) = state.start_login().await;
+        assert_ne!(id1, id2);
+        assert!(
+            rx1.try_recv().is_ok(),
+            "the first login attempt must be cancelled"
+        );
+        assert!(
+            rx2.try_recv().is_err(),
+            "the second login attempt must remain active"
+        );
+
+        // If the first attempt completes finish(id1), it must not clear attempt 2
+        state.finish(id1).await;
+        assert!(state.is_in_progress().await);
+
+        // Cancelling now cancels attempt 2
+        assert!(state.cancel().await);
+        assert!(rx2.try_recv().is_ok());
+
+        state.finish(id2).await;
+        assert!(!state.is_in_progress().await);
     }
 
     #[tokio::test]
@@ -692,7 +859,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_google_sign_in_full_loopback_flow() {
+    async fn test_google_sign_in_full_loopback_flow() -> Result<(), Box<dyn std::error::Error>> {
         let token_server = MockServer::start().await;
         let seen_nonce: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let nonce_for_token = seen_nonce.clone();
@@ -723,9 +890,16 @@ mod tests {
             });
             Ok(())
         };
-        let id_token = sign_in(&reqwest::Client::new(), &cfg(), &endpoints, fake_browser)
-            .await
-            .unwrap();
+        let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let id_token = sign_in(
+            &reqwest::Client::new(),
+            &cfg(),
+            &endpoints,
+            fake_browser,
+            cancel_rx,
+        )
+        .await?;
         assert_eq!(id_token.split('.').count(), 3);
+        Ok(())
     }
 }

@@ -95,3 +95,25 @@ export function describeLoginError(err: unknown): string {
   }
   return describeError(err, 'No se pudo iniciar sesión.');
 }
+
+/**
+ * Decides whether an error message should be displayed following a Google sign-in failure (RF-ADMIN-19-3).
+ * When the cancellation was initiated by the in-app Cancel button, no error is shown.
+ * When Google returns access_denied (or another error), the error message is shown.
+ */
+export function shouldShowGoogleError(_err: unknown, cancelledByButton: boolean): boolean {
+  if (cancelledByButton) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Returns the error message to display after a Google sign-in failure, or null if cancelled by the user in-app (RF-ADMIN-19-3).
+ */
+export function getGoogleErrorMessage(err: unknown, cancelledByButton: boolean): string | null {
+  if (!shouldShowGoogleError(err, cancelledByButton)) {
+    return null;
+  }
+  return describeError(err, 'No se pudo iniciar sesión con Google.');
+}

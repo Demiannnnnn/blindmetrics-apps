@@ -24,9 +24,9 @@ use commands::reports::{
     attendance_export_report, attendance_print_report, attendance_report, open_downloads_folder,
 };
 use commands::session::{
-    admin_get_session, admin_is_locked, admin_lock_and_flush_memory, admin_login,
-    admin_login_google, admin_logout, admin_register, admin_unlock, admin_update_profile,
-    google_sign_in_available,
+    admin_cancel_google_login, admin_get_session, admin_is_locked, admin_lock_and_flush_memory,
+    admin_login, admin_login_google, admin_logout, admin_register, admin_unlock,
+    admin_update_profile, google_sign_in_available,
 };
 use commands::subscription::{open_billing_portal, subscription_status};
 use commands::telemetry::{
@@ -76,6 +76,7 @@ fn main() {
     tracing::info!("Telemetry Admin Desktop Core initialized");
 
     let result = tauri::Builder::default()
+        .manage(google_oauth::GoogleLoginState::default())
         .setup(|app| {
             get_api_client().set_event_sink(Arc::new(TauriEvents(app.handle().clone())));
             Ok(())
@@ -84,6 +85,7 @@ fn main() {
             admin_login,
             admin_register,
             admin_login_google,
+            admin_cancel_google_login,
             google_sign_in_available,
             admin_logout,
             admin_get_session,
