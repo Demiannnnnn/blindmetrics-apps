@@ -61,27 +61,27 @@ Al validar ADMIN-18 en macOS (2026-10-19) aparecieron dos fallos **previos**, qu
   - `cargo fmt --all --check`: ✅ limpio.
   - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 advertencias).
   - `cargo test --workspace`: ✅ 392 pruebas pasadas (`telemetry-crypto-core` 51, `agent` 155, `agent-ipc` 23, `agent-ui-core` 9, `admin-client-core` 154).
-  - Ejecución de 20 iteraciones seguidas de `test_ensure_service_launches_binary_and_retries_until_socket_is_up` (`for i in $(seq 20); do echo "Run $i"; cargo test -p agent-ui-core --lib tests::test_ensure_service_launches_binary_and_retries_until_socket_is_up || exit 1; done`):
+  - Ejecución de 20 iteraciones seguidas de `test_ensure_service_launches_binary_and_retries_until_socket_is_up` (`for i in $(seq 20); do echo "=== Run $i ===" && cargo test -p agent-ui-core --lib tests::test_ensure_service_launches_binary_and_retries_until_socket_is_up || exit 1; done`):
     - Run 1: 1 passed in 0.52s
     - Run 2: 1 passed in 0.62s
-    - Run 3: 1 passed in 0.62s
-    - Run 4: 1 passed in 0.51s
-    - Run 5: 1 passed in 0.52s
-    - Run 6: 1 passed in 0.51s
-    - Run 7: 1 passed in 0.62s
+    - Run 3: 1 passed in 0.51s
+    - Run 4: 1 passed in 0.82s
+    - Run 5: 1 passed in 0.62s
+    - Run 6: 1 passed in 0.52s
+    - Run 7: 1 passed in 0.52s
     - Run 8: 1 passed in 0.62s
-    - Run 9: 1 passed in 0.51s
+    - Run 9: 1 passed in 0.62s
     - Run 10: 1 passed in 0.52s
-    - Run 11: 1 passed in 0.62s
+    - Run 11: 1 passed in 0.52s
     - Run 12: 1 passed in 0.51s
     - Run 13: 1 passed in 0.52s
     - Run 14: 1 passed in 0.51s
     - Run 15: 1 passed in 0.51s
-    - Run 16: 1 passed in 0.52s
-    - Run 17: 1 passed in 0.51s
-    - Run 18: 1 passed in 0.62s
+    - Run 16: 1 passed in 0.51s
+    - Run 17: 1 passed in 0.52s
+    - Run 18: 1 passed in 0.52s
     - Run 19: 1 passed in 0.62s
-    - Run 20: 1 passed in 0.52s
+    - Run 20: 1 passed in 0.62s
     - ✅ 20/20 pasadas consecutivas sin ningún fallo.
   - `cd admin-client && npm test && npm run build`: ✅ 102/102 pruebas pasadas, build OK.
   - `cd worker-client && npm test && npm run build`: ✅ 26/26 pruebas pasadas, build OK.
