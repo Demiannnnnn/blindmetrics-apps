@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-19` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `admin-client/src-tauri/src/google_oauth.rs`, `admin-client/src-tauri/src/commands/session.rs` (o donde vive `admin_login_google`), `admin-client/src-tauri/src/main.rs` (registro del comando), `admin-client/src/api/tauri-bridge.ts`, `admin-client/src/components/{AuthView,AutoLockModal}.tsx`, `admin-client/test/*.test.mjs` |
 | **Dependencias** | `TASK-ADMIN-10` |
 | **Prioridad** | P2 (brecha 3 de `implementation-status.md` §5) |
@@ -49,8 +49,33 @@ app queda "Esperando a Google…" hasta 3 minutos: no hay forma de cancelar (bre
 
 ## 5. DoD
 
-- [ ] RF-ADMIN-19-1..4.
-- [ ] DoD AGENTS.md §9 en verde (incluye admin-client `npm ci && npm run build && npm test`).
-- [ ] Reporte completo.
+- [x] RF-ADMIN-19-1..4.
+- [x] DoD AGENTS.md §9 en verde (incluye admin-client `npm ci && npm run build && npm test`).
+- [x] Reporte completo.
 
 ## Reporte
+
+- **Resumen:** Se implementó la cancelación activa del flujo de inicio de sesión con Google en Rust y la UI de `admin-client`. `wait_for_redirect` acepta un receptor `tokio::sync::oneshot` de cancelación que aborta la espera en < 1 s y libera el listener TCP de loopback inmediatamente. Se agregó la estructura de estado `GoogleLoginState` registrada en Tauri y el comando idempotente `admin_cancel_google_login()`. En la UI (`AuthView` y `AutoLockModal`), durante el flujo de Google se muestra el texto "Completa el inicio de sesión en tu navegador…" y un botón secundario Cancelar, deshabilitando el resto de los controles. Si el usuario cancela con el botón, la pantalla vuelve a su estado inicial sin error; si Google devuelve `access_denied`, se muestra el error en español.
+- **Archivos:**
+  - `admin-client/src-tauri/src/google_oauth.rs` (`GoogleLoginState`, señal `oneshot::Receiver` en `wait_for_redirect` y `sign_in`, tests de cancelación y liberación de socket)
+  - `admin-client/src-tauri/src/commands/session.rs` (comando `admin_cancel_google_login`, integración de `GoogleLoginState` en `admin_login_google`, tests de cancelación idempotente y reintento)
+  - `admin-client/src-tauri/src/main.rs` (registro de `GoogleLoginState` en Tauri y exportación de `admin_cancel_google_login`)
+  - `admin-client/src/api/tauri-bridge.ts` (exposición de `adminCancelGoogleLogin`)
+  - `admin-client/src/lib/errors.ts` (helpers puros `shouldShowGoogleError` y `getGoogleErrorMessage`)
+  - `admin-client/src/components/AuthView.tsx` (mensaje de espera en navegador, botón Cancelar, deshabilitación de inputs/botones, supresión de error en cancelación voluntaria)
+  - `admin-client/src/components/AutoLockModal.tsx` (mensaje de espera en navegador, botón Cancelar, deshabilitación de controles, supresión de error en cancelación voluntaria)
+  - `admin-client/test/google-sign-in-cancel.test.mjs` (pruebas unitarias para helpers y lógica de cancelación vs `access_denied`)
+  - `agent-ipc/src/transport.rs` (guarda `#[cfg(target_os = "linux")]` en tests específicos de Linux para evitar advertencias de variables no usadas bajo clippy en macOS)
+  - `agent-ui/src-tauri/src/lib.rs` (pequeño polling de espera con timeout en test `test_ensure_service_launches_binary_and_retries_until_socket_is_up` para evitar condición de carrera en creación de archivo marcador)
+- **Comandos:**
+  - `cargo fmt --all --check` ✅
+  - `cargo clippy --workspace --all-targets -- -D warnings` ✅ (0 advertencias en todo el workspace)
+  - `cargo test --workspace` ✅ (394 pruebas pasadas: 159 en admin-client-core, 154 en agent, 1 en cli, 20 en agent-ipc, 9 en agent-ui-core, 51 en telemetry-crypto-core, 0 fallos)
+  - `cd admin-client && npm ci && heavy npm run build && npm test` ✅ (109/109 pruebas en verde, build de producción en `dist/` completado sin errores)
+  - `cd agent-ui && npm ci && heavy npm run build && npm test` ✅ (26/26 pruebas en verde, build de producción en `dist/` completado sin errores)
+- **Decisiones:**
+  - RF-ADMIN-19-2: Un segundo `admin_login_google` mientras hay un intento en curso cancela el intento anterior (disparando su señal oneshot y liberando el listener) e inicia un nuevo intento. Esto previene que el usuario quede bloqueado si cerró la pestaña del navegador o si hubo un descarte previo.
+  - Se utilizó `tokio::sync::oneshot` sin añadir dependencias externas, ya que `tokio` ya provee canales oneshot suficientes y eficientes para cancelación única.
+  - Para evitar duplicación de código en la UI, los helpers puros `shouldShowGoogleError` y `getGoogleErrorMessage` en `src/lib/errors.ts` aíslan la lógica que diferencia entre cancelación manual iniciada por el botón de la UI (no muestra error) y cancelación devuelta por Google (`access_denied`, muestra mensaje informativo en es-CL).
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.
