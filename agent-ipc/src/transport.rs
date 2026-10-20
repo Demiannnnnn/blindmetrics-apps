@@ -321,12 +321,12 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn test_runtime_dir_linux_env() {
         let lookup = |key: &str| match key {
             "XDG_RUNTIME_DIR" => Some("/run/user/1000".to_string()),
             _ => None,
         };
-        #[cfg(target_os = "linux")]
         assert_eq!(
             get_runtime_dir_from_env(lookup),
             PathBuf::from("/run/user/1000")
@@ -334,12 +334,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn test_runtime_dir_linux_fallback() {
         let lookup = |key: &str| match key {
             "USER" => Some("juan".to_string()),
             _ => None,
         };
-        #[cfg(target_os = "linux")]
         assert_eq!(
             get_runtime_dir_from_env(lookup),
             PathBuf::from("/tmp/telemetry-worker-juan")
