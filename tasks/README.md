@@ -218,6 +218,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **AGENT-15** | [`agent/task-15-location-at-mark-notice.md`](agent/task-15-location-at-mark-notice.md) | Aviso honesto de ubicación al marcar: sin backend de geolocalización la ventana ya no dice que la registra (`location_available` en el snapshot) y el admin lo ve al activar la casilla. | ✅ |
 | **AGENT-16** | [`agent/task-16-my-schedule.md`](agent/task-16-my-schedule.md) | "Mi jornada pactada" en la app del trabajador: semana, colación, desconexión y próximo cambio de jornada (`GET /attendance/me/schedule`, op IPC `SCHEDULE`). | ✅ |
 | **AGENT-17** | [`agent/task-17-consent-history.md`](agent/task-17-consent-history.md) | Historial de consentimiento del trabajador en *Mis datos* (`GET /workers/:id/consent-records`, op IPC `CONSENT_HISTORY`). | ✅ |
+| **ADMIN-23** | [`admin-client/task-23-worker-list-local-filters.md`](admin-client/task-23-worker-list-local-filters.md) | Filtros Lugar y Modalidad de Trabajadores (W1): la API los ignoraba; ahora se aplican en Rust sobre todas las páginas con paginación correcta. | ✅ |
 
 ### 6.2 Orden y paralelismo
 
