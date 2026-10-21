@@ -36,6 +36,9 @@ impl Clock for SystemClock {
 /// thread with a 5 s timeout and sends the mark without location on `None`.
 pub trait LocationProvider: Send + Sync {
     fn read_once(&self) -> Option<MarkLocation>;
+    /// Whether this build can obtain a position at all. Shown to the worker so the window never
+    /// claims a location is recorded when it cannot be (RF-AGENT-15-1, PLAT-02).
+    fn available(&self) -> bool;
 }
 
 /// No OS geolocation backend exists in this build: the reading is unavailable and marks are sent
@@ -45,6 +48,10 @@ pub struct UnavailableLocationProvider;
 impl LocationProvider for UnavailableLocationProvider {
     fn read_once(&self) -> Option<MarkLocation> {
         None
+    }
+
+    fn available(&self) -> bool {
+        false
     }
 }
 
@@ -210,6 +217,10 @@ pub(crate) mod test_support {
     impl LocationProvider for FixedLocation {
         fn read_once(&self) -> Option<MarkLocation> {
             self.0.clone()
+        }
+
+        fn available(&self) -> bool {
+            true
         }
     }
 }

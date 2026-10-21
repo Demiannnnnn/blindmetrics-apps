@@ -20,6 +20,7 @@ import {
   gridToDays,
   serverWarningLabel,
   validateDisconnection,
+  LOCATION_AT_MARK_DESKTOP_NOTICE,
 } from '../lib/schedule';
 import { AlertTriangle, Clock, Info } from 'lucide-react';
 
@@ -441,6 +442,11 @@ export const ScheduleEditor: React.FC<ScheduleEditorProps> = ({
               Requiere consentimiento escrito del trabajador en su contrato o anexo (R38 art. 57.1).
               Se registra una única lectura al presionar el botón de marcación.
             </p>
+            {value.location_at_mark && (
+              <p className="text-[11px] text-warning">
+                {LOCATION_AT_MARK_DESKTOP_NOTICE}
+              </p>
+            )}
           </div>
         </label>
       </div>

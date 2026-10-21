@@ -465,6 +465,28 @@ async fn test_attendance_location_read_once_only_when_schedule_asks() {
 }
 
 #[tokio::test]
+async fn test_attendance_snapshot_reports_location_availability() {
+    let mut me = worker();
+    me.location_at_mark = true;
+    let h = harness_with(Some(me.clone()), enrolled_creds(true), None).await;
+    let snap = h.service.snapshot();
+    assert!(snap.location_at_mark);
+    assert!(snap.location_available);
+
+    // The production build has no OS geolocation backend: the window must be told (RF-AGENT-15-1).
+    let (_engine, engine_rx) = watch::channel(EngineSnapshot {
+        run_mode: RunMode::Collecting(ConsentFlags::default()),
+        worker_self: Some(me),
+        revoked: false,
+        last_error: None,
+    });
+    let service = AttendanceService::for_tests(&h.server.uri(), enrolled_creds(true), engine_rx);
+    let snap = service.snapshot();
+    assert!(snap.location_at_mark);
+    assert!(!snap.location_available);
+}
+
+#[tokio::test]
 async fn test_attendance_wrong_pin_growing_delay_never_locks() {
     let h = harness().await;
     Mock::given(method("POST"))

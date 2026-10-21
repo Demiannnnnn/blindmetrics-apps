@@ -23,6 +23,7 @@ import {
   shortHash,
   todayRows,
   type MarkRow,
+  locationAtMarkNotice,
 } from '../lib/attendance';
 
 const EXEMPT_NOTICE =
@@ -263,9 +264,7 @@ export const AttendanceView: React.FC = () => {
 
       <p className="text-xs text-muted flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
-        {snapshot?.location_at_mark
-          ? 'Ubicación: se registra tu ubicación solo en el momento de marcar.'
-          : 'Ubicación: no se registra al marcar.'}
+        {locationAtMarkNotice(snapshot?.location_at_mark, snapshot?.location_available)}
       </p>
 
       {dialogType && (

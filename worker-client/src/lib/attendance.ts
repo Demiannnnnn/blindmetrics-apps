@@ -805,3 +805,14 @@ export function opposeUntilLabel(deadlineIso: string | null | undefined, timeZon
   if (!p) return null;
   return `Puedes oponerte hasta el ${formatDateCl(deadlineIso, timeZone)} ${pad2(p.hour)}:${pad2(p.minute)}`;
 }
+
+/**
+ * Location line of the attendance home (spec §3, ATT-08). Never claims a position is recorded when
+ * this computer cannot obtain one (RF-AGENT-15-1, PLAT-02); older services without the field are
+ * treated as "not available".
+ */
+export function locationAtMarkNotice(atMark: boolean | undefined, available: boolean | undefined): string {
+  if (!atMark) return 'Ubicación: no se registra al marcar.';
+  if (available) return 'Ubicación: se registra tu ubicación solo en el momento de marcar.';
+  return 'Ubicación: tu empleador pidió registrarla al marcar, pero este equipo no puede obtenerla. Tus marcas se envían sin ubicación.';
+}

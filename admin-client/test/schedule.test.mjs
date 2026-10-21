@@ -15,6 +15,7 @@ import {
   getScheduleWarnings,
   getDefaultWeekDays,
   formatMinutes,
+  LOCATION_AT_MARK_DESKTOP_NOTICE,
 } from '../src/lib/schedule.ts';
 
 test('schedule: timeToMinutes parses valid times and rejects invalid', () => {
@@ -135,4 +136,9 @@ test('schedule: formatMinutes formats hours and minutes cleanly', () => {
   assert.equal(formatMinutes(480), '8 h');
   assert.equal(formatMinutes(510), '8 h 30 min');
   assert.equal(formatMinutes(0), '0 h');
+});
+
+test('schedule: location-at-mark toggle tells the employer the desktop app sends no location (AGENT-15)', () => {
+  assert.match(LOCATION_AT_MARK_DESKTOP_NOTICE, /no puede obtener la ubicación/);
+  assert.match(LOCATION_AT_MARK_DESKTOP_NOTICE, /sin ubicación/);
 });

@@ -356,3 +356,11 @@ export function validateScheduleInput(
   }
   return errors;
 }
+
+/**
+ * The worker desktop app has no OS geolocation backend yet: with `location_at_mark` its marks are
+ * sent without location, and the worker's window says so (TASK-AGENT-15). Shown next to the toggle
+ * so the employer does not assume positions are being recorded.
+ */
+export const LOCATION_AT_MARK_DESKTOP_NOTICE =
+  'Por ahora la app de escritorio del trabajador no puede obtener la ubicación: sus marcas se envían sin ubicación y el trabajador ve este aviso.';

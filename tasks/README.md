@@ -215,6 +215,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **ADMIN-20** | [`admin-client/task-20-ex-worker-portal-access.md`](admin-client/task-20-ex-worker-portal-access.md) | Acceso al portal para ex-trabajadores (R38 art. 22.1): habilitar un correo por 90 días o quitarlo desde el detalle de un trabajador revocado (API TASK-27). | ✅ |
 | **ADMIN-21** | [`admin-client/task-21-attendance-alert-catalog.md`](admin-client/task-21-attendance-alert-catalog.md) | Catálogo de alertas del tablero y anomalías de días (todos los códigos de la API, con tono y explicación; `NO_RECEIPT_EMAIL` visible) en ambas apps; filtros de `attendance_marks` validados en Rust. | ✅ |
 | **ADMIN-22** | [`admin-client/task-22-board-unmarked-state.md`](admin-client/task-22-board-unmarked-state.md) | "Sin marcar hoy" en el tablero: la API no envía `UNMARKED`; la app lo deriva de `OFF` sin marcas (filtro de AS1 y KPI del Tablero estaban siempre en 0). | ✅ |
+| **AGENT-15** | [`agent/task-15-location-at-mark-notice.md`](agent/task-15-location-at-mark-notice.md) | Aviso honesto de ubicación al marcar: sin backend de geolocalización la ventana ya no dice que la registra (`location_available` en el snapshot) y el admin lo ve al activar la casilla. | ✅ |
 
 ### 6.2 Orden y paralelismo
 

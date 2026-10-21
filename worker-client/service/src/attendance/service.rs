@@ -95,6 +95,8 @@ pub struct AttendanceSnapshot {
     pub legal: LegalStatus,
     pub work_mode: Option<String>,
     pub location_at_mark: bool,
+    /// The service can read a position when marking (RF-AGENT-15-1).
+    pub location_available: bool,
 }
 
 pub struct AttendanceService {
@@ -375,6 +377,7 @@ impl AttendanceService {
                 .and_then(|m| m.work_mode)
                 .map(|w| w.as_str().to_string()),
             location_at_mark: me.as_ref().is_some_and(|m| m.effective_location_at_mark()),
+            location_available: self.location.available(),
         }
     }
 
