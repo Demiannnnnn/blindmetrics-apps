@@ -771,6 +771,18 @@ impl ApiClient {
         Self::send_data(req).await
     }
 
+    /// `GET /attendance/me/schedule` (RF-AGENT-16-1).
+    pub async fn get_my_schedule(
+        &self,
+        access_token: &str,
+    ) -> Result<agent_ipc::MyScheduleView, AgentError> {
+        let req = self
+            .client
+            .get(self.url("attendance/me/schedule"))
+            .bearer_auth(access_token);
+        Self::send_data(req).await
+    }
+
     /// `GET /attendance/me/corrections[?status]`.
     pub async fn get_my_corrections(
         &self,

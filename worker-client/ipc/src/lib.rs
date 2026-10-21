@@ -184,6 +184,9 @@ pub enum Request {
     },
     /// Corrections proposed by the employer (`GET /attendance/me/corrections`).
     Corrections,
+    /// Agreed schedule in force and the next version (`GET /attendance/me/schedule`).
+    /// Error `OFFLINE` without connection (RF-AGENT-16-1).
+    Schedule,
     /// Accept (`true`) or oppose (`false`) a pending correction (ATT-05).
     /// Error `CORRECTION_NOT_PENDING` (`409`).
     RespondCorrection {
@@ -247,6 +250,9 @@ pub enum Response {
     },
     Days {
         days: Vec<DaySummary>,
+    },
+    Schedule {
+        schedule: Box<MyScheduleView>,
     },
     Marks {
         source: DataSource,

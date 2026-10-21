@@ -5,6 +5,7 @@ import type { MarkType, TodayView } from '../api/types';
 import { useApp } from '../context/AppContext';
 import { MarkDialog } from '../components/MarkDialog';
 import { MarkDetail } from '../components/MarkDetail';
+import { MyScheduleCard } from '../components/MyScheduleCard';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY, CARD, Notice, Skeleton, StatusBadge } from '../components/ui';
 import {
   HASH_MISMATCH_ADVICE,
@@ -261,6 +262,8 @@ export const AttendanceView: React.FC = () => {
           </ul>
         )}
       </section>
+
+      <MyScheduleCard />
 
       <p className="text-xs text-muted flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5" aria-hidden="true" />

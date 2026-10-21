@@ -1412,3 +1412,78 @@ async fn test_attendance_prepare_unlink_sends_pending_then_clears_journal() {
     assert_eq!(h.service.pending_counts(), (0, 0));
     assert!(h.service.today_view().local_marks.is_empty());
 }
+
+#[tokio::test]
+async fn test_attendance_schedule_reads_current_and_next_version() {
+    let h = harness().await;
+    Mock::given(method("GET"))
+        .and(path("/attendance/me/schedule"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "current": {
+                    "id": "01927d3b-65e1-7000-8000-0000000000e1",
+                    "worker_id": "01927d3b-65e1-7000-8000-0000000000aa",
+                    "version": 2,
+                    "journey_type": "FIXED",
+                    "days": [
+                        { "weekday": 1, "start": "09:00", "end": "18:00", "break_start": "13:00", "break_end": "14:00" },
+                        { "weekday": 2, "start": "09:00", "end": "18:00" }
+                    ],
+                    "break_counts_as_work": false,
+                    "disconnection": { "start": "20:00", "end": "08:00" },
+                    "location_at_mark": false,
+                    "effective_from": "2026-10-01",
+                    "requested_by": "EMPLOYER",
+                    "created_at": "2026-09-30T12:00:00Z"
+                },
+                "next": {
+                    "version": 3,
+                    "journey_type": "PART_TIME",
+                    "days": [],
+                    "break_counts_as_work": true,
+                    "location_at_mark": false,
+                    "effective_from": "2026-11-01",
+                    "requested_by": "WORKER",
+                    "note": "Jornada parcial pedida por el trabajador"
+                }
+            }
+        })))
+        .expect(1)
+        .mount(&h.server)
+        .await;
+    let view = h.service.schedule().await.unwrap();
+    let current = view.current.unwrap();
+    assert_eq!(current.version, 2);
+    assert_eq!(current.days.len(), 2);
+    assert_eq!(current.days[0].break_start.as_deref(), Some("13:00"));
+    assert_eq!(current.days[1].break_start, None);
+    assert_eq!(current.disconnection.unwrap().start, "20:00");
+    let next = view.next.unwrap();
+    assert_eq!(next.effective_from, "2026-11-01");
+    assert_eq!(next.requested_by.as_deref(), Some("WORKER"));
+}
+
+#[tokio::test]
+async fn test_attendance_schedule_offline_is_reported() {
+    let h = harness().await;
+    Mock::given(method("GET"))
+        .and(path("/attendance/me/schedule"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&h.server)
+        .await;
+    let err = h.service.schedule().await.unwrap_err();
+    assert_eq!(err.code, "OFFLINE");
+
+    // No schedule yet (attendance-only worker just created): both empty, not an error.
+    let h = harness().await;
+    Mock::given(method("GET"))
+        .and(path("/attendance/me/schedule"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "data": { "current": null } })),
+        )
+        .mount(&h.server)
+        .await;
+    let view = h.service.schedule().await.unwrap();
+    assert_eq!(view, agent_ipc::MyScheduleView::default());
+}
