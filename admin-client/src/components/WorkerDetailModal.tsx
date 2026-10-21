@@ -35,7 +35,7 @@ import type { DaySummary } from '../api/types';
 import {
   formatR38DayDate,
   formatR38Time,
-  describeAnomaly,
+  attendanceAlertInfo,
   describeDayStatus,
   effectiveTs,
   sortMarksByEffective,
@@ -583,7 +583,15 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                 </td>
                                 <td className="py-2 px-3 text-[11px] text-muted">
                                   {d.anomalies.length > 0
-                                    ? d.anomalies.map(describeAnomaly).join(', ')
+                                    ? d.anomalies.map((code, idx) => {
+                                        const info = attendanceAlertInfo(code);
+                                        return (
+                                          <span key={idx} title={info.hint || undefined}>
+                                            {idx > 0 ? ', ' : ''}
+                                            {info.label}
+                                          </span>
+                                        );
+                                      })
                                     : '—'}
                                 </td>
                               </tr>

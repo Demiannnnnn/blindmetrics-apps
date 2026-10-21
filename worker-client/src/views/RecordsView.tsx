@@ -14,6 +14,7 @@ import {
   countdownLabel,
   customRangeError,
   daysBetween,
+  anomalyHint,
   describeAnomaly,
   effectiveTs,
   formatCalendarDate,
@@ -140,7 +141,16 @@ const DayCard: React.FC<{ item: DayItem; timeZone: string | null; onOpen: (r: Ma
               <span className="font-mono tabular-nums">{s.extra}</span>
             </p>
           )}
-          {s.anomalies.length > 0 && <p className="text-warning">{s.anomalies.map(describeAnomaly).join(' · ')}</p>}
+          {s.anomalies.length > 0 && (
+            <p className="text-warning">
+              {s.anomalies.map((code, idx) => (
+                <span key={idx} title={anomalyHint(code) || undefined}>
+                  {idx > 0 ? ' · ' : ''}
+                  {describeAnomaly(code)}
+                </span>
+              ))}
+            </p>
+          )}
         </div>
       )}
     </li>

@@ -182,28 +182,133 @@ export const CORRECTION_STATUS_LABELS: Record<
   },
 };
 
+// ============================================================================
+// Attendance alerts & day anomalies (RF-ADMIN-21-1)
+// ============================================================================
+
+/** Severity of an alert / anomaly code; maps to the existing tone classes. */
+export type AlertTone = 'danger' | 'warning' | 'info';
+
+export interface AttendanceAlertInfo {
+  label: string;
+  tone: AlertTone;
+  /** One-sentence explanation shown as a tooltip ('' when unknown). */
+  hint: string;
+}
+
+/**
+ * Every code the API emits in `BoardWorker.alerts` (`get_attendance_board`) and
+ * `DaySummary.anomalies` (`src/attendance/days.rs`), plus schedule warnings and legacy codes.
+ * Never labels an absence as unjustified (contract v3.1).
+ */
+export const ATTENDANCE_ALERTS: Readonly<Record<string, AttendanceAlertInfo>> = {
+  MISSING_START: {
+    label: 'Entrada no registrada',
+    tone: 'danger',
+    hint: 'No hay marca de inicio de jornada en un día con jornada pactada (en el tablero: 30 minutos después de la hora pactada).',
+  },
+  MISSING_END: {
+    label: 'Salida no registrada',
+    tone: 'danger',
+    hint: 'Hay inicio de jornada pero no hay marca de término.',
+  },
+  BREAK_WITHOUT_END: {
+    label: 'Colación sin término registrado',
+    tone: 'warning',
+    hint: 'Se marcó el inicio de la colación pero no su término.',
+  },
+  BREAK_WITHOUT_START: {
+    label: 'Término de colación sin inicio',
+    tone: 'warning',
+    hint: 'Se marcó el término de la colación sin una marca de inicio previa.',
+  },
+  MARK_ON_REST_DAY: {
+    label: 'Marca en día de descanso',
+    tone: 'info',
+    hint: 'El trabajador marcó un día que su jornada pactada no incluye.',
+  },
+  OFFLINE_MARK: {
+    label: 'Marca sin conexión',
+    tone: 'info',
+    hint: 'Una marca se registró sin conexión y se envió después; cuenta la hora del equipo (hora efectiva).',
+  },
+  OFFLINE_MARKS_TODAY: {
+    label: 'Marcas sin conexión hoy',
+    tone: 'info',
+    hint: 'Hoy hay marcas registradas sin conexión; cuenta la hora del equipo (hora efectiva).',
+  },
+  CORRECTED_MARK: {
+    label: 'Día con marca corregida',
+    tone: 'info',
+    hint: 'El día incluye una marca corregida por el procedimiento de corrección (R38 arts. 39–41).',
+  },
+  PENDING_CORRECTIONS: {
+    label: 'Corrección pendiente',
+    tone: 'info',
+    hint: 'Hay correcciones propuestas que esperan la respuesta del trabajador (plazo de 48 horas).',
+  },
+  NO_RECEIPT_EMAIL: {
+    label: 'Sin correo para comprobantes',
+    tone: 'warning',
+    hint: 'El trabajador no tiene correo personal registrado y no recibe el comprobante de sus marcas (R38 art. 8). Agrégalo en Editar trabajador.',
+  },
+  OUT_OF_ORDER: {
+    label: 'Marca fuera de secuencia',
+    tone: 'warning',
+    hint: 'Las marcas del día no siguen el orden entrada, colación y salida.',
+  },
+  DEVICE_CLOCK_OFFSET: {
+    label: 'Desfase en el reloj del equipo',
+    tone: 'warning',
+    hint: 'La hora del equipo del trabajador difiere de la del servidor.',
+  },
+  DAILY_MAX_EXCEEDED: {
+    label: 'Supera máximo diario de 10 horas',
+    tone: 'warning',
+    hint: 'La jornada pactada supera 10 horas efectivas en algún día.',
+  },
+  WEEKLY_MAX_EXCEEDED: {
+    label: 'Supera máximo semanal legal',
+    tone: 'warning',
+    hint: 'La jornada pactada supera el máximo semanal vigente.',
+  },
+};
+
+/** Tone → badge classes (existing palette, no new colours). */
+export const ALERT_TONE_CLASSES: Record<AlertTone, string> = {
+  danger: 'text-danger bg-danger-subtle border-danger/30',
+  warning: 'text-warning bg-warning-subtle border-warning/30',
+  info: 'text-info bg-info-subtle border-info/30',
+};
+
+function humanizeCode(code: string): string {
+  const words = code.replace(/_/g, ' ').trim().toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Aviso';
+}
+
+/** Catalog entry for `code`; unknown codes get a readable label, `warning` tone and no hint. */
+export function attendanceAlertInfo(code: string): AttendanceAlertInfo {
+  if (Object.prototype.hasOwnProperty.call(ATTENDANCE_ALERTS, code)) {
+    return ATTENDANCE_ALERTS[code];
+  }
+  return { label: humanizeCode(code), tone: 'warning', hint: '' };
+}
+
 /**
  * Maps anomaly / alert codes to clear Spanish text.
  */
 export function describeAnomaly(code: string): string {
-  switch (code) {
-    case 'BREAK_WITHOUT_END':
-      return 'Colación sin término registrado';
-    case 'MISSING_START':
-      return 'Entrada no registrada';
-    case 'MISSING_END':
-      return 'Salida no registrada';
-    case 'OUT_OF_ORDER':
-      return 'Marca fuera de secuencia';
-    case 'DEVICE_CLOCK_OFFSET':
-      return 'Desfase en el reloj del equipo';
-    case 'DAILY_MAX_EXCEEDED':
-      return 'Supera máximo diario de 10 horas';
-    case 'WEEKLY_MAX_EXCEEDED':
-      return 'Supera máximo semanal legal';
-    default:
-      return code.replace(/_/g, ' ');
-  }
+  return attendanceAlertInfo(code).label;
+}
+
+const TONE_RANK: Record<AlertTone, number> = { danger: 0, warning: 1, info: 2 };
+
+/** Danger first, then warning, then info; stable within the same tone. */
+export function sortAlertsBySeverity(codes: readonly string[]): string[] {
+  return codes
+    .map((code, index) => ({ code, index, rank: TONE_RANK[attendanceAlertInfo(code).tone] }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.code);
 }
 
 // ============================================================================

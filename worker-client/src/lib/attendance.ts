@@ -712,24 +712,31 @@ export function groupRowsByDay(rows: MarkRow[], timeZone?: string | null): Array
     }));
 }
 
-/** Anomaly codes of a day summary in words (same wording as the admin console). */
+/** Anomaly codes of `DaySummary` (API `src/attendance/days.rs`) in the worker's words (RF-ADMIN-21-3). */
+const DAY_ANOMALIES: Readonly<Record<string, { label: string; hint: string }>> = {
+  MISSING_START: { label: 'Entrada no registrada', hint: 'Ese día tenías jornada pactada y no hay marca de entrada.' },
+  MISSING_END: { label: 'Salida no registrada', hint: 'Hay marca de entrada pero no de salida.' },
+  BREAK_WITHOUT_END: { label: 'Colación sin término', hint: 'Marcaste el inicio de la colación pero no su término.' },
+  BREAK_WITHOUT_START: { label: 'Término de colación sin inicio', hint: 'Marcaste el término de la colación sin marcar su inicio.' },
+  MARK_ON_REST_DAY: { label: 'Marca en día de descanso', hint: 'Marcaste un día que tu jornada pactada no incluye.' },
+  OFFLINE_MARK: { label: 'Marca sin conexión', hint: 'Una marca se guardó sin conexión y se envió después; cuenta la hora de tu equipo.' },
+  CORRECTED_MARK: { label: 'Incluye una corrección', hint: 'Una marca de este día fue corregida por el procedimiento de corrección.' },
+  NO_RECEIPT_EMAIL: {
+    label: 'Sin correo para comprobantes',
+    hint: 'Tu empleador no tiene registrado tu correo personal, por eso no recibes el comprobante de tus marcas por correo. Pídele que lo agregue.',
+  },
+  OUT_OF_ORDER: { label: 'Marca fuera de secuencia', hint: '' },
+  DEVICE_CLOCK_OFFSET: { label: 'Desfase en el reloj del equipo', hint: '' },
+};
+
+/** Explanation of an anomaly code ('' when unknown). */
+export function anomalyHint(code: string): string {
+  return Object.prototype.hasOwnProperty.call(DAY_ANOMALIES, code) ? DAY_ANOMALIES[code].hint : '';
+}
+
 export function describeAnomaly(code: string): string {
-  switch (code) {
-    case 'BREAK_WITHOUT_END':
-      return 'Colación sin término';
-    case 'BREAK_WITHOUT_START':
-      return 'Término de colación sin inicio';
-    case 'MISSING_START':
-      return 'Entrada no registrada';
-    case 'MISSING_END':
-      return 'Salida no registrada';
-    case 'OUT_OF_ORDER':
-      return 'Marca fuera de secuencia';
-    case 'DEVICE_CLOCK_OFFSET':
-      return 'Desfase en el reloj del equipo';
-    default:
-      return code.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
-  }
+  if (Object.prototype.hasOwnProperty.call(DAY_ANOMALIES, code)) return DAY_ANOMALIES[code].label;
+  return code.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
 
 /** Absence of a day summary in words; the system never labels it by itself (v3.1). */

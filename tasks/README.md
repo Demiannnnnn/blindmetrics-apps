@@ -213,6 +213,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **INT-07** | [`integration/task-07-release-pipeline.md`](integration/task-07-release-pipeline.md) | CI en PRs y releases con instaladores de ambas apps (GitHub Actions), LEG-06 en release. | 🟢 |
 | **INT-06** | [`integration/task-06-macos-green-baseline.md`](integration/task-06-macos-green-baseline.md) | DoD verde también en macOS: tests solo-Linux de `agent-ipc` bajo `cfg` y carrera del test de lanzamiento del servicio. | 🟢 |
 | **ADMIN-20** | [`admin-client/task-20-ex-worker-portal-access.md`](admin-client/task-20-ex-worker-portal-access.md) | Acceso al portal para ex-trabajadores (R38 art. 22.1): habilitar un correo por 90 días o quitarlo desde el detalle de un trabajador revocado (API TASK-27). | ✅ |
+| **ADMIN-21** | [`admin-client/task-21-attendance-alert-catalog.md`](admin-client/task-21-attendance-alert-catalog.md) | Catálogo de alertas del tablero y anomalías de días (todos los códigos de la API, con tono y explicación; `NO_RECEIPT_EMAIL` visible) en ambas apps; filtros de `attendance_marks` validados en Rust. | ✅ |
 
 ### 6.2 Orden y paralelismo
 

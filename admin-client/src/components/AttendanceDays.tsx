@@ -25,7 +25,8 @@ import {
   formatR38DayDate,
   formatR38Time,
   MARK_TYPE_SHORT,
-  describeAnomaly,
+  attendanceAlertInfo,
+  ALERT_TONE_CLASSES,
   effectiveTs,
   effectiveLocalDate,
   sortMarksByEffective,
@@ -478,14 +479,18 @@ export const AttendanceDays: React.FC<AttendanceDaysProps> = ({
                         })()}
                         {day.anomalies.length > 0 ? (
                           <div className="space-y-0.5">
-                            {day.anomalies.map((anom, idx) => (
-                              <span
-                                key={idx}
-                                className="inline-block text-[11px] text-warning bg-warning-subtle/50 px-2 py-0.5 rounded-badge border border-warning/30 font-medium"
-                              >
-                                {describeAnomaly(anom)}
-                              </span>
-                            ))}
+                            {day.anomalies.map((anom, idx) => {
+                              const info = attendanceAlertInfo(anom);
+                              return (
+                                <span
+                                  key={idx}
+                                  title={info.hint || undefined}
+                                  className={`inline-block text-[11px] px-2 py-0.5 rounded-badge border font-medium ${ALERT_TONE_CLASSES[info.tone]}`}
+                                >
+                                  {info.label}
+                                </span>
+                              );
+                            })}
                           </div>
                         ) : day.altered ? (
                           <span className="text-[11px] text-accent font-medium">

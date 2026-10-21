@@ -37,6 +37,7 @@ import {
   daysBetween,
   groupRowsByDay,
   describeAnomaly,
+  anomalyHint,
   absenceLabel,
   sortCorrections,
   countdownLabel,
@@ -436,4 +437,24 @@ test('corrections: pending first, countdown and deadline label', () => {
   assert.equal(countdownLabel(null, now), null);
   assert.equal(opposeUntilLabel('2026-10-12T17:30:00Z', TZ), 'Puedes oponerte hasta el 12/10/26 14:30');
   assert.equal(correctionStatusLabel('OPPOSED').label, 'Te opusiste: se mantiene tu marca original');
+});
+
+test('day summary words: every DaySummary anomaly of the API is explained (ADMIN-21)', () => {
+  for (const code of [
+    'MISSING_START',
+    'MISSING_END',
+    'BREAK_WITHOUT_END',
+    'BREAK_WITHOUT_START',
+    'MARK_ON_REST_DAY',
+    'OFFLINE_MARK',
+    'CORRECTED_MARK',
+    'NO_RECEIPT_EMAIL',
+  ]) {
+    assert.ok(!describeAnomaly(code).includes('_'), code);
+    assert.ok(anomalyHint(code).length > 10, code);
+  }
+  assert.equal(describeAnomaly('NO_RECEIPT_EMAIL'), 'Sin correo para comprobantes');
+  assert.match(anomalyHint('NO_RECEIPT_EMAIL'), /empleador/);
+  assert.equal(anomalyHint('SOMETHING_NEW'), '');
+  assert.equal(anomalyHint('toString'), '');
 });

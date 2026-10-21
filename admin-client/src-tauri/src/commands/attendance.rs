@@ -635,11 +635,24 @@ pub async fn attendance_days_with_client(
     Ok(days)
 }
 
-/// `GET /attendance/marks?...` (RF-ADMIN-15-2, BILL-04).
-pub async fn attendance_marks_with_client(
-    client: &AdminApiClient,
-    query: AttendanceMarksQuery,
-) -> Result<CollectionResponse<AttendanceMark>, CommandError> {
+/// Maximum `per_page` accepted by `GET /attendance/marks` (API `AttendanceMarksQuery`).
+const MAX_MARKS_PER_PAGE: usize = 100;
+
+fn non_blank(value: &Option<String>) -> Option<&str> {
+    value.as_deref().map(str::trim).filter(|v| !v.is_empty())
+}
+
+fn parse_marks_date(raw: &str, label: &str) -> Result<NaiveDate, CommandError> {
+    NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|_| {
+        CommandError::validation(format!(
+            "La fecha {label} debe tener el formato AAAA-MM-DD."
+        ))
+    })
+}
+
+/// Builds `/attendance/marks?…` from validated filters (RF-ADMIN-21-4): every value comes from the
+/// WebView, so nothing reaches the query string unparsed. Never calls the network.
+pub fn attendance_marks_endpoint(query: &AttendanceMarksQuery) -> Result<String, CommandError> {
     let mut params = Vec::new();
     if let Some(wid) = &query.worker_id {
         let trimmed = wid.trim();
@@ -652,24 +665,53 @@ pub async fn attendance_marks_with_client(
             params.push(format!("worker_id={}", trimmed));
         }
     }
-    if let Some(from) = &query.from {
-        params.push(format!("from={}", from.trim()));
+    let from = non_blank(&query.from)
+        .map(|v| parse_marks_date(v, "de inicio"))
+        .transpose()?;
+    let to = non_blank(&query.to)
+        .map(|v| parse_marks_date(v, "de término"))
+        .transpose()?;
+    if let (Some(from), Some(to)) = (from, to) {
+        if from > to {
+            return Err(CommandError::validation(
+                "La fecha de inicio no puede ser posterior a la de término.",
+            ));
+        }
     }
-    if let Some(to) = &query.to {
-        params.push(format!("to={}", to.trim()));
+    if let Some(from) = from {
+        params.push(format!("from={}", from.format("%Y-%m-%d")));
+    }
+    if let Some(to) = to {
+        params.push(format!("to={}", to.format("%Y-%m-%d")));
     }
     if let Some(page) = query.page {
+        if page == 0 {
+            return Err(CommandError::validation("La página debe ser 1 o mayor."));
+        }
         params.push(format!("page={}", page));
     }
     if let Some(per_page) = query.per_page {
+        if per_page == 0 || per_page > MAX_MARKS_PER_PAGE {
+            return Err(CommandError::validation(format!(
+                "Se pueden pedir entre 1 y {MAX_MARKS_PER_PAGE} marcas por página."
+            )));
+        }
         params.push(format!("per_page={}", per_page));
     }
 
-    let endpoint = if params.is_empty() {
+    Ok(if params.is_empty() {
         "/attendance/marks".to_string()
     } else {
         format!("/attendance/marks?{}", params.join("&"))
-    };
+    })
+}
+
+/// `GET /attendance/marks?...` (RF-ADMIN-15-2, BILL-04).
+pub async fn attendance_marks_with_client(
+    client: &AdminApiClient,
+    query: AttendanceMarksQuery,
+) -> Result<CollectionResponse<AttendanceMark>, CommandError> {
+    let endpoint = attendance_marks_endpoint(&query)?;
 
     let mut resp = client.get_collection::<AttendanceMark>(&endpoint).await?;
     for mark in &mut resp.data {
@@ -1580,5 +1622,82 @@ mod tests {
         assert_eq!(days[1].absence, Some(AbsenceType::Justified));
         assert_eq!(days[1].absence_note.as_deref(), Some("Licencia médica"));
         assert_eq!(days[1].absence_id, None);
+    }
+
+    const MARKS_WORKER_ID: &str = "01927d3b-65e1-7000-8000-0000000000a1";
+
+    fn marks_query(from: Option<&str>, to: Option<&str>) -> AttendanceMarksQuery {
+        AttendanceMarksQuery {
+            worker_id: Some(MARKS_WORKER_ID.to_string()),
+            from: from.map(str::to_string),
+            to: to.map(str::to_string),
+            page: Some(2),
+            per_page: Some(50),
+        }
+    }
+
+    #[test]
+    fn test_attendance_marks_endpoint_valid_filters_build_query() {
+        let endpoint =
+            attendance_marks_endpoint(&marks_query(Some(" 2026-10-01 "), Some("2026-10-15")))
+                .unwrap();
+        assert_eq!(
+            endpoint,
+            format!(
+                "/attendance/marks?worker_id={MARKS_WORKER_ID}&from=2026-10-01&to=2026-10-15&page=2&per_page=50"
+            )
+        );
+        let empty = AttendanceMarksQuery {
+            worker_id: Some("  ".into()),
+            from: Some(String::new()),
+            to: None,
+            page: None,
+            per_page: None,
+        };
+        assert_eq!(
+            attendance_marks_endpoint(&empty).unwrap(),
+            "/attendance/marks"
+        );
+    }
+
+    #[test]
+    fn test_attendance_marks_endpoint_rejects_invalid_or_injected_values() {
+        for (from, to) in [
+            (
+                Some("2026-10-01&worker_id=00000000-0000-0000-0000-000000000000"),
+                None,
+            ),
+            (Some("2026-02-30"), None),
+            (None, Some("15/10/2026")),
+            (Some("2026-10-15"), Some("2026-10-01")),
+        ] {
+            let err = attendance_marks_endpoint(&marks_query(from, to)).unwrap_err();
+            assert_eq!(err.code, "VALIDATION_ERROR", "{from:?} {to:?}");
+        }
+        for (page, per_page) in [(Some(0), None), (None, Some(0)), (None, Some(101))] {
+            let query = AttendanceMarksQuery {
+                page,
+                per_page,
+                ..marks_query(None, None)
+            };
+            let err = attendance_marks_endpoint(&query).unwrap_err();
+            assert_eq!(err.code, "VALIDATION_ERROR", "{page:?} {per_page:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_attendance_marks_invalid_date_never_calls_network() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+        Mock::given(method("GET"))
+            .and(path("/attendance/marks"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let err = attendance_marks_with_client(&client, marks_query(Some("ayer"), None))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
     }
 }
