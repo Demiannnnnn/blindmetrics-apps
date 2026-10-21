@@ -238,6 +238,28 @@ pub struct MyScheduleView {
     pub next: Option<WorkerSchedule>,
 }
 
+/// One consent decision of the worker (`GET /workers/:id/consent-records`, append-only evidence;
+/// RF-AGENT-17-1). Lenient: comes from the API. IP and user agent are not forwarded.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsentRecord {
+    #[serde(default)]
+    pub id: String,
+    pub consent_version: i32,
+    /// `ACCEPTED | REJECTED | WITHDRAWN | NARROWED`.
+    pub decision: String,
+    /// Categories the employer requested in that version.
+    #[serde(default)]
+    pub consent_flags: std::collections::BTreeMap<String, bool>,
+    /// Categories accepted; `null` for `REJECTED` and for rows written before granular consent.
+    #[serde(default)]
+    pub accepted_consent_flags: Option<std::collections::BTreeMap<String, bool>>,
+    #[serde(default)]
+    pub manifest_hash: Option<String>,
+    #[serde(default)]
+    pub app_version: Option<String>,
+    pub created_at: String,
+}
+
 /// Correction kind proposed by the employer (R38 art. 39).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

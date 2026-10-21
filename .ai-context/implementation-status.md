@@ -124,6 +124,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Admin: board state "Sin marcar hoy" derived from `OFF` without marks today (API `DayState` has no `UNMARKED`); dashboard KPI with late starts | ✅ | ADMIN-22 (2026-10-21; before it the filter and KPI were always empty/0) |
 | Worker + admin: location-at-mark notice tells the truth — no OS geolocation backend yet, so `location_available = false` and both apps say marks go without location | ✅ | AGENT-15 (2026-10-21; real backend still pending) |
 | Worker: "Mi jornada pactada" — week, break, disconnection and the next schedule version from `GET /attendance/me/schedule` (IPC `SCHEDULE`) | ✅ | AGENT-16 (2026-10-21; before it the worker only saw today's hours) |
+| Worker: consent history in *Mis datos* (own `consent-records`, IPC `CONSENT_HISTORY`; IP/user agent not forwarded) | ✅ | AGENT-17 (2026-10-21; spec §6 item that was missing) |
 | `telemetry-api` contract v3 (attendance, legal, employer, emails, reports/exports) | ✅ | API TASK-18..23 (merged 2026-10-16) |
 | `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ❌ | web tasks (to be written) |
 | DT certification and authorization | ❌ | Owner decision (`docs/legal/marco-legal-cl.md` §8) |

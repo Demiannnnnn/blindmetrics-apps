@@ -1,8 +1,8 @@
 use crate::error::CommandError;
 use agent_ipc::{
-    AppSnapshot, Correction, DataSource, DaySummary, DiagnosticsInfo, IpcClient, LegalDocument,
-    MarkRecord, MarkType, MyScheduleView, Pagination, Request, Response, SecretPin, ServerMark,
-    TodayView, VerificationResult, WindowScreenHint,
+    AppSnapshot, ConsentRecord, Correction, DataSource, DaySummary, DiagnosticsInfo, IpcClient,
+    LegalDocument, MarkRecord, MarkType, MyScheduleView, Pagination, Request, Response, SecretPin,
+    ServerMark, TodayView, VerificationResult, WindowScreenHint,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -462,6 +462,14 @@ pub async fn days(
     match send_request(runtime_dir, Request::Days { from, to }).await? {
         Response::Days { days } => Ok(days),
         _ => Err(unexpected("Days")),
+    }
+}
+
+/// The worker's consent decisions, newest first (RF-AGENT-17-2).
+pub async fn consent_history(runtime_dir: &Path) -> Result<Vec<ConsentRecord>, CommandError> {
+    match send_request(runtime_dir, Request::ConsentHistory).await? {
+        Response::ConsentHistory { records } => Ok(records),
+        _ => Err(unexpected("ConsentHistory")),
     }
 }
 

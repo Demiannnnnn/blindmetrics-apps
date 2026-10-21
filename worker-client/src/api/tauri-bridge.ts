@@ -9,6 +9,7 @@ import type {
   DataRequestDto,
   DaySummary,
   MyScheduleView,
+  ConsentRecord,
   DiagnosticsInfo,
   LegalDocument,
   MarkRecord,
@@ -342,6 +343,11 @@ export async function attendanceToday(): Promise<TodayView> {
 export async function attendanceDays(from: string, to: string): Promise<DaySummary[]> {
   if (isDemo) demoUnsupported();
   return invoke<DaySummary[]>('attendance_days', { from, to });
+}
+
+export async function consentHistory(): Promise<ConsentRecord[]> {
+  if (isDemo) demoUnsupported();
+  return invoke<ConsentRecord[]>('consent_history');
 }
 
 export async function attendanceSchedule(): Promise<MyScheduleView> {

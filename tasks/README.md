@@ -217,6 +217,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **ADMIN-22** | [`admin-client/task-22-board-unmarked-state.md`](admin-client/task-22-board-unmarked-state.md) | "Sin marcar hoy" en el tablero: la API no envía `UNMARKED`; la app lo deriva de `OFF` sin marcas (filtro de AS1 y KPI del Tablero estaban siempre en 0). | ✅ |
 | **AGENT-15** | [`agent/task-15-location-at-mark-notice.md`](agent/task-15-location-at-mark-notice.md) | Aviso honesto de ubicación al marcar: sin backend de geolocalización la ventana ya no dice que la registra (`location_available` en el snapshot) y el admin lo ve al activar la casilla. | ✅ |
 | **AGENT-16** | [`agent/task-16-my-schedule.md`](agent/task-16-my-schedule.md) | "Mi jornada pactada" en la app del trabajador: semana, colación, desconexión y próximo cambio de jornada (`GET /attendance/me/schedule`, op IPC `SCHEDULE`). | ✅ |
+| **AGENT-17** | [`agent/task-17-consent-history.md`](agent/task-17-consent-history.md) | Historial de consentimiento del trabajador en *Mis datos* (`GET /workers/:id/consent-records`, op IPC `CONSENT_HISTORY`). | ✅ |
 
 ### 6.2 Orden y paralelismo
 

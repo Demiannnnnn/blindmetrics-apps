@@ -771,6 +771,32 @@ impl ApiClient {
         Self::send_data(req).await
     }
 
+    /// `GET /workers/:id/consent-records?per_page=100` — the worker's own evidence (RF-AGENT-17-1).
+    pub async fn get_my_consent_records(
+        &self,
+        access_token: &str,
+        worker_id: &str,
+    ) -> Result<Vec<agent_ipc::ConsentRecord>, AgentError> {
+        let id = uuid::Uuid::parse_str(worker_id.trim())
+            .map_err(|_| AgentError::Config("identificador de trabajador inválido".into()))?;
+        let resp = self
+            .client
+            .get(self.url(&format!("workers/{id}/consent-records")))
+            .bearer_auth(access_token)
+            .query(&[("per_page", "100")])
+            .send()
+            .await
+            .map_err(|e| AgentError::Network(e.to_string()))?;
+        let code = resp.status();
+        if code.is_success() {
+            let page: CollectionResponse<agent_ipc::ConsentRecord> =
+                resp.json().await.map_err(AgentError::Reqwest)?;
+            Ok(page.data)
+        } else {
+            Self::handle_error_response(code, resp).await
+        }
+    }
+
     /// `GET /attendance/me/schedule` (RF-AGENT-16-1).
     pub async fn get_my_schedule(
         &self,

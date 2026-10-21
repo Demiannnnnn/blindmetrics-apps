@@ -184,6 +184,9 @@ pub enum Request {
     },
     /// Corrections proposed by the employer (`GET /attendance/me/corrections`).
     Corrections,
+    /// The worker's own consent decisions, newest first (`GET /workers/:id/consent-records`).
+    /// Error `OFFLINE` without connection (RF-AGENT-17-1).
+    ConsentHistory,
     /// Agreed schedule in force and the next version (`GET /attendance/me/schedule`).
     /// Error `OFFLINE` without connection (RF-AGENT-16-1).
     Schedule,
@@ -253,6 +256,9 @@ pub enum Response {
     },
     Schedule {
         schedule: Box<MyScheduleView>,
+    },
+    ConsentHistory {
+        records: Vec<ConsentRecord>,
     },
     Marks {
         source: DataSource,

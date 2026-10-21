@@ -102,6 +102,7 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::attendance_today,
             commands::attendance_days,
             commands::attendance_schedule,
+            commands::consent_history,
             commands::attendance_marks,
             commands::list_corrections,
             commands::respond_correction,
