@@ -176,6 +176,68 @@ pub struct DaySummary {
     pub altered: bool,
 }
 
+/// One weekday of the agreed schedule (`weekday` 1 = lunes … 7 = domingo; times `HH:MM`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScheduleDay {
+    pub weekday: u8,
+    pub start: String,
+    pub end: String,
+    #[serde(default)]
+    pub break_start: Option<String>,
+    #[serde(default)]
+    pub break_end: Option<String>,
+}
+
+/// Window without work contact for remote / hybrid work (≥ 12 h).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DisconnectionWindow {
+    pub start: String,
+    pub end: String,
+}
+
+/// DT resolution that authorizes an exceptional journey.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExceptionalResolution {
+    pub number: String,
+    pub date: String,
+}
+
+/// A version of the worker's agreed schedule (`ScheduleResponse` of the API).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkerSchedule {
+    #[serde(default)]
+    pub version: i32,
+    /// `FIXED | SHIFTS | CYCLES | BIWEEKLY | EXCEPTIONAL | PART_TIME`.
+    pub journey_type: String,
+    #[serde(default)]
+    pub exceptional_resolution: Option<ExceptionalResolution>,
+    #[serde(default)]
+    pub days: Vec<ScheduleDay>,
+    #[serde(default)]
+    pub break_counts_as_work: bool,
+    #[serde(default)]
+    pub disconnection: Option<DisconnectionWindow>,
+    #[serde(default)]
+    pub location_at_mark: bool,
+    /// `YYYY-MM-DD`.
+    pub effective_from: String,
+    /// `EMPLOYER | WORKER`.
+    #[serde(default)]
+    pub requested_by: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// `GET /attendance/me/schedule`: the version in force and the next one, if already agreed
+/// (RF-AGENT-16-1).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MyScheduleView {
+    #[serde(default)]
+    pub current: Option<WorkerSchedule>,
+    #[serde(default)]
+    pub next: Option<WorkerSchedule>,
+}
+
 /// Correction kind proposed by the employer (R38 art. 39).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

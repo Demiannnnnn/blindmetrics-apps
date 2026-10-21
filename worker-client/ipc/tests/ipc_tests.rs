@@ -354,3 +354,27 @@ fn test_quit_confirmation_frames_roundtrip() {
     let json = serde_json::to_string(&req).unwrap();
     assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), req);
 }
+
+#[test]
+fn test_schedule_request_and_response_roundtrip() {
+    // RF-AGENT-16-1: `{"op":"SCHEDULE"}` and the read-only view of the agreed schedule.
+    let json = serde_json::to_string(&Request::Schedule).unwrap();
+    assert_eq!(json, r#"{"op":"SCHEDULE"}"#);
+    assert_eq!(
+        serde_json::from_str::<Request>(&json).unwrap(),
+        Request::Schedule
+    );
+    let resp: Response = serde_json::from_str(
+        r#"{"op":"SCHEDULE","schedule":{"current":{"journey_type":"FIXED","effective_from":"2026-10-01",
+        "days":[{"weekday":1,"start":"09:00","end":"18:00"}]},"next":null}}"#,
+    )
+    .unwrap();
+    match resp {
+        Response::Schedule { schedule } => {
+            let current = schedule.current.unwrap();
+            assert_eq!(current.days[0].weekday, 1);
+            assert!(schedule.next.is_none());
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}

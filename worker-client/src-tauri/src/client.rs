@@ -1,8 +1,8 @@
 use crate::error::CommandError;
 use agent_ipc::{
     AppSnapshot, Correction, DataSource, DaySummary, DiagnosticsInfo, IpcClient, LegalDocument,
-    MarkRecord, MarkType, Pagination, Request, Response, SecretPin, ServerMark, TodayView,
-    VerificationResult, WindowScreenHint,
+    MarkRecord, MarkType, MyScheduleView, Pagination, Request, Response, SecretPin, ServerMark,
+    TodayView, VerificationResult, WindowScreenHint,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -462,6 +462,14 @@ pub async fn days(
     match send_request(runtime_dir, Request::Days { from, to }).await? {
         Response::Days { days } => Ok(days),
         _ => Err(unexpected("Days")),
+    }
+}
+
+/// Agreed schedule in force and the next version (RF-AGENT-16-2).
+pub async fn schedule(runtime_dir: &Path) -> Result<MyScheduleView, CommandError> {
+    match send_request(runtime_dir, Request::Schedule).await? {
+        Response::Schedule { schedule } => Ok(*schedule),
+        _ => Err(unexpected("Schedule")),
     }
 }
 

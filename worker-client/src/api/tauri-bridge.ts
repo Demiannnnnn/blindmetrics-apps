@@ -8,6 +8,7 @@ import type {
   DataDeletionDto,
   DataRequestDto,
   DaySummary,
+  MyScheduleView,
   DiagnosticsInfo,
   LegalDocument,
   MarkRecord,
@@ -341,6 +342,11 @@ export async function attendanceToday(): Promise<TodayView> {
 export async function attendanceDays(from: string, to: string): Promise<DaySummary[]> {
   if (isDemo) demoUnsupported();
   return invoke<DaySummary[]>('attendance_days', { from, to });
+}
+
+export async function attendanceSchedule(): Promise<MyScheduleView> {
+  if (isDemo) demoUnsupported();
+  return invoke<MyScheduleView>('attendance_schedule');
 }
 
 export async function attendanceMarks(

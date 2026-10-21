@@ -12,6 +12,7 @@ import type {
   MarkType,
   ServerMark,
   TodayView,
+  WorkerSchedule,
 } from '../api/types';
 
 // ---------------------------------------------------------------------------------------------
@@ -815,4 +816,79 @@ export function locationAtMarkNotice(atMark: boolean | undefined, available: boo
   if (!atMark) return 'Ubicación: no se registra al marcar.';
   if (available) return 'Ubicación: se registra tu ubicación solo en el momento de marcar.';
   return 'Ubicación: tu empleador pidió registrarla al marcar, pero este equipo no puede obtenerla. Tus marcas se envían sin ubicación.';
+}
+
+// ---------------------------------------------------------------------------------------------
+// Agreed schedule in words (TASK-AGENT-16)
+// ---------------------------------------------------------------------------------------------
+
+/** R38 art. 25.1 e journey types (same list as the admin console). */
+export const JOURNEY_TYPE_LABELS: Readonly<Record<string, string>> = {
+  FIXED: 'Jornada fija',
+  SHIFTS: 'Turnos',
+  CYCLES: 'Ciclos',
+  BIWEEKLY: 'Bisemanal',
+  EXCEPTIONAL: 'Jornada excepcional',
+  PART_TIME: 'Jornada parcial',
+};
+
+export function journeyTypeLabel(code: string): string {
+  return Object.prototype.hasOwnProperty.call(JOURNEY_TYPE_LABELS, code) ? JOURNEY_TYPE_LABELS[code] : code;
+}
+
+const SCHEDULE_WEEKDAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+export interface ScheduleWeekRow {
+  weekday: number;
+  name: string;
+  /** "09:00 – 18:00" or "Descanso". */
+  hours: string;
+  /** "Colación 13:00 – 14:00" or ''. */
+  breakText: string;
+  works: boolean;
+}
+
+/** Seven rows Monday → Sunday; days without an entry are rest days. */
+export function scheduleWeekRows(schedule: WorkerSchedule): ScheduleWeekRow[] {
+  return SCHEDULE_WEEKDAYS.map((name, index) => {
+    const weekday = index + 1;
+    const day = schedule.days.find((d) => d.weekday === weekday);
+    if (!day) return { weekday, name, hours: 'Descanso', breakText: '', works: false };
+    const overnight = shortClock(day.end) < shortClock(day.start) ? ' (termina al día siguiente)' : '';
+    const breakText =
+      day.break_start && day.break_end ? `Colación ${shortClock(day.break_start)} – ${shortClock(day.break_end)}` : '';
+    return {
+      weekday,
+      name,
+      hours: `${shortClock(day.start)} – ${shortClock(day.end)}${overnight}`,
+      breakText,
+      works: true,
+    };
+  });
+}
+
+/** Extra facts shown under the week table, in a stable order. */
+export function scheduleFacts(schedule: WorkerSchedule): string[] {
+  const facts = [`${journeyTypeLabel(schedule.journey_type)} · vigente desde el ${formatCalendarDate(schedule.effective_from)}`];
+  if (schedule.exceptional_resolution) {
+    facts.push(
+      `Autorizada por resolución N° ${schedule.exceptional_resolution.number} del ${formatCalendarDate(schedule.exceptional_resolution.date)}`
+    );
+  }
+  if (schedule.days.some((d) => d.break_start && d.break_end)) {
+    facts.push(schedule.break_counts_as_work ? 'La colación se cuenta como tiempo trabajado.' : 'La colación no se cuenta como tiempo trabajado.');
+  }
+  if (schedule.disconnection) {
+    facts.push(
+      `Desconexión: de ${shortClock(schedule.disconnection.start)} a ${shortClock(schedule.disconnection.end)}. En ese horario no tienes que responder comunicaciones de trabajo.`
+    );
+  }
+  if (schedule.requested_by === 'WORKER') facts.push('Esta jornada fue solicitada por ti.');
+  if (schedule.note && schedule.note.trim()) facts.push(`Nota: ${schedule.note.trim()}`);
+  return facts;
+}
+
+/** Heading of an upcoming version: "Desde el Sábado 01/11/26 tu jornada cambia". */
+export function nextScheduleHeading(next: WorkerSchedule): string {
+  return `Desde el ${formatCalendarDate(next.effective_from)} tu jornada cambia`;
 }

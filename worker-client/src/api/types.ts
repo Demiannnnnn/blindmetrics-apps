@@ -278,3 +278,31 @@ export interface CommandError {
   message: string;
   retry_after_secs?: number;
 }
+
+// ---- Agreed schedule (`GET /attendance/me/schedule`, TASK-AGENT-16) ----
+
+export interface ScheduleDay {
+  weekday: number;
+  start: string;
+  end: string;
+  break_start?: string | null;
+  break_end?: string | null;
+}
+
+export interface WorkerSchedule {
+  version: number;
+  journey_type: string;
+  exceptional_resolution?: { number: string; date: string } | null;
+  days: ScheduleDay[];
+  break_counts_as_work: boolean;
+  disconnection?: { start: string; end: string } | null;
+  location_at_mark: boolean;
+  effective_from: string;
+  requested_by?: string | null;
+  note?: string | null;
+}
+
+export interface MyScheduleView {
+  current: WorkerSchedule | null;
+  next: WorkerSchedule | null;
+}

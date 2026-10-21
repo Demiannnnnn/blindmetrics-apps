@@ -22,7 +22,8 @@ use crate::session::{with_access_token, SessionError};
 use crate::state::{derive_attendance_mode, AttendanceMode, WorkerSelf};
 use agent_ipc::{
     Correction, DataSource, DayState, DaySummary, LegalStatus, LocalMarkStatus, MarkLocation,
-    MarkRecord, MarkType, Pagination, SecretPin, ServerMark, TodayResponse, TodayView,
+    MarkRecord, MarkType, MyScheduleView, Pagination, SecretPin, ServerMark, TodayResponse,
+    TodayView,
 };
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, Utc};
 use std::path::PathBuf;
@@ -1157,6 +1158,17 @@ impl AttendanceService {
             let api = api.clone();
             let (from_s, to_s) = (from_s.clone(), to_s.clone());
             async move { api.get_my_days(&token, &from_s, &to_s).await }
+        })
+        .await
+        .map_err(|e| self.session_error(e))
+    }
+
+    /// `SCHEDULE` (RF-AGENT-16-1): read-only, never cached; `OFFLINE` without connection.
+    pub async fn schedule(&self) -> Result<MyScheduleView, OpError> {
+        let api = self.api.clone();
+        with_access_token(&api, self.creds.as_ref(), |token| {
+            let api = api.clone();
+            async move { api.get_my_schedule(&token).await }
         })
         .await
         .map_err(|e| self.session_error(e))

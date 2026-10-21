@@ -1074,6 +1074,12 @@ impl IpcServer {
                 Ok(days) => Response::Days { days },
                 Err(e) => e.into(),
             },
+            Request::Schedule => match self.context.attendance.schedule().await {
+                Ok(schedule) => Response::Schedule {
+                    schedule: Box::new(schedule),
+                },
+                Err(e) => e.into(),
+            },
             Request::Marks { from, to, page } => {
                 match self.context.attendance.marks(&from, &to, page).await {
                     Ok((source, marks, local, pagination)) => Response::Marks {

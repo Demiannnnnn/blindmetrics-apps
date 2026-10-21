@@ -123,6 +123,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Admin + worker: every board alert / day anomaly code of the API in words, with tone and explanation (`NO_RECEIPT_EMAIL` = worker gets no emailed receipts); `attendance_marks` filters validated in Rust | ✅ | ADMIN-21 (2026-10-21; before it, 6 codes reached the screen raw and every board alert was red) |
 | Admin: board state "Sin marcar hoy" derived from `OFF` without marks today (API `DayState` has no `UNMARKED`); dashboard KPI with late starts | ✅ | ADMIN-22 (2026-10-21; before it the filter and KPI were always empty/0) |
 | Worker + admin: location-at-mark notice tells the truth — no OS geolocation backend yet, so `location_available = false` and both apps say marks go without location | ✅ | AGENT-15 (2026-10-21; real backend still pending) |
+| Worker: "Mi jornada pactada" — week, break, disconnection and the next schedule version from `GET /attendance/me/schedule` (IPC `SCHEDULE`) | ✅ | AGENT-16 (2026-10-21; before it the worker only saw today's hours) |
 | `telemetry-api` contract v3 (attendance, legal, employer, emails, reports/exports) | ✅ | API TASK-18..23 (merged 2026-10-16) |
 | `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ❌ | web tasks (to be written) |
 | DT certification and authorization | ❌ | Owner decision (`docs/legal/marco-legal-cl.md` §8) |
