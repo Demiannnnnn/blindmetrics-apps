@@ -770,6 +770,32 @@ export async function workersSetStatus(id: string, status: WorkerStatus, reason?
   throw new Error('workers_set_status IPC unavailable outside Tauri');
 }
 
+/** Enables read-only portal access for an ex-worker for 90 days (TASK-ADMIN-20, R38 art. 22.1). */
+export async function workersGrantPortalAccess(id: string, email: string): Promise<WorkerResponse> {
+  if (isTauri()) {
+    return await invoke<WorkerResponse>('workers_grant_portal_access', { id, email });
+  }
+  if (isDemoMode) {
+    const until = new Date(Date.now() + 90 * 86400000).toISOString();
+    demoWorkers = demoWorkers.map(w => (w.id === id ? { ...w, portal_access_until: until } : w));
+    return workersGet(id);
+  }
+  throw new Error('workers_grant_portal_access IPC unavailable outside Tauri');
+}
+
+/** Removes an ex-worker's portal access before it expires (TASK-ADMIN-20). */
+export async function workersRevokePortalAccess(id: string): Promise<void> {
+  if (isTauri()) {
+    await invoke<void>('workers_revoke_portal_access', { id });
+    return;
+  }
+  if (isDemoMode) {
+    demoWorkers = demoWorkers.map(w => (w.id === id ? { ...w, portal_access_until: null } : w));
+    return;
+  }
+  throw new Error('workers_revoke_portal_access IPC unavailable outside Tauri');
+}
+
 export async function workersRegenerateToken(id: string, ttlHours?: number): Promise<EnrollmentView> {
   if (isTauri()) {
     return await invoke<EnrollmentView>('workers_regenerate_token', { id, ttlHours });

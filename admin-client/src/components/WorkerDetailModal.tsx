@@ -44,6 +44,7 @@ import {
 import { STATUS_BADGES } from './EmployeeCard';
 import { ConsentEditor } from './ConsentEditor';
 import { ScheduleEditor } from './ScheduleEditor';
+import { PortalAccessSection } from './PortalAccessSection';
 import {
   CONSENT_CATEGORIES,
   consentRecordsToCsv,
@@ -392,6 +393,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               </button>
             </div>
           </div>
+        )}
+
+        {/* Ex-worker portal access (TASK-ADMIN-20, R38 art. 22.1) */}
+        {worker.status === 'REVOKED' && (
+          <PortalAccessSection worker={worker} onUpdated={(updated, message) => apply(updated, message)} />
         )}
 
         {/* Navigation Tabs (RF-ADMIN-14-5) */}
