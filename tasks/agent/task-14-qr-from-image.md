@@ -151,8 +151,9 @@ Se conserva la opción de pegar el texto/base64 manualmente.
   - `worker-client/src-tauri/Cargo.toml`: dependencias `image = 0.25` (png, jpeg, webp), `rqrr = 0.8` y `qrcode = 0.14` en dev-dependencies.
   - `worker-client/src-tauri/src/qr.rs`: función pura `decode_qr_from_image_bytes` con límites de memoria y tamaño (10 MiB), detección con `rqrr` y validación sintáctica de `EnrollmentQr`.
   - `worker-client/src-tauri/src/commands.rs`: comando Tauri `decode_enrollment_qr_image` ejecutado en `tokio::task::spawn_blocking` (PERF-06).
-  - `worker-client/src-tauri/src/lib.rs`: registro de comando y prueba de integración del flujo de enrolamiento por IPC.
-  - `worker-client/service/src/ipc_server.rs`: mapeo de `EnrollmentError::Tampered` a `code: "ENROLLMENT_TAMPERED"` y prueba con wiremock de no persistencia de credenciales.
+  - `worker-client/src-tauri/src/lib.rs`: registro de comando y prueba de integración del flujo de enrolamiento por IPC con sondeo de conexión acotado.
+  - `worker-client/service/src/ipc_server.rs`: mapeo de `EnrollmentError::Tampered` a `code: "ENROLLMENT_TAMPERED"` y prueba con wiremock de no persistencia de credenciales con sondeo de conexión.
+  - `worker-client/service/src/notifications.rs`: supresión de hilos desacoplados de notificación del SO durante tests para evitar fallos de cierre en macOS.
   - `worker-client/src/api/tauri-bridge.ts`: método `decodeEnrollmentQrImage`.
   - `worker-client/src/lib/helpers.ts`: helpers puros `qrImageFileIssue`, `isEnrollmentTampered`, `extractCodeFromQrPayload`.
   - `worker-client/src/views/EnrollmentView.tsx`: botón para cargar archivo, captura de pegado (`onPaste`), confirmación visual y transición a pantalla E3 ante manipulación.
@@ -161,10 +162,12 @@ Se conserva la opción de pegar el texto/base64 manualmente.
   - `cargo fmt --all --check`: ✅ limpio.
   - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 advertencias).
   - `cargo test --workspace`: ✅ 406 pruebas pasando en el workspace (admin-client-core 159, agent 157, agent-ipc 23, agent-ui-core 15, telemetry-crypto-core 52).
-  - `cd worker-client && npm run build && npm test`: ✅ compilación de producción exitosa y 30/30 pruebas unitarias pasando.
+  - `cd worker-client && npm ci && npm run build && npm test`: ✅ compilación de producción exitosa y 30/30 pruebas unitarias pasando.
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ compilación de producción exitosa y 109/109 pruebas unitarias pasando.
 - **Decisiones:**
   - Justificación de dependencias QR: se seleccionó `rqrr = "0.8"` por ser un detector y decodificador 100% puro en Rust (port de `quirc`), sin dependencias ni bindings C/FFI (`zbar`, `opencv`), lo que asegura portabilidad nativa sin dependencias del sistema en macOS (arm64/x64), Windows (x64) y Linux (x64), y sin acceso a red ni I/O. Se reutilizó `image = "0.25"` con `default-features = false` activando `png`, `jpeg` y `webp` para coincidir con la versión de `image` ya existente en `worker-client/service/Cargo.toml` sin duplicar crates en el workspace. Se agregó `qrcode = "0.14"` exclusivamente en `dev-dependencies` para generar fixtures sintéticos en memoria sin guardar binarios en el repositorio.
   - Límites defensivos: se limitó el buffer crudo a 10 MiB (`MAX_QR_IMAGE_BYTES`) y se configuró `image::Limits` con máximo de ancho/alto de 4096 px y límite de asignación de 64 MiB para neutralizar bombas de descompresión antes de procesar píxeles.
   - Aislamiento de capas (PROC-03 / SEC-06): `agent-ui-core` valida únicamente la estructura y contenido sintáctico del `EnrollmentQr`; la validación del servidor de destino (`qr_targets_server`), el contacto HTTP y el canje siguen ocurriendo exclusivamente en el servicio en segundo plano `agent`.
+  - Fix round (estabilidad de pruebas en macOS): se reemplazaron sleeps fijos por bucles de sondeo acotado (hasta 5 s cada 20 ms) al conectar con sockets IPC en pruebas de integración, y se encapsuló el despacho de notificaciones en `NotificationDispatcher::spawn_notify` para suprimir hilos huérfanos de AppleScript (`notify-rust`) durante la ejecución de pruebas unitarias (`#[cfg(test)]`), eliminando fallos intermitentes por `SIGSEGV`/`SIGTRAP` al cerrarse el ejecutable de pruebas en macOS.
 - **Pendientes / bloqueos:** Ninguno.
 - **Desviaciones del contrato:** Ninguna.
