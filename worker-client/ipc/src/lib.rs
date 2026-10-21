@@ -384,6 +384,10 @@ pub struct AppSnapshot {
     /// The worker's schedule asks for a location reading when marking (ATT-08).
     #[serde(default)]
     pub location_at_mark: bool,
+    /// This computer can obtain a position when marking; `false` ⇒ marks go without location even
+    /// if the schedule asks for it, and the window says so (RF-AGENT-15-1).
+    #[serde(default)]
+    pub location_available: bool,
     /// Worker's personal email, shown masked on receipts and the PIN reset flow (spec §3, §6).
     /// The worker's own contact data, not a secret (PROC-03).
     #[serde(default)]

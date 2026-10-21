@@ -38,6 +38,7 @@ import {
   groupRowsByDay,
   describeAnomaly,
   anomalyHint,
+  locationAtMarkNotice,
   absenceLabel,
   sortCorrections,
   countdownLabel,
@@ -457,4 +458,15 @@ test('day summary words: every DaySummary anomaly of the API is explained (ADMIN
   assert.match(anomalyHint('NO_RECEIPT_EMAIL'), /empleador/);
   assert.equal(anomalyHint('SOMETHING_NEW'), '');
   assert.equal(anomalyHint('toString'), '');
+});
+
+test('location line never claims a reading this computer cannot take (AGENT-15)', () => {
+  assert.equal(locationAtMarkNotice(false, false), 'Ubicación: no se registra al marcar.');
+  assert.equal(locationAtMarkNotice(undefined, true), 'Ubicación: no se registra al marcar.');
+  assert.match(locationAtMarkNotice(true, true), /solo en el momento de marcar/);
+  for (const available of [false, undefined]) {
+    const text = locationAtMarkNotice(true, available);
+    assert.match(text, /no puede obtenerla/);
+    assert.match(text, /sin ubicación/);
+  }
 });

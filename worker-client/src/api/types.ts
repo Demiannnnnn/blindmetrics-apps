@@ -72,6 +72,8 @@ export interface AppSnapshot {
   legal: LegalStatus;
   work_mode: string | null;
   location_at_mark: boolean;
+  /** This computer can obtain a position when marking (RF-AGENT-15-1). */
+  location_available: boolean;
   personal_email: string | null;
 }
 

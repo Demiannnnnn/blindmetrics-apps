@@ -91,6 +91,7 @@ let demoSnapshot: AppSnapshot = {
   },
   work_mode: null,
   location_at_mark: false,
+  location_available: false,
   personal_email: null,
 };
 

@@ -161,6 +161,7 @@ mod tests {
             legal: Default::default(),
             work_mode: None,
             location_at_mark: false,
+            location_available: false,
             personal_email: None,
         }
     }
