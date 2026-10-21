@@ -741,8 +741,12 @@ impl IpcServer {
                             }) => *retry_after_seconds,
                             _ => None,
                         };
+                        let code = match &err {
+                            EnrollmentError::Tampered => "ENROLLMENT_TAMPERED",
+                            _ => "ENROLLMENT_ERROR",
+                        };
                         Response::Error {
-                            code: "ENROLLMENT_ERROR".into(),
+                            code: code.into(),
                             message: enrollment_error_message(&err),
                             retry_after_secs: retry,
                         }
@@ -1698,5 +1702,137 @@ mod tests {
             }
         )
         .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_ipc_enroll_tampered_qr_returns_enrollment_tampered_code() {
+        let server = wiremock::MockServer::start().await;
+        let (_, admin_pub) = telemetry_crypto_core::generate_admin_keypair();
+        let admin_fp = telemetry_crypto_core::public_key_fingerprint(&admin_pub).unwrap();
+
+        let flags = telemetry_crypto_core::ConsentFlags {
+            system_activity: true,
+            ..Default::default()
+        };
+        let desc = telemetry_crypto_core::ConsentDescriptions {
+            system_activity: Some("Monitoreo de procesos".into()),
+            ..Default::default()
+        };
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/workers/enroll"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "data": {
+                        "worker_id": "01912345-6789-7abc-def0-123456789abc",
+                        "worker_name": "Juan Perez",
+                        "organization": "Acme Corp",
+                        "role_type": "OFFICE",
+                        "work_hours_start": "09:00:00",
+                        "work_hours_end": "18:00:00",
+                        "timezone": "America/Santiago",
+                        "status": "PENDING_TERMS",
+                        "auth": {
+                            "access_token": "valid_access_jwt",
+                            "refresh_token": "valid_refresh_token",
+                            "token_type": "Bearer",
+                            "expires_in": 900,
+                            "user": {
+                                "id": "01912345-6789-7abc-def0-123456789abc",
+                                "email": "juan@acme.cl",
+                                "name": "Juan Perez",
+                                "role": "WORKER"
+                            }
+                        },
+                        "admin_public_key": admin_pub,
+                        "admin_public_key_fingerprint": admin_fp,
+                        "consent_version": 1,
+                        "consent_flags": flags,
+                        "consent_descriptions": desc
+                    }
+                })),
+            )
+            .mount(&server)
+            .await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/auth/logout"))
+            .respond_with(wiremock::ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let dir = tempdir().expect("tempdir");
+        let runtime_dir = dir.path().to_path_buf();
+        let mut config = WorkerConfig::load_or_init_at(runtime_dir.join("config.json"));
+        config.api_base_url = server.uri();
+        let cred_store: Arc<dyn CredentialStore> = Arc::new(InMemoryCredentialStore::new());
+        let buffer = Arc::new(MetricsBuffer::new(10));
+        let engine = BackgroundEngine::new(config.clone(), buffer.clone(), cred_store.clone())
+            .expect("engine");
+        let engine_handle = engine.handle(tokio::runtime::Handle::current());
+        let attendance = AttendanceService::for_tests(
+            &config.api_base_url,
+            cred_store.clone(),
+            engine_handle.state.clone(),
+        );
+        let ipc_server = Arc::new(
+            IpcServer::new(IpcServerDeps {
+                config,
+                cred_store: cred_store.clone(),
+                buffer,
+                engine: engine_handle,
+                runtime_dir: runtime_dir.clone(),
+                tray_available: Arc::new(AtomicBool::new(true)),
+                shutdown_notify: Arc::new(Notify::new()),
+                attendance,
+            })
+            .expect("server new"),
+        );
+        let server_clone = ipc_server.clone();
+        let server_task = tokio::spawn(async move {
+            let _ = server_clone.run().await;
+        });
+
+        let mut client = None;
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if let Ok(c) = IpcClient::connect(&runtime_dir).await {
+                client = Some(c);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let client = client.expect("connect to IPC server");
+
+        let tampered_qr = telemetry_crypto_core::EnrollmentQr {
+            t: "telemetry-enroll".into(),
+            v: 1,
+            api_url: server.uri(),
+            code: "K7QM-4XRT-9PWD".into(),
+            commitment: "0000000000000000000000000000000000000000000000000000000000000000".into(),
+        };
+
+        let res = client
+            .call(Request::Enroll {
+                qr_payload: Some(tampered_qr.to_payload().unwrap()),
+                code: None,
+            })
+            .await
+            .expect("call");
+
+        match res {
+            Response::Error { code, .. } => {
+                assert_eq!(code, "ENROLLMENT_TAMPERED");
+            }
+            other => panic!("Expected Error with ENROLLMENT_TAMPERED, got {:?}", other),
+        }
+
+        // SEC-07: Verify credentials were not persisted
+        assert!(cred_store.get_access_token().is_none());
+        assert!(cred_store.get_refresh_token().is_none());
+        assert!(cred_store.get_pinned_admin_public_key().is_none());
+
+        ipc_server.context.shutdown_notify.notify_waiters();
+        let _ = server_task.await;
     }
 }

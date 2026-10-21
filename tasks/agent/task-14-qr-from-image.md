@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-AGENT-14` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Módulos Afectados** | `Cargo.toml`, `worker-client/src-tauri/Cargo.toml`, `worker-client/src-tauri/src/qr.rs` (nuevo), `worker-client/src-tauri/src/{commands,lib}.rs`, `worker-client/service/src/ipc_server.rs`, `worker-client/src/api/tauri-bridge.ts`, `worker-client/src/lib/helpers.ts`, `worker-client/src/views/EnrollmentView.tsx`, `worker-client/test/helpers.test.mjs` |
 | **Dependencias** | `TASK-AGENT-08`, `TASK-AGENT-09`, `TASK-AGENT-11`, `TASK-INT-04` |
 | **Prioridad** | P1 (brecha 2 de `implementation-status.md` §5) |
@@ -141,8 +141,33 @@ Se conserva la opción de pegar el texto/base64 manualmente.
 
 ## 5. DoD
 
-- [ ] RF-AGENT-14-1..5 implementados y verificados.
-- [ ] DoD de AGENTS.md §9 en verde (`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cd worker-client && npm ci && npm run build && npm test`).
-- [ ] Reporte completo (incluyendo la justificación del crate de QR en **Decisiones**).
+- [x] RF-AGENT-14-1..5 implementados y verificados.
+- [x] DoD de AGENTS.md §9 en verde (`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cd worker-client && npm ci && npm run build && npm test`).
+- [x] Reporte completo (incluyendo la justificación del crate de QR en **Decisiones**).
 
 ## Reporte
+- **Resumen:** Se implementó la decodificación local en Rust de códigos QR de vinculación a partir de imágenes (PNG, JPEG, WebP) seleccionadas como archivo o pegadas desde el portapapeles (`Ctrl+V` / `Cmd+V`) en la ventana del trabajador (`worker-client`). Se incorporaron límites defensivos de descompresión, comando Tauri asíncrono en `spawn_blocking`, UI accesible con confirmación visual del código leído, y respuesta `ENROLLMENT_TAMPERED` en el servicio que gatilla la pantalla E3 de alerta ante discrepancias de compromiso o huella de llave.
+- **Archivos:**
+  - `worker-client/src-tauri/Cargo.toml`: dependencias `image = 0.25` (png, jpeg, webp), `rqrr = 0.8` y `qrcode = 0.14` en dev-dependencies.
+  - `worker-client/src-tauri/src/qr.rs`: función pura `decode_qr_from_image_bytes` con límites de memoria y tamaño (10 MiB), detección con `rqrr` y validación sintáctica de `EnrollmentQr`.
+  - `worker-client/src-tauri/src/commands.rs`: comando Tauri `decode_enrollment_qr_image` ejecutado en `tokio::task::spawn_blocking` (PERF-06).
+  - `worker-client/src-tauri/src/lib.rs`: registro de comando y prueba de integración del flujo de enrolamiento por IPC con sondeo de conexión acotado.
+  - `worker-client/service/src/ipc_server.rs`: mapeo de `EnrollmentError::Tampered` a `code: "ENROLLMENT_TAMPERED"` y prueba con wiremock de no persistencia de credenciales con sondeo de conexión.
+  - `worker-client/service/src/notifications.rs`: supresión de hilos desacoplados de notificación del SO durante tests para evitar fallos de cierre en macOS.
+  - `worker-client/src/api/tauri-bridge.ts`: método `decodeEnrollmentQrImage`.
+  - `worker-client/src/lib/helpers.ts`: helpers puros `qrImageFileIssue`, `isEnrollmentTampered`, `extractCodeFromQrPayload`.
+  - `worker-client/src/views/EnrollmentView.tsx`: botón para cargar archivo, captura de pegado (`onPaste`), confirmación visual y transición a pantalla E3 ante manipulación.
+  - `worker-client/test/helpers.test.mjs`: pruebas unitarias de validación de archivos de imagen y detección de manipulación.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ limpio.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 advertencias).
+  - `cargo test --workspace`: ✅ 406 pruebas pasando en el workspace (admin-client-core 159, agent 157, agent-ipc 23, agent-ui-core 15, telemetry-crypto-core 52).
+  - `cd worker-client && npm ci && npm run build && npm test`: ✅ compilación de producción exitosa y 30/30 pruebas unitarias pasando.
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ compilación de producción exitosa y 109/109 pruebas unitarias pasando.
+- **Decisiones:**
+  - Justificación de dependencias QR: se seleccionó `rqrr = "0.8"` por ser un detector y decodificador 100% puro en Rust (port de `quirc`), sin dependencias ni bindings C/FFI (`zbar`, `opencv`), lo que asegura portabilidad nativa sin dependencias del sistema en macOS (arm64/x64), Windows (x64) y Linux (x64), y sin acceso a red ni I/O. Se reutilizó `image = "0.25"` con `default-features = false` activando `png`, `jpeg` y `webp` para coincidir con la versión de `image` ya existente en `worker-client/service/Cargo.toml` sin duplicar crates en el workspace. Se agregó `qrcode = "0.14"` exclusivamente en `dev-dependencies` para generar fixtures sintéticos en memoria sin guardar binarios en el repositorio.
+  - Límites defensivos: se limitó el buffer crudo a 10 MiB (`MAX_QR_IMAGE_BYTES`) y se configuró `image::Limits` con máximo de ancho/alto de 4096 px y límite de asignación de 64 MiB para neutralizar bombas de descompresión antes de procesar píxeles.
+  - Aislamiento de capas (PROC-03 / SEC-06): `agent-ui-core` valida únicamente la estructura y contenido sintáctico del `EnrollmentQr`; la validación del servidor de destino (`qr_targets_server`), el contacto HTTP y el canje siguen ocurriendo exclusivamente en el servicio en segundo plano `agent`.
+  - Fix round (estabilidad de pruebas en macOS): se reemplazaron sleeps fijos por bucles de sondeo acotado (hasta 5 s cada 20 ms) al conectar con sockets IPC en pruebas de integración, y se encapsuló el despacho de notificaciones en `NotificationDispatcher::spawn_notify` para suprimir hilos huérfanos de AppleScript (`notify-rust`) durante la ejecución de pruebas unitarias (`#[cfg(test)]`), eliminando fallos intermitentes por `SIGSEGV`/`SIGTRAP` al cerrarse el ejecutable de pruebas en macOS.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.

@@ -119,3 +119,69 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+export const MAX_QR_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MiB
+
+const SUPPORTED_QR_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
+const SUPPORTED_QR_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+
+/**
+ * Validates file size and image type for enrollment QR code decoding (RF-AGENT-14-4).
+ * Returns an error message in Spanish if invalid, or null if acceptable.
+ */
+export function qrImageFileIssue(file: { size: number; type?: string; name?: string }): string | null {
+  if (file.size === 0) {
+    return 'El archivo de imagen está vacío.';
+  }
+  if (file.size > MAX_QR_IMAGE_BYTES) {
+    return 'La imagen supera el límite máximo de 10 MiB.';
+  }
+
+  const rawType = (file.type || '').trim().toLowerCase();
+  const extension = (file.name || '').split('.').pop()?.trim().toLowerCase() || '';
+
+  // Explicitly reject known unsupported extensions like svg or pdf
+  if (extension === 'svg' || extension === 'pdf' || rawType === 'image/svg+xml' || rawType === 'application/pdf') {
+    return 'Formato no soportado. Usa una imagen PNG, JPEG o WebP.';
+  }
+
+  const typeOk = SUPPORTED_QR_IMAGE_MIMES.has(rawType);
+  const extOk = SUPPORTED_QR_IMAGE_EXTENSIONS.has(extension);
+
+  if (!typeOk && !extOk) {
+    return 'Formato no soportado. Usa una imagen PNG, JPEG o WebP.';
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether an error represents a cryptographic commitment or fingerprint mismatch (SEC-07).
+ */
+export function isEnrollmentTampered(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: unknown }).code;
+  return code === 'ENROLLMENT_TAMPERED';
+}
+
+export const isTamperedError = isEnrollmentTampered;
+
+/**
+ * Attempts to extract the 12-character enrollment code from a QR payload (base64 or JSON).
+ */
+export function extractCodeFromQrPayload(payload: string): string | null {
+  try {
+    const trimmed = payload.trim();
+    let jsonStr = trimmed;
+    if (!trimmed.startsWith('{')) {
+      jsonStr = atob(trimmed);
+    }
+    const parsed = JSON.parse(jsonStr);
+    if (parsed && typeof parsed.code === 'string') {
+      return normalizeCode(parsed.code);
+    }
+  } catch {
+    // Not valid JSON/base64 or does not contain code
+  }
+  return null;
+}
