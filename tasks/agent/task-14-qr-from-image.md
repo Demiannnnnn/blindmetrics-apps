@@ -160,7 +160,7 @@ Se conserva la opción de pegar el texto/base64 manualmente.
 - **Comandos:**
   - `cargo fmt --all --check`: ✅ limpio.
   - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 advertencias).
-  - `cargo test --workspace`: ✅ 393 pruebas pasando en el workspace (admin-client-core 159, agent 156, agent-ipc 11, agent-ui-core 15, telemetry-crypto-core 52).
+  - `cargo test --workspace`: ✅ 406 pruebas pasando en el workspace (admin-client-core 159, agent 157, agent-ipc 23, agent-ui-core 15, telemetry-crypto-core 52).
   - `cd worker-client && npm run build && npm test`: ✅ compilación de producción exitosa y 30/30 pruebas unitarias pasando.
 - **Decisiones:**
   - Justificación de dependencias QR: se seleccionó `rqrr = "0.8"` por ser un detector y decodificador 100% puro en Rust (port de `quirc`), sin dependencias ni bindings C/FFI (`zbar`, `opencv`), lo que asegura portabilidad nativa sin dependencias del sistema en macOS (arm64/x64), Windows (x64) y Linux (x64), y sin acceso a red ni I/O. Se reutilizó `image = "0.25"` con `default-features = false` activando `png`, `jpeg` y `webp` para coincidir con la versión de `image` ya existente en `worker-client/service/Cargo.toml` sin duplicar crates en el workspace. Se agregó `qrcode = "0.14"` exclusivamente en `dev-dependencies` para generar fixtures sintéticos en memoria sin guardar binarios en el repositorio.
