@@ -40,8 +40,9 @@ use commands::vault::{
     vault_import_backup, vault_recover_from_server, vault_setup_server_backup, vault_status,
 };
 use commands::workers::{
-    workers_create, workers_delete, workers_get, workers_get_consent_records, workers_list,
-    workers_regenerate_token, workers_set_status, workers_set_telemetry_status, workers_update,
+    workers_create, workers_delete, workers_get, workers_get_consent_records,
+    workers_grant_portal_access, workers_list, workers_regenerate_token,
+    workers_revoke_portal_access, workers_set_status, workers_set_telemetry_status, workers_update,
     workers_update_consent_config, workers_update_schedule,
 };
 use std::sync::Arc;
@@ -126,6 +127,8 @@ fn main() {
             workers_update_consent_config,
             workers_get_consent_records,
             workers_delete,
+            workers_grant_portal_access,
+            workers_revoke_portal_access,
             legal_documents,
             legal_status,
             legal_accept_terms,

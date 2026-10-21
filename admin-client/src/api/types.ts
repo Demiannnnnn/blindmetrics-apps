@@ -170,6 +170,8 @@ export interface WorkerResponse {
   telemetry_status: TelemetryStatus;
   terms_accepted_version?: string | null;
   warnings?: string[] | null;
+  /** Ex-worker portal access deadline (RFC 3339), only for REVOKED workers (API TASK-27). */
+  portal_access_until?: string | null;
 }
 
 export interface CreateWorkerForm {

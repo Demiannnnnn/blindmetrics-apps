@@ -166,6 +166,8 @@ accepted consent on a device (revoke first, then regenerate). `REVOKED` workers 
 | `PATCH /workers/:id/status` | `{ status: PAUSED \| ACTIVE \| REVOKED, reason? }`. |
 | `GET /workers/:id/consent-records` | Evidence, newest first (below). |
 | `DELETE /workers/:id` | 204, soft delete (`REVOKED`). |
+| `POST /workers/:id/portal-access` | **API TASK-27, en implementación.** `{ email }` → `200 WorkerResponse`. Ex-worker portal access (R38 art. 22.1): only `REVOKED` workers; read-only, `portal_access_until = now + 90 días`; replaces a previous one. `400 VALIDATION_ERROR` if not `REVOKED`; `404` worker of another admin; `409` email used by another worker of the admin (`personal_email` or a valid `portal_access_email`). Admin command `workers_grant_portal_access` (TASK-ADMIN-20). |
+| `DELETE /workers/:id/portal-access` | **API TASK-27, en implementación.** `204`; removes it before it expires. Admin command `workers_revoke_portal_access`. |
 
 `WorkerResponse`:
 ```jsonc
@@ -182,7 +184,8 @@ accepted consent on a device (revoke first, then regenerate). `REVOKED` workers 
   "enrollment_expires_at": "…" | null,       // only while PENDING_ENROLLMENT
   "enrollment_expired": false,
   "work_hours_start": "09:00:00" | null, "work_hours_end": "18:00:00" | null, "timezone": "America/Santiago",
-  "created_at", "updated_at" }
+  "created_at", "updated_at",
+  "portal_access_until": "…" | null }        // API TASK-27, en implementación: ex-worker portal access deadline (RFC 3339); never the email
 ```
 
 Consent record:

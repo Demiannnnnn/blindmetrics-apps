@@ -269,6 +269,9 @@ pub struct WorkerResponse {
     pub terms_accepted_version: Option<String>,
     #[serde(default)]
     pub warnings: Option<Vec<String>>,
+    /// Ex-worker portal access deadline (RFC 3339), only for `REVOKED` workers (API TASK-27).
+    #[serde(default)]
+    pub portal_access_until: Option<String>,
 }
 
 /// Enrollment package issued by the API (api-contract §5).
@@ -1460,6 +1463,53 @@ pub async fn workers_delete_with_client(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn workers_grant_portal_access(
+    id: String,
+    email: String,
+) -> Result<WorkerResponse, CommandError> {
+    workers_grant_portal_access_with_client(get_api_client(), &id, &email).await
+}
+
+/// Enables portal access for an ex-worker (R38 art. 22.1, API TASK-27): read-only, 90 days.
+/// The API only accepts `REVOKED` workers (`400 VALIDATION_ERROR` otherwise) and answers `409`
+/// when another worker of this admin already uses the email.
+pub async fn workers_grant_portal_access_with_client(
+    client: &AdminApiClient,
+    id: &str,
+    email: &str,
+) -> Result<WorkerResponse, CommandError> {
+    validate_worker_id(id)?;
+    let email = email.trim().to_lowercase();
+    validate_personal_email(&email)
+        .map_err(|_| validation_error("Ingresa un correo válido para el acceso al portal."))?;
+    let body = serde_json::json!({ "email": email });
+    let worker: WorkerResponse = client
+        .post_json(&format!("/workers/{id}/portal-access"), &body)
+        .await?;
+    // The email itself is never logged.
+    tracing::info!(worker_id = %id, until = ?worker.portal_access_until, "Ex-worker portal access granted");
+    Ok(worker)
+}
+
+#[tauri::command]
+pub async fn workers_revoke_portal_access(id: String) -> Result<(), CommandError> {
+    workers_revoke_portal_access_with_client(get_api_client(), &id).await
+}
+
+/// Removes an ex-worker's portal access before it expires (API TASK-27, `204`).
+pub async fn workers_revoke_portal_access_with_client(
+    client: &AdminApiClient,
+    id: &str,
+) -> Result<(), CommandError> {
+    validate_worker_id(id)?;
+    client
+        .delete(&format!("/workers/{id}/portal-access"))
+        .await?;
+    tracing::info!(worker_id = %id, "Ex-worker portal access removed");
+    Ok(())
+}
+
 /// `XXXX-XXXX-XXXX` form of a 12-symbol code (the API may return it with or without hyphens).
 fn format_qr_code(raw: &str) -> String {
     let clean: String = raw.chars().filter(|c| *c != '-' && *c != ' ').collect();
@@ -2311,6 +2361,154 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    fn revoked_worker_json(until: Option<&str>) -> serde_json::Value {
+        let mut w = worker_json("Ana");
+        w["status"] = serde_json::json!("REVOKED");
+        w["is_active"] = serde_json::json!(false);
+        w["portal_access_until"] = serde_json::json!(until);
+        w
+    }
+
+    #[test]
+    fn test_worker_response_portal_access_until_is_optional() {
+        let without: WorkerResponse = serde_json::from_value(worker_json("Ana")).unwrap();
+        assert_eq!(without.portal_access_until, None);
+        let with: WorkerResponse =
+            serde_json::from_value(revoked_worker_json(Some("2027-01-19T15:00:00Z"))).unwrap();
+        assert_eq!(
+            with.portal_access_until.as_deref(),
+            Some("2027-01-19T15:00:00Z")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_workers_grant_portal_access_posts_normalized_email() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/workers/w-1/portal-access"))
+            .and(wiremock::matchers::header("authorization", "Bearer tok"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "email": "ex.ana@correo.cl" }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "data": revoked_worker_json(Some("2027-01-19T15:00:00Z")) }),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        let worker = workers_grant_portal_access_with_client(&client, "w-1", "  Ex.Ana@Correo.CL ")
+            .await
+            .unwrap();
+        assert_eq!(worker.status, WorkerStatus::Revoked);
+        assert_eq!(
+            worker.portal_access_until.as_deref(),
+            Some("2027-01-19T15:00:00Z")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_workers_grant_portal_access_rejects_bad_input_locally() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+
+        for bad in [
+            "",
+            "sin-arroba",
+            "a@b",
+            "con espacio@correo.cl",
+            "a@@correo.cl",
+        ] {
+            let err = workers_grant_portal_access_with_client(&client, "w-1", bad)
+                .await
+                .unwrap_err();
+            assert_eq!(err.code, "VALIDATION_ERROR", "{bad}");
+        }
+        let err = workers_grant_portal_access_with_client(&client, "../admins", "a@correo.cl")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
+        let err = workers_revoke_portal_access_with_client(&client, "w 1")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn test_workers_grant_portal_access_maps_api_errors() {
+        let cases = [
+            (400, "VALIDATION_ERROR", "Worker is not REVOKED"),
+            (404, "NOT_FOUND", "Worker not found"),
+            (409, "CONFLICT", "Email already in use"),
+        ];
+        for (status, code, message) in cases {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/workers/w-1/portal-access"))
+                .respond_with(
+                    ResponseTemplate::new(status).set_body_json(serde_json::json!({
+                        "error": { "code": code, "message": message }
+                    })),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = AdminApiClient::new(server.uri());
+            client.set_access_token_for_test(Some("tok".into()));
+            let err = workers_grant_portal_access_with_client(&client, "w-1", "ex@correo.cl")
+                .await
+                .unwrap_err();
+            assert_eq!(err.code, code);
+            assert_eq!(err.message, message);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_workers_revoke_portal_access_sends_delete() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/workers/w-1/portal-access"))
+            .and(wiremock::matchers::header("authorization", "Bearer tok"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        workers_revoke_portal_access_with_client(&client, "w-1")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_workers_revoke_portal_access_maps_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/workers/w-9/portal-access"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NOT_FOUND", "message": "Worker not found" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = AdminApiClient::new(server.uri());
+        client.set_access_token_for_test(Some("tok".into()));
+        let err = workers_revoke_portal_access_with_client(&client, "w-9")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "NOT_FOUND");
     }
 
     #[tokio::test]
