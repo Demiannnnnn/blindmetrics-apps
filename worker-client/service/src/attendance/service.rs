@@ -21,9 +21,9 @@ use crate::legal;
 use crate::session::{with_access_token, SessionError};
 use crate::state::{derive_attendance_mode, AttendanceMode, WorkerSelf};
 use agent_ipc::{
-    Correction, DataSource, DayState, DaySummary, LegalStatus, LocalMarkStatus, MarkLocation,
-    MarkRecord, MarkType, MyScheduleView, Pagination, SecretPin, ServerMark, TodayResponse,
-    TodayView,
+    ConsentRecord, Correction, DataSource, DayState, DaySummary, LegalStatus, LocalMarkStatus,
+    MarkLocation, MarkRecord, MarkType, MyScheduleView, Pagination, SecretPin, ServerMark,
+    TodayResponse, TodayView,
 };
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, Utc};
 use std::path::PathBuf;
@@ -1158,6 +1158,30 @@ impl AttendanceService {
             let api = api.clone();
             let (from_s, to_s) = (from_s.clone(), to_s.clone());
             async move { api.get_my_days(&token, &from_s, &to_s).await }
+        })
+        .await
+        .map_err(|e| self.session_error(e))
+    }
+
+    /// `CONSENT_HISTORY` (RF-AGENT-17-1): the worker's id comes from the last `GET /workers/me`.
+    pub async fn consent_history(&self) -> Result<Vec<ConsentRecord>, OpError> {
+        if !self.linked() {
+            return Err(OpError::new(
+                "NOT_ENROLLED",
+                "Este equipo no está vinculado.",
+            ));
+        }
+        let Some(worker_id) = self.worker_self().map(|w| w.id) else {
+            return Err(OpError::new(
+                "OFFLINE",
+                "Tu historial se consulta con conexión.",
+            ));
+        };
+        let api = self.api.clone();
+        with_access_token(&api, self.creds.as_ref(), |token| {
+            let api = api.clone();
+            let id = worker_id.clone();
+            async move { api.get_my_consent_records(&token, &id).await }
         })
         .await
         .map_err(|e| self.session_error(e))

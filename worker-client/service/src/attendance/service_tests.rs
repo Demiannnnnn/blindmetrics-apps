@@ -18,7 +18,7 @@ use telemetry_crypto_core::{
     mark_hash, CanonicalMark, ConsentFlags, MarkSource, PinVerifier, GENESIS_PREV_HASH,
 };
 use tokio::sync::watch;
-use wiremock::matchers::{body_partial_json, header, method, path};
+use wiremock::matchers::{body_partial_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 use zeroize::Zeroizing;
 
@@ -1486,4 +1486,74 @@ async fn test_attendance_schedule_offline_is_reported() {
         .await;
     let view = h.service.schedule().await.unwrap();
     assert_eq!(view, agent_ipc::MyScheduleView::default());
+}
+
+#[tokio::test]
+async fn test_attendance_consent_history_reads_own_records() {
+    let h = harness().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/workers/{WORKER_ID}/consent-records")))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {
+                    "id": "01927d3b-65e1-7000-8000-0000000000f2", "worker_id": WORKER_ID,
+                    "admin_id": "01927d3b-65e1-7000-8000-0000000000ad", "consent_version": 2,
+                    "decision": "WITHDRAWN",
+                    "consent_flags": { "system_activity": true, "network_activity": true },
+                    "accepted_consent_flags": { "system_activity": false, "network_activity": false },
+                    "consent_descriptions": { "system_activity": "Uso de CPU" },
+                    "manifest_hash": "ab".repeat(32), "ip_address": "203.0.113.7",
+                    "user_agent": "telemetry-agent/0.3.0", "app_version": "0.3.0",
+                    "created_at": "2026-10-20T12:00:00Z"
+                },
+                {
+                    "id": "01927d3b-65e1-7000-8000-0000000000f1", "consent_version": 1,
+                    "decision": "REJECTED", "consent_flags": { "system_activity": true },
+                    "accepted_consent_flags": null, "created_at": "2026-10-01T12:00:00Z"
+                }
+            ],
+            "pagination": { "total": 2, "page": 1, "per_page": 100, "total_pages": 1 }
+        })))
+        .expect(1)
+        .mount(&h.server)
+        .await;
+    let records = h.service.consent_history().await.unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].decision, "WITHDRAWN");
+    assert_eq!(
+        records[0]
+            .accepted_consent_flags
+            .as_ref()
+            .and_then(|f| f.get("network_activity")),
+        Some(&false)
+    );
+    assert_eq!(records[1].accepted_consent_flags, None);
+}
+
+#[tokio::test]
+async fn test_attendance_consent_history_offline_and_unknown_worker() {
+    let h = harness().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/workers/{WORKER_ID}/consent-records")))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&h.server)
+        .await;
+    assert_eq!(
+        h.service.consent_history().await.unwrap_err().code,
+        "OFFLINE"
+    );
+
+    // `GET /workers/me` never answered yet: the worker id is unknown, nothing is requested.
+    let h = harness_with(None, enrolled_creds(true), None).await;
+    assert_eq!(
+        h.service.consent_history().await.unwrap_err().code,
+        "OFFLINE"
+    );
+    assert!(h
+        .server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .is_empty());
 }

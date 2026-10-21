@@ -3,8 +3,11 @@ import { User, Download, Trash2, CheckCircle2 } from 'lucide-react';
 import * as bridge from '../api/tauri-bridge';
 import type { DataDeletionDto, DataRequestDto } from '../api/types';
 import { Modal } from '../components/Modal';
+import { ConsentHistory } from '../components/ConsentHistory';
+import { useApp } from '../context/AppContext';
 
 export const MyDataView: React.FC = () => {
+  const { snapshot } = useApp();
   const [loading, setLoading] = useState<boolean>(false);
   const [dataResult, setDataResult] = useState<DataRequestDto | null>(null);
   const [deletionResult, setDeletionResult] = useState<DataDeletionDto | null>(null);
@@ -123,6 +126,10 @@ export const MyDataView: React.FC = () => {
         <div className="p-3 bg-surface-subtle border border-default rounded-control text-xs text-muted leading-relaxed">
           <span className="font-semibold text-fg">Nota legal: </span>
           Los registros de asistencia se conservan 5 años por obligación legal (R38 art. 22.1) y no se eliminan antes.
+        </div>
+
+        <div className="bg-surface border border-default rounded-card p-4 shadow-sm">
+          <ConsentHistory timeZone={snapshot?.timezone ?? null} />
         </div>
       </div>
 

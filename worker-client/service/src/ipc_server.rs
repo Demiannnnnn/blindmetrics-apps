@@ -1074,6 +1074,10 @@ impl IpcServer {
                 Ok(days) => Response::Days { days },
                 Err(e) => e.into(),
             },
+            Request::ConsentHistory => match self.context.attendance.consent_history().await {
+                Ok(records) => Response::ConsentHistory { records },
+                Err(e) => e.into(),
+            },
             Request::Schedule => match self.context.attendance.schedule().await {
                 Ok(schedule) => Response::Schedule {
                     schedule: Box::new(schedule),

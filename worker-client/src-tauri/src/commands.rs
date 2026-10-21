@@ -1,8 +1,8 @@
 use crate::client::{self, DataDeletionDto, DataRequestDto, MarksPageDto, ServiceStatusDto};
 use crate::error::CommandError;
 use agent_ipc::{
-    default_runtime_dir, AppSnapshot, Correction, DaySummary, DiagnosticsInfo, LegalDocument,
-    MarkRecord, MarkType, MyScheduleView, SecretPin, TodayView, VerificationResult,
+    default_runtime_dir, AppSnapshot, ConsentRecord, Correction, DaySummary, DiagnosticsInfo,
+    LegalDocument, MarkRecord, MarkType, MyScheduleView, SecretPin, TodayView, VerificationResult,
     WindowScreenHint,
 };
 use telemetry_crypto_core::ConsentFlags;
@@ -157,6 +157,11 @@ pub async fn attendance_today() -> Result<TodayView, CommandError> {
 #[tauri::command]
 pub async fn attendance_days(from: String, to: String) -> Result<Vec<DaySummary>, CommandError> {
     client::days(&default_runtime_dir(), from, to).await
+}
+
+#[tauri::command]
+pub async fn consent_history() -> Result<Vec<ConsentRecord>, CommandError> {
+    client::consent_history(&default_runtime_dir()).await
 }
 
 #[tauri::command]

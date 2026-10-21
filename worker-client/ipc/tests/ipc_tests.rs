@@ -378,3 +378,24 @@ fn test_schedule_request_and_response_roundtrip() {
         other => panic!("unexpected {other:?}"),
     }
 }
+
+#[test]
+fn test_consent_history_request_and_response_roundtrip() {
+    // RF-AGENT-17-1: `{"op":"CONSENT_HISTORY"}`; IP and user agent from the API are dropped.
+    let json = serde_json::to_string(&Request::ConsentHistory).unwrap();
+    assert_eq!(json, r#"{"op":"CONSENT_HISTORY"}"#);
+    let record: agent_ipc::ConsentRecord = serde_json::from_str(
+        r#"{"id":"r1","consent_version":1,"decision":"REJECTED","consent_flags":{"location":true},
+        "accepted_consent_flags":null,"ip_address":"203.0.113.7","user_agent":"x","created_at":"2026-10-01T12:00:00Z"}"#,
+    )
+    .unwrap();
+    let out = serde_json::to_string(&Response::ConsentHistory {
+        records: vec![record.clone()],
+    })
+    .unwrap();
+    assert!(!out.contains("203.0.113.7"));
+    match serde_json::from_str::<Response>(&out).unwrap() {
+        Response::ConsentHistory { records } => assert_eq!(records, vec![record]),
+        other => panic!("unexpected {other:?}"),
+    }
+}

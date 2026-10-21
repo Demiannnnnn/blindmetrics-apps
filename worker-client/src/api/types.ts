@@ -306,3 +306,16 @@ export interface MyScheduleView {
   current: WorkerSchedule | null;
   next: WorkerSchedule | null;
 }
+
+// ---- Consent history (`GET /workers/:id/consent-records`, TASK-AGENT-17) ----
+
+export interface ConsentRecord {
+  id: string;
+  consent_version: number;
+  decision: string;
+  consent_flags: Record<string, boolean>;
+  accepted_consent_flags: Record<string, boolean> | null;
+  manifest_hash: string | null;
+  app_version: string | null;
+  created_at: string;
+}

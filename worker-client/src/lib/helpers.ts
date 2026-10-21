@@ -185,3 +185,58 @@ export function extractCodeFromQrPayload(payload: string): string | null {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Consent history (TASK-AGENT-17)
+// ---------------------------------------------------------------------------------------------
+
+/** Category names, same wording as the Telemetría section. */
+export const CONSENT_CATEGORY_NAMES: Readonly<Record<string, string>> = {
+  system_activity: 'Actividad del sistema',
+  network_activity: 'Actividad de red (FQDN)',
+  productivity_basic: 'Productividad básica (teclado y clics)',
+  productivity_screenshots: 'Capturas de pantalla',
+  file_activity: 'Actividad de archivos',
+  location: 'Ubicación geográfica',
+};
+
+const DECISION_LABELS: Readonly<Record<string, string>> = {
+  ACCEPTED: 'Aceptaste',
+  REJECTED: 'Rechazaste',
+  WITHDRAWN: 'Retiraste tu consentimiento',
+  NARROWED: 'Tu empleador redujo lo que solicita',
+};
+
+function own(map: Readonly<Record<string, string>>, key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+}
+
+export function consentDecisionLabel(decision: string): string {
+  return own(DECISION_LABELS, decision) ?? decision;
+}
+
+function names(flags: Record<string, boolean>): string[] {
+  return Object.keys(flags)
+    .filter((k) => flags[k] === true)
+    .map((k) => own(CONSENT_CATEGORY_NAMES, k) ?? k);
+}
+
+/**
+ * What the decision left active, in words. `accepted_consent_flags = null` means "nothing" for a
+ * rejection and "everything requested" for rows written before granular consent (API contract).
+ */
+export function consentRecordSummary(record: {
+  decision: string;
+  consent_flags: Record<string, boolean>;
+  accepted_consent_flags: Record<string, boolean> | null;
+}): string {
+  if (record.decision === 'REJECTED' || record.decision === 'WITHDRAWN') return 'Ninguna categoría activa.';
+  const active = names(record.accepted_consent_flags ?? record.consent_flags);
+  return active.length === 0 ? 'Ninguna categoría activa.' : `Activas: ${active.join(', ')}.`;
+}
+
+/** Requested categories of that version, in words. */
+export function consentRequestedSummary(flags: Record<string, boolean>): string {
+  const requested = names(flags);
+  return requested.length === 0 ? 'Sin categorías solicitadas.' : `Solicitadas: ${requested.join(', ')}.`;
+}
