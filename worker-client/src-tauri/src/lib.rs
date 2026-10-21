@@ -702,7 +702,16 @@ mod tests {
                 },
             }),
         );
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut connected = false;
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if IpcClient::connect(&rt).await.is_ok() {
+                connected = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(connected, "fake call server failed to start");
 
         let res_decoded = client::enroll(&rt, Some(decoded_payload), None)
             .await

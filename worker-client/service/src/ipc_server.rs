@@ -1793,9 +1793,16 @@ mod tests {
             let _ = server_clone.run().await;
         });
 
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        let client = IpcClient::connect(&runtime_dir).await.expect("connect");
+        let mut client = None;
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if let Ok(c) = IpcClient::connect(&runtime_dir).await {
+                client = Some(c);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let client = client.expect("connect to IPC server");
 
         let tampered_qr = telemetry_crypto_core::EnrollmentQr {
             t: "telemetry-enroll".into(),

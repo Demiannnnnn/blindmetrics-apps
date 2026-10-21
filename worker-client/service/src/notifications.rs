@@ -3,9 +3,20 @@ use notify_rust::Notification;
 pub struct NotificationDispatcher;
 
 impl NotificationDispatcher {
+    fn spawn_notify<F: FnOnce() + Send + 'static>(f: F) {
+        #[cfg(test)]
+        {
+            let _ = f;
+        }
+        #[cfg(not(test))]
+        {
+            std::thread::spawn(f);
+        }
+    }
+
     /// Dispatched when data collection starts (upon enrollment accept, app startup while ACTIVE, or resume from pause).
     pub fn notify_collection_started(active_count: usize) {
-        std::thread::spawn(move || {
+        Self::spawn_notify(move || {
             let res = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Monitoreo de Telemetría Activo")
@@ -25,7 +36,7 @@ impl NotificationDispatcher {
 
     /// Periodic notification (e.g. fired every 1 hour) alerting employee of background data collection.
     pub fn notify_periodic_active() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let res = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Monitoreo de Telemetría Activo")
@@ -46,7 +57,7 @@ impl NotificationDispatcher {
 
     /// Alert on work hours / shift start.
     pub fn notify_work_hours_started() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Jornada Laboral Iniciada")
@@ -63,7 +74,7 @@ impl NotificationDispatcher {
 
     /// Alert on work hours / shift end with automatic GPS and screenshot suspension.
     pub fn notify_work_hours_ended() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Fin de Horario Laboral")
@@ -80,7 +91,7 @@ impl NotificationDispatcher {
 
     /// Alert on periodic screenshot capture (DP-05, timeout <= 4s).
     pub fn notify_screenshot_taken() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Captura de Pantalla Realizada")
@@ -93,7 +104,7 @@ impl NotificationDispatcher {
 
     /// Alert when employer pauses monitoring.
     pub fn notify_admin_paused() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Monitoreo Pausado")
@@ -106,7 +117,7 @@ impl NotificationDispatcher {
 
     /// Alert when employer resumes monitoring.
     pub fn notify_admin_resumed() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Monitoreo Reanudado")
@@ -119,7 +130,7 @@ impl NotificationDispatcher {
 
     /// BILL-03: the employer's subscription is not active; nothing is collected or sent.
     pub fn notify_employer_suspended() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Recolección detenida")
@@ -132,7 +143,7 @@ impl NotificationDispatcher {
 
     /// BILL-03: the employer's subscription is active again.
     pub fn notify_employer_reactivated() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Recolección reanudada")
@@ -145,7 +156,7 @@ impl NotificationDispatcher {
 
     /// Alert when employer reduces consent categories.
     pub fn notify_admin_reduced() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Alcance de Telemetría Reducido")
@@ -158,7 +169,7 @@ impl NotificationDispatcher {
 
     /// Alert when employer requests a consent change.
     pub fn notify_consent_request_changed() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Solicitud de Consentimiento Modificada")
@@ -171,7 +182,7 @@ impl NotificationDispatcher {
 
     /// Alert when worker is unlinked.
     pub fn notify_unlinked() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Equipo Desvinculado")
@@ -184,7 +195,7 @@ impl NotificationDispatcher {
 
     /// Alert on halted state due to key fingerprint mismatch.
     pub fn notify_halted() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Alerta de Seguridad: Envío Detenido")
@@ -197,7 +208,7 @@ impl NotificationDispatcher {
 
     /// Notifies that the worker UI executable was not found (RF-AGENT-10-9).
     pub fn notify_ui_not_found() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Telemetry")
@@ -213,7 +224,7 @@ impl NotificationDispatcher {
     pub fn notify_attendance(summary: &str, body: &str) {
         let summary = summary.to_string();
         let body = body.to_string();
-        std::thread::spawn(move || {
+        Self::spawn_notify(move || {
             let res = Notification::new()
                 .appname("Telemetry Worker")
                 .summary(&summary)
@@ -229,7 +240,7 @@ impl NotificationDispatcher {
 
     /// Prompts the user to click Salir again within 10s to confirm quit (RF-AGENT-10-9).
     pub fn notify_confirm_quit() {
-        std::thread::spawn(|| {
+        Self::spawn_notify(|| {
             let _ = Notification::new()
                 .appname("Telemetry Worker")
                 .summary("Telemetry")
