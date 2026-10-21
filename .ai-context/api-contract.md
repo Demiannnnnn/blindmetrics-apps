@@ -342,7 +342,7 @@ shows as `HASH_MISMATCH` on the worker's receipt. Test vector (shared with `tele
 
 | Call | Notes |
 |:--|:--|
-| `GET /attendance/board` | One row per active worker: `{ worker_id, name, state, last_mark, today_marks, alerts: ["MISSING_START", …] }` |
+| `GET /attendance/board` | One row per active worker: `{ worker_id, name, state, last_mark, today_marks, alerts: ["MISSING_START", …] }` `state` ∈ `WORKING \| ON_BREAK \| OFF`; the admin shows `OFF` with no `today_marks` as `UNMARKED` "Sin marcar hoy" (ADMIN-22). |
 | `GET /attendance/marks?worker_id&from&to&page` | `Collection<Mark>` |
 | `GET /attendance/days?worker_id&from&to` | `[DaySummary]` |
 | `POST /attendance/corrections` | `{ worker_ids: [uuid], kind: "MODIFY" \| "ADD" \| "FIX", original_mark_id?, type, proposed_ts, reason (5–500) }` → `201 [Correction]`. Errors (`details.reason`): `CORRECTION_TOO_EARLY` (same day), `CORRECTION_HARMS_WORKER` (start later / end earlier), `ORIGINAL_MARK_REQUIRED`, `AUTOMATED_WORKDAY_MARK_FORBIDDEN`. |
