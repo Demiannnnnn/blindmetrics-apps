@@ -120,9 +120,10 @@ export const ATTENDANCE_STATE_LABELS: Record<
     label: 'Fuera de jornada',
     className: 'bg-surface text-muted border-default',
   },
+  // Neutral: also covers rest days; a late start is flagged by the MISSING_START alert (ADMIN-22).
   UNMARKED: {
     label: 'Sin marcar hoy',
-    className: 'bg-danger-subtle text-danger border-danger/30',
+    className: 'bg-surface text-muted border-default',
   },
   UNKNOWN: {
     label: 'Desconocido',
@@ -181,6 +182,26 @@ export const CORRECTION_STATUS_LABELS: Record<
     className: 'bg-surface text-muted border-default',
   },
 };
+
+/** Dashboard KPIs from the live board (RF-ADMIN-22-2). */
+export interface BoardKpis {
+  working: number;
+  unmarked: number;
+  /** Unmarked workers whose agreed start passed more than 30 minutes ago (`MISSING_START`). */
+  lateStart: number;
+}
+
+export function boardKpis(workers: ReadonlyArray<{ state: string; alerts: readonly string[] }>): BoardKpis {
+  const kpis: BoardKpis = { working: 0, unmarked: 0, lateStart: 0 };
+  for (const w of workers) {
+    if (w.state === 'WORKING') kpis.working++;
+    if (w.state === 'UNMARKED') {
+      kpis.unmarked++;
+      if (w.alerts.includes('MISSING_START')) kpis.lateStart++;
+    }
+  }
+  return kpis;
+}
 
 // ============================================================================
 // Attendance alerts & day anomalies (RF-ADMIN-21-1)

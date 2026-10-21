@@ -601,8 +601,19 @@ pub async fn attendance_board_with_client(
         for mark in &mut worker.today_marks {
             verify_mark(mark);
         }
+        worker.state = display_state(&worker.state, worker.today_marks.len());
     }
     Ok(workers)
+}
+
+/// The API's `DayState` is only `WORKING | ON_BREAK | OFF`: `OFF` covers both "already finished" and
+/// "no mark yet today". With no effective mark today the board shows `UNMARKED` ("Sin marcar hoy"),
+/// so the AS1 filter and the dashboard KPI work (RF-ADMIN-22-1). Never invents a state otherwise.
+pub fn display_state(state: &AttendanceState, today_marks: usize) -> AttendanceState {
+    match state {
+        AttendanceState::Off if today_marks == 0 => AttendanceState::Unmarked,
+        other => other.clone(),
+    }
 }
 
 /// `GET /attendance/days?worker_id=...&from=...&to=...` (RF-ADMIN-15-2, RF-ADMIN-15-4, AS2, BILL-04).
@@ -1699,5 +1710,54 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.code, "VALIDATION_ERROR");
+    }
+
+    #[test]
+    fn test_display_state_off_without_marks_is_unmarked() {
+        assert_eq!(
+            display_state(&AttendanceState::Off, 0),
+            AttendanceState::Unmarked
+        );
+        assert_eq!(
+            display_state(&AttendanceState::Off, 2),
+            AttendanceState::Off
+        );
+        assert_eq!(
+            display_state(&AttendanceState::Working, 0),
+            AttendanceState::Working
+        );
+        assert_eq!(
+            display_state(&AttendanceState::OnBreak, 1),
+            AttendanceState::OnBreak
+        );
+        assert_eq!(
+            display_state(&AttendanceState::Unknown, 0),
+            AttendanceState::Unknown
+        );
+    }
+
+    #[tokio::test]
+    async fn test_attendance_board_off_without_marks_becomes_unmarked() {
+        let server = MockServer::start().await;
+        let client = make_test_client(&server);
+        let row = |id: &str, state: &str| {
+            serde_json::json!({
+                "worker_id": id, "name": "Ana", "state": state, "today_marks": [], "alerts": ["MISSING_START"]
+            })
+        };
+        Mock::given(method("GET"))
+            .and(path("/attendance/board"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    row("01927d3b-65e1-7000-8000-0000000000c1", "OFF"),
+                    row("01927d3b-65e1-7000-8000-0000000000c2", "SOMETHING_NEW"),
+                ]
+            })))
+            .mount(&server)
+            .await;
+        let board = attendance_board_with_client(&client).await.unwrap();
+        assert_eq!(board[0].state, AttendanceState::Unmarked);
+        assert_eq!(board[0].alerts, vec!["MISSING_START".to_string()]);
+        assert_eq!(board[1].state, AttendanceState::Unknown);
     }
 }

@@ -24,6 +24,7 @@ import {
 } from '../api/tauri-bridge';
 import type { AttendanceState } from '../api/types';
 import { describeError, errorIs } from '../lib/errors';
+import { boardKpis } from '../lib/attendance';
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
 import { CreateWorkerModal } from './CreateWorkerModal';
@@ -148,6 +149,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [attendanceStates, setAttendanceStates] = useState<Record<string, AttendanceState>>({});
   const [workingNowCount, setWorkingNowCount] = useState<number>(0);
   const [unmarkedTodayCount, setUnmarkedTodayCount] = useState<number>(0);
+  const [lateStartCount, setLateStartCount] = useState<number>(0);
   const [pendingCorrectionsCount, setPendingCorrectionsCount] = useState<number>(0);
 
   // Master Crypto Key State (read-only here; managed in Bóveda, TASK-ADMIN-11)
@@ -182,16 +184,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
       attendanceBoard()
         .then(workers => {
           const map: Record<string, AttendanceState> = {};
-          let working = 0;
-          let unmarked = 0;
           for (const bw of workers) {
             map[bw.worker_id] = bw.state;
-            if (bw.state === 'WORKING') working++;
-            if (bw.state === 'UNMARKED') unmarked++;
           }
+          const kpis = boardKpis(workers);
           setAttendanceStates(map);
-          setWorkingNowCount(working);
-          setUnmarkedTodayCount(unmarked);
+          setWorkingNowCount(kpis.working);
+          setUnmarkedTodayCount(kpis.unmarked);
+          setLateStartCount(kpis.lateStart);
         })
         .catch(e => console.warn('Failed to load attendance board', e));
       attendanceCorrections({ status: 'PENDING' })
@@ -539,7 +539,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <h3 className="text-2xl font-bold text-fg">{unmarkedTodayCount}</h3>
             </div>
           </div>
-          <span className="text-[11px] text-muted font-medium">Turnos iniciados</span>
+          <span className="text-[11px] text-muted font-medium">
+            {lateStartCount > 0 ? `${lateStartCount} con entrada atrasada` : 'Ninguno atrasado'}
+          </span>
         </div>
 
         <div
