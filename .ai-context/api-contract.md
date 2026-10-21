@@ -375,6 +375,13 @@ shows as `HASH_MISMATCH` on the worker's receipt. Test vector (shared with `tele
   "missing": "-00:12:30", "extra": "+00:40:00", "anomalies": ["BREAK_WITHOUT_END"], "altered": false }
 ```
 
+`anomalies` ⊆ `MISSING_START`, `MISSING_END`, `BREAK_WITHOUT_END`, `BREAK_WITHOUT_START`,
+`MARK_ON_REST_DAY`, `OFFLINE_MARK`, `CORRECTED_MARK`, `NO_RECEIPT_EMAIL` (worker without
+`personal_email`: gets no emailed receipts). Board `alerts` ⊆ `MISSING_START`, `MISSING_END`,
+`BREAK_WITHOUT_END`, `OFFLINE_MARKS_TODAY`, `PENDING_CORRECTIONS`. Labels, tone and explanation of
+each code: `ATTENDANCE_ALERTS` in `admin-client/src/lib/attendance.ts` (TASK-ADMIN-21); unknown codes
+are shown with a readable fallback, never dropped.
+
 ## 10. [v3] Legal documents and terms acceptance
 
 | Call | Body | Notes |

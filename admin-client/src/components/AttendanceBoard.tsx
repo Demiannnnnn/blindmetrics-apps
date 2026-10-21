@@ -20,7 +20,9 @@ import {
   ATTENDANCE_STATE_LABELS,
   MARK_TYPE_SHORT,
   formatR38Time,
-  describeAnomaly,
+  attendanceAlertInfo,
+  ALERT_TONE_CLASSES,
+  sortAlertsBySeverity,
   effectiveTs,
   sortMarksByEffective,
 } from '../lib/attendance';
@@ -333,14 +335,18 @@ export const AttendanceBoard: React.FC<AttendanceBoardProps> = ({
                     <td className="py-3 px-3">
                       {worker.alerts.length > 0 ? (
                         <div className="space-y-0.5">
-                          {worker.alerts.map((alert, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-block text-[11px] text-danger bg-danger-subtle px-2 py-0.5 rounded-badge border border-danger/30 font-semibold"
-                            >
-                              {describeAnomaly(alert)}
-                            </span>
-                          ))}
+                          {sortAlertsBySeverity(worker.alerts).map((alert, idx) => {
+                            const info = attendanceAlertInfo(alert);
+                            return (
+                              <span
+                                key={idx}
+                                title={info.hint || undefined}
+                                className={`inline-block text-[11px] px-2 py-0.5 rounded-badge border font-semibold ${ALERT_TONE_CLASSES[info.tone]}`}
+                              >
+                                {info.label}
+                              </span>
+                            );
+                          })}
                         </div>
                       ) : (
                         <span className="text-muted text-[11px]">Sin alertas</span>
