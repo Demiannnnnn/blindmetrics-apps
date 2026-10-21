@@ -79,7 +79,12 @@ Contrato (ver `.ai-context/api-contract.md` §5, "API TASK-27, en implementació
   - `admin-client/test/portal-access.test.mjs` (nuevo, 6 pruebas)
   - `.ai-context/api-contract.md` (dos endpoints y el campo, marcados "API TASK-27, en implementación"), `tasks/README.md`
 - **Comandos:** (`tools/orchestration/validate.sh`)
-VALIDATE_RESULTS
+  - `cargo fmt --all --check` ✅
+  - `cargo clippy --workspace --all-targets -- -D warnings` ✅
+  - `cargo test --workspace` ✅ (412 pruebas; 6 nuevas en `admin-client-core`)
+  - `cd admin-client && npm ci && npm run build && npm test` ✅ (115 pruebas `node --test`, 6 nuevas)
+  - `cd worker-client && npm ci && npm run build && npm test` ✅ (sin cambios)
+  - "cheats": solo `.unwrap()` y `Mock::expect(n)` dentro de `#[cfg(test)]`, como el resto del módulo.
 - **Decisiones:**
   - El correo se valida en el WebView (para mostrar el error en el campo) y otra vez en Rust; un
     `400 VALIDATION_ERROR` de la API se explica como "solo ex-trabajadores (revocados) y con correo
