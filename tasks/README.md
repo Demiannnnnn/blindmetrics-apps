@@ -219,6 +219,7 @@ contrato v3 en `api-contract.md` §9–§12).
 | **AGENT-16** | [`agent/task-16-my-schedule.md`](agent/task-16-my-schedule.md) | "Mi jornada pactada" en la app del trabajador: semana, colación, desconexión y próximo cambio de jornada (`GET /attendance/me/schedule`, op IPC `SCHEDULE`). | ✅ |
 | **AGENT-17** | [`agent/task-17-consent-history.md`](agent/task-17-consent-history.md) | Historial de consentimiento del trabajador en *Mis datos* (`GET /workers/:id/consent-records`, op IPC `CONSENT_HISTORY`). | ✅ |
 | **ADMIN-23** | [`admin-client/task-23-worker-list-local-filters.md`](admin-client/task-23-worker-list-local-filters.md) | Filtros Lugar y Modalidad de Trabajadores (W1): la API los ignoraba; ahora se aplican en Rust sobre todas las páginas con paginación correcta. | ✅ |
+| **ADMIN-24** | [`admin-client/task-24-server-worker-filters.md`](admin-client/task-24-server-worker-filters.md) | Filtros Lugar y Modalidad de W1 pasan a la API (`GET /workers?workplace_id&work_mode`, API TASK-33); se elimina el filtrado local de ADMIN-23 y su tope de 2000 trabajadores. | ✅ |
 
 ### 6.2 Orden y paralelismo
 

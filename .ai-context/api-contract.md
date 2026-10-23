@@ -159,7 +159,7 @@ accepted consent on a device (revoke first, then regenerate). `REVOKED` workers 
 
 | Call | Notes |
 |:---|:---|
-| `GET /workers?page&per_page&search&role_type&is_active&status` | `CollectionResponse<WorkerResponse>`. The server has **no** `workplace_id`/`work_mode` filter (unknown params are ignored); the admin applies them locally over all pages (ADMIN-23). |
+| `GET /workers?page&per_page&search&role_type&is_active&status&workplace_id&work_mode` | `CollectionResponse<WorkerResponse>`. `workplace_id` (UUID) and `work_mode` (`ON_SITE`/`REMOTE`/`HYBRID`) are filtered by the server since API TASK-33; `pagination` counts the filtered list. |
 | `GET /workers/:id` | `WorkerResponse`. |
 | `PUT /workers/:id` | `{ name?, role_type?, work_hours_start?, work_hours_end?, timezone? }`. Switching to `OFFICE` narrows `location`. |
 | `PUT /workers/:id/consent-config` | `{ consent_flags, consent_descriptions }` → `{ consent_version, requires_worker_acceptance, worker }`. |

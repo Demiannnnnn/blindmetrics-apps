@@ -6,7 +6,7 @@
 
 use super::keys::{ensure_server_key_with_client, get_admin_public_key};
 use super::CommandError;
-use crate::client::{get_api_client, AdminApiClient, CollectionResponse, PaginationMeta};
+use crate::client::{get_api_client, AdminApiClient, CollectionResponse};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -962,8 +962,20 @@ impl WorkerListQuery {
         if let Some(active) = self.is_active {
             params.push(format!("is_active={}", active));
         }
-        // `workplace_id` / `work_mode` are not query parameters of the API (`WorkerQueryParams`
-        // ignores them): they are applied by `workers_list_with_client` (RF-ADMIN-23-1).
+        // Filtered by the API since TASK-33 (RF-ADMIN-24-1); validated here so nothing malformed
+        // reaches the query string.
+        if let Some(id) = self.workplace_id.as_deref().map(str::trim) {
+            if !id.is_empty() {
+                let id = uuid::Uuid::parse_str(id)
+                    .map_err(|_| validation_error("Lugar de trabajo inválido"))?;
+                params.push(format!("workplace_id={id}"));
+            }
+        }
+        if let Some(m) = self.work_mode.as_deref().map(str::trim) {
+            if !m.is_empty() {
+                params.push(format!("work_mode={}", WorkMode::parse(m)?.as_str()));
+            }
+        }
 
         Ok(if params.is_empty() {
             "/workers".to_string()
@@ -1073,124 +1085,12 @@ fn validate_worker_id(id: &str) -> Result<(), CommandError> {
     }
 }
 
-/// Filters `GET /workers` does not support, applied by the app (RF-ADMIN-23-1).
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct LocalWorkerFilters {
-    pub workplace_id: Option<String>,
-    pub work_mode: Option<WorkMode>,
-}
-
-impl LocalWorkerFilters {
-    pub fn is_empty(&self) -> bool {
-        self.workplace_id.is_none() && self.work_mode.is_none()
-    }
-
-    pub fn matches(&self, worker: &WorkerResponse) -> bool {
-        let workplace_ok = self.workplace_id.as_deref().map_or(true, |id| {
-            worker
-                .workplace
-                .as_ref()
-                .is_some_and(|w| w.id.eq_ignore_ascii_case(id))
-        });
-        let mode_ok = self.work_mode.map_or(true, |m| worker.work_mode == m);
-        workplace_ok && mode_ok
-    }
-}
-
-impl WorkerListQuery {
-    /// Validated local filters: `workplace_id` must be a UUID, `work_mode` a known mode.
-    pub fn local_filters(&self) -> Result<LocalWorkerFilters, CommandError> {
-        let workplace_id = match self.workplace_id.as_deref().map(str::trim) {
-            Some(id) if !id.is_empty() => Some(
-                uuid::Uuid::parse_str(id)
-                    .map_err(|_| validation_error("Lugar de trabajo inválido"))?
-                    .to_string(),
-            ),
-            _ => None,
-        };
-        let work_mode = match self.work_mode.as_deref().map(str::trim) {
-            Some(m) if !m.is_empty() => Some(WorkMode::parse(m)?),
-            _ => None,
-        };
-        Ok(LocalWorkerFilters {
-            workplace_id,
-            work_mode,
-        })
-    }
-}
-
-/// Pages read at most when filtering locally (100 workers each).
-const MAX_LOCAL_FILTER_PAGES: usize = 20;
-
-/// Filters every page of `GET /workers` by `filters` and returns the requested page of the result
-/// with a pagination block that describes the filtered list (RF-ADMIN-23-1).
-async fn workers_list_filtered_locally(
-    client: &AdminApiClient,
-    query: &WorkerListQuery,
-    filters: &LocalWorkerFilters,
-) -> Result<CollectionResponse<WorkerResponse>, CommandError> {
-    let mut matched = Vec::new();
-    let mut server_page = 1;
-    loop {
-        let page_query = WorkerListQuery {
-            page: Some(server_page),
-            per_page: Some(MAX_PER_PAGE),
-            ..query.clone()
-        };
-        let resp: CollectionResponse<WorkerResponse> =
-            client.get_collection(&page_query.to_endpoint()?).await?;
-        let received = resp.data.len();
-        matched.extend(resp.data.into_iter().filter(|w| filters.matches(w)));
-        let total_pages = resp.pagination.map_or(1, |p| p.total_pages);
-        if server_page >= total_pages || received == 0 {
-            break;
-        }
-        if server_page >= MAX_LOCAL_FILTER_PAGES {
-            return Err(validation_error(
-                "Hay demasiados trabajadores para filtrar por lugar o modalidad. Usa la búsqueda por nombre o los otros filtros.",
-            ));
-        }
-        server_page += 1;
-    }
-    Ok(paginate_locally(
-        matched,
-        query.page.unwrap_or(1),
-        query.per_page.unwrap_or(20),
-    ))
-}
-
-/// Slices `items` like the server would (1-based `page`, `per_page` clamped to 1..=100).
-pub fn paginate_locally<T>(items: Vec<T>, page: usize, per_page: usize) -> CollectionResponse<T> {
-    let per_page = per_page.clamp(1, MAX_PER_PAGE);
-    let total = items.len();
-    let total_pages = total.div_ceil(per_page).max(1);
-    let page = page.clamp(1, total_pages);
-    let data = items
-        .into_iter()
-        .skip((page - 1) * per_page)
-        .take(per_page)
-        .collect();
-    CollectionResponse {
-        data,
-        pagination: Some(PaginationMeta {
-            total,
-            page,
-            per_page,
-            total_pages,
-        }),
-    }
-}
-
 pub async fn workers_list_with_client(
     client: &AdminApiClient,
     query: Option<WorkerListQuery>,
 ) -> Result<CollectionResponse<WorkerResponse>, CommandError> {
-    let query = query.unwrap_or_default();
-    let filters = query.local_filters()?;
-    if filters.is_empty() {
-        return Ok(client.get_collection(&query.to_endpoint()?).await?);
-    }
-    workers_list_filtered_locally(client, &query, &filters).await
+    let endpoint = query.unwrap_or_default().to_endpoint()?;
+    Ok(client.get_collection(&endpoint).await?)
 }
 
 #[tauri::command]
@@ -2261,68 +2161,36 @@ mod tests {
             workplace_id: Some("01927d3b-65e1-7000-8000-0000000000b1".into()),
             work_mode: Some("remote".into()),
         };
-        // `workplace_id` / `work_mode` are not API parameters: applied locally (RF-ADMIN-23-1).
         assert_eq!(
             q.to_endpoint().unwrap(),
-            "/workers?page=2&per_page=100&search=ana%20%26%20jos%C3%A9&role_type=FIELD&status=ACTIVE&is_active=true"
+            "/workers?page=2&per_page=100&search=ana%20%26%20jos%C3%A9&role_type=FIELD&status=ACTIVE&is_active=true&workplace_id=01927d3b-65e1-7000-8000-0000000000b1&work_mode=REMOTE"
         );
-        let filters = q.local_filters().unwrap();
-        assert_eq!(
-            filters.workplace_id.as_deref(),
-            Some("01927d3b-65e1-7000-8000-0000000000b1")
-        );
-        assert_eq!(filters.work_mode, Some(WorkMode::Remote));
     }
 
     #[test]
-    fn test_workers_list_local_filters_validated() {
-        let bad_wp = WorkerListQuery {
-            workplace_id: Some("wp 1&x=1".into()),
-            ..Default::default()
-        };
-        assert_eq!(bad_wp.local_filters().unwrap_err().code, "VALIDATION_ERROR");
-        let bad_mode = WorkerListQuery {
-            work_mode: Some("ANYWHERE".into()),
-            ..Default::default()
-        };
-        assert_eq!(
-            bad_mode.local_filters().unwrap_err().code,
-            "VALIDATION_ERROR"
-        );
+    fn test_workers_list_filters_validated_before_the_request() {
+        for (workplace_id, work_mode) in [(Some("wp 1&x=1"), None), (None, Some("ANYWHERE"))] {
+            let q = WorkerListQuery {
+                workplace_id: workplace_id.map(str::to_string),
+                work_mode: work_mode.map(str::to_string),
+                ..Default::default()
+            };
+            assert_eq!(q.to_endpoint().unwrap_err().code, "VALIDATION_ERROR");
+        }
         let blank = WorkerListQuery {
             workplace_id: Some("  ".into()),
             work_mode: Some(String::new()),
             ..Default::default()
         };
-        assert!(blank.local_filters().unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_workers_paginate_locally_slices_and_clamps() {
-        let items: Vec<u32> = (1..=45).collect();
-        let page = paginate_locally(items.clone(), 3, 20);
-        assert_eq!(page.data, (41..=45).collect::<Vec<_>>());
+        assert_eq!(blank.to_endpoint().unwrap(), "/workers");
+        // Uppercase UUIDs are normalized.
+        let upper = WorkerListQuery {
+            workplace_id: Some("01927D3B-65E1-7000-8000-0000000000B1".into()),
+            ..Default::default()
+        };
         assert_eq!(
-            page.pagination,
-            Some(PaginationMeta {
-                total: 45,
-                page: 3,
-                per_page: 20,
-                total_pages: 3
-            })
-        );
-        // Page beyond the end ⇒ last page; per_page clamped to 1..=100.
-        let page = paginate_locally(items, 9, 500);
-        assert_eq!(page.data.len(), 45);
-        assert_eq!(
-            page.pagination.map(|p| (p.page, p.total_pages)),
-            Some((1, 1))
-        );
-        let empty = paginate_locally(Vec::<u32>::new(), 1, 20);
-        assert!(empty.data.is_empty());
-        assert_eq!(
-            empty.pagination.map(|p| (p.total, p.total_pages)),
-            Some((0, 1))
+            upper.to_endpoint().unwrap(),
+            "/workers?workplace_id=01927d3b-65e1-7000-8000-0000000000b1"
         );
     }
 
@@ -2971,29 +2839,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_workers_list_filters_workplace_and_mode_across_pages() {
+    async fn test_workers_list_sends_workplace_and_mode_to_the_api() {
         const WP_A: &str = "01927d3b-65e1-7000-8000-0000000000b1";
-        const WP_B: &str = "01927d3b-65e1-7000-8000-0000000000b2";
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/workers"))
             .and(query_param("page", "1"))
-            .and(query_param("per_page", "100"))
+            .and(query_param("per_page", "1"))
             .and(query_param("status", "ACTIVE"))
+            .and(query_param("workplace_id", WP_A))
+            .and(query_param("work_mode", "REMOTE"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": [worker_at("w1", Some(WP_A), "REMOTE"), worker_at("w2", Some(WP_B), "REMOTE"),
-                         worker_at("w3", None, "REMOTE")],
-                "pagination": { "total": 5, "page": 1, "per_page": 100, "total_pages": 2 }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/workers"))
-            .and(query_param("page", "2"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": [worker_at("w4", Some(WP_A), "ON_SITE"), worker_at("w5", Some(WP_A), "REMOTE")],
-                "pagination": { "total": 5, "page": 2, "per_page": 100, "total_pages": 2 }
+                "data": [worker_at("w1", Some(WP_A), "REMOTE")],
+                "pagination": { "total": 2, "page": 1, "per_page": 1, "total_pages": 2 }
             })))
             .expect(1)
             .mount(&server)
@@ -3004,7 +2862,7 @@ mod tests {
             per_page: Some(1),
             status: Some("ACTIVE".into()),
             workplace_id: Some(WP_A.to_uppercase()),
-            work_mode: Some("REMOTE".into()),
+            work_mode: Some("remote".into()),
             ..Default::default()
         };
         let resp = workers_list_with_client(&client_for(&server), Some(query))
@@ -3013,45 +2871,31 @@ mod tests {
         assert_eq!(resp.data.len(), 1);
         assert_eq!(resp.data[0].id, "w1");
         assert_eq!(
-            resp.pagination,
-            Some(PaginationMeta {
-                total: 2,
-                page: 1,
-                per_page: 1,
-                total_pages: 2
-            })
+            resp.pagination.map(|p| (p.total, p.total_pages)),
+            Some((2, 2))
         );
-        for req in server.received_requests().await.unwrap_or_default() {
-            let q = req.url.query().unwrap_or_default().to_string();
-            assert!(
-                !q.contains("workplace_id") && !q.contains("work_mode"),
-                "{q}"
-            );
-        }
+        // One request: the API filters and paginates (no client-side page walking).
+        assert_eq!(
+            server.received_requests().await.unwrap_or_default().len(),
+            1
+        );
     }
 
     #[tokio::test]
-    async fn test_workers_list_local_filter_stops_at_page_cap() {
+    async fn test_workers_list_invalid_filter_never_reaches_the_api() {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/workers"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": [worker_at("w1", None, "ON_SITE")],
-                "pagination": { "total": 5000, "page": 1, "per_page": 100, "total_pages": 50 }
-            })))
-            .mount(&server)
-            .await;
         let query = WorkerListQuery {
-            work_mode: Some("REMOTE".into()),
+            workplace_id: Some("../admins".into()),
             ..Default::default()
         };
         let err = workers_list_with_client(&client_for(&server), Some(query))
             .await
             .unwrap_err();
         assert_eq!(err.code, "VALIDATION_ERROR");
-        assert_eq!(
-            server.received_requests().await.unwrap_or_default().len(),
-            MAX_LOCAL_FILTER_PAGES
-        );
+        assert!(server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty());
     }
 }
