@@ -268,6 +268,49 @@ export interface CollectionResponse<T> {
   pagination: PaginationMeta | null;
 }
 
+// ---------------------------------------------------------------- telemetry health (TASK-ADMIN-25, API TASK-35)
+
+export type ConsentRejectionDecision = 'REJECTED' | 'WITHDRAWN';
+
+export interface ActiveWithoutDataWorker {
+  id: string;
+  name: string;
+  last_telemetry_at: string | null;
+  active_since: string;
+}
+
+export interface ActiveWithoutDataSummary {
+  total: number;
+  workers: ActiveWithoutDataWorker[];
+}
+
+export interface RecentRejectionWorker {
+  id: string;
+  name: string;
+  decision: ConsentRejectionDecision;
+  decided_at: string;
+  consent_version: number;
+}
+
+export interface RecentRejectionsSummary {
+  total: number;
+  workers: RecentRejectionWorker[];
+}
+
+export interface TelemetryHealthResponse {
+  generated_at: string;
+  stale_hours: number;
+  since_days: number;
+  active_without_data: ActiveWithoutDataSummary;
+  recent_rejections: RecentRejectionsSummary;
+}
+
+export interface TelemetryHealthQuery {
+  stale_hours?: number;
+  since_days?: number;
+  limit?: number;
+}
+
 // ---------------------------------------------------------------- key vault (ADMIN-11)
 
 export type KeyState = 'NO_KEY' | 'MISSING_LOCAL' | 'MISMATCH' | 'LOCAL_ONLY' | 'OK';

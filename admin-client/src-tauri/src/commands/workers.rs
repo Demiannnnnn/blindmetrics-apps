@@ -985,6 +985,104 @@ impl WorkerListQuery {
     }
 }
 
+/// Consent rejection/withdrawal decision for telemetry health (RF-ADMIN-25-1, API TASK-35).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ConsentRejectionDecision {
+    Rejected,
+    Withdrawn,
+}
+
+impl ConsentRejectionDecision {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Rejected => "REJECTED",
+            Self::Withdrawn => "WITHDRAWN",
+        }
+    }
+}
+
+/// Worker item in the `active_without_data` list (RF-ADMIN-25-1).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ActiveWithoutDataWorker {
+    pub id: String,
+    pub name: String,
+    pub last_telemetry_at: Option<String>,
+    pub active_since: String,
+}
+
+/// Summary of active workers without recent telemetry (RF-ADMIN-25-1).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ActiveWithoutDataSummary {
+    pub total: usize,
+    pub workers: Vec<ActiveWithoutDataWorker>,
+}
+
+/// Worker item in the `recent_rejections` list (RF-ADMIN-25-1).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecentRejectionWorker {
+    pub id: String,
+    pub name: String,
+    pub decision: ConsentRejectionDecision,
+    pub decided_at: String,
+    pub consent_version: i32,
+}
+
+/// Summary of workers who recently rejected or withdrew consent (RF-ADMIN-25-1).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecentRejectionsSummary {
+    pub total: usize,
+    pub workers: Vec<RecentRejectionWorker>,
+}
+
+/// Telemetry health overview for the admin dashboard (RF-ADMIN-25-1, API TASK-35).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct TelemetryHealthResponse {
+    pub generated_at: String,
+    pub stale_hours: u32,
+    pub since_days: u32,
+    pub active_without_data: ActiveWithoutDataSummary,
+    pub recent_rejections: RecentRejectionsSummary,
+}
+
+/// Query parameters for `GET /api/v1/workers/telemetry-health` (RF-ADMIN-25-1).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct TelemetryHealthQuery {
+    pub stale_hours: Option<u32>,
+    pub since_days: Option<u32>,
+    pub limit: Option<usize>,
+}
+
+impl TelemetryHealthQuery {
+    /// Builds `/workers/telemetry-health?…` with validated parameters.
+    pub fn to_endpoint(&self) -> Result<String, CommandError> {
+        let mut params = Vec::new();
+        if let Some(sh) = self.stale_hours {
+            if !(1..=168).contains(&sh) {
+                return Err(validation_error("stale_hours debe estar entre 1 y 168"));
+            }
+            params.push(format!("stale_hours={sh}"));
+        }
+        if let Some(sd) = self.since_days {
+            if !(1..=90).contains(&sd) {
+                return Err(validation_error("since_days debe estar entre 1 y 90"));
+            }
+            params.push(format!("since_days={sd}"));
+        }
+        if let Some(lim) = self.limit {
+            if !(1..=200).contains(&lim) {
+                return Err(validation_error("limit debe estar entre 1 y 200"));
+            }
+            params.push(format!("limit={lim}"));
+        }
+        if params.is_empty() {
+            Ok("/workers/telemetry-health".to_string())
+        } else {
+            Ok(format!("/workers/telemetry-health?{}", params.join("&")))
+        }
+    }
+}
+
 fn integrity_error(field: &str) -> CommandError {
     tracing::error!(field, "enrollment integrity check failed");
     CommandError::new(
@@ -1511,6 +1609,23 @@ pub async fn workers_revoke_portal_access_with_client(
         .await?;
     tracing::info!(worker_id = %id, "Ex-worker portal access removed");
     Ok(())
+}
+
+/// Queries telemetry health for active workers without recent telemetry and recent rejections
+/// (RF-ADMIN-25-1, API TASK-35).
+pub async fn workers_telemetry_health_with_client(
+    client: &AdminApiClient,
+    query: Option<TelemetryHealthQuery>,
+) -> Result<TelemetryHealthResponse, CommandError> {
+    let endpoint = query.unwrap_or_default().to_endpoint()?;
+    Ok(client.get_json(&endpoint).await?)
+}
+
+#[tauri::command]
+pub async fn workers_telemetry_health(
+    query: Option<TelemetryHealthQuery>,
+) -> Result<TelemetryHealthResponse, CommandError> {
+    workers_telemetry_health_with_client(get_api_client(), query).await
 }
 
 /// `XXXX-XXXX-XXXX` form of a 12-symbol code (the API may return it with or without hyphens).
@@ -2897,5 +3012,273 @@ mod tests {
             .await
             .unwrap_or_default()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_workers_telemetry_health_success_and_envelope() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/telemetry-health"))
+            .and(wiremock::matchers::header("authorization", "Bearer tok"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "generated_at": "2026-10-31T22:00:00Z",
+                    "stale_hours": 24,
+                    "since_days": 7,
+                    "active_without_data": {
+                        "total": 2,
+                        "workers": [
+                            {
+                                "id": "01927d3b-65e1-7000-8000-000000000001",
+                                "name": "Ana Díaz",
+                                "last_telemetry_at": "2026-10-30T10:00:00Z",
+                                "active_since": "2026-10-20T08:00:00Z"
+                            },
+                            {
+                                "id": "01927d3b-65e1-7000-8000-000000000002",
+                                "name": "Bernardo O'Higgins",
+                                "last_telemetry_at": null,
+                                "active_since": "2026-10-22T09:00:00Z"
+                            }
+                        ]
+                    },
+                    "recent_rejections": {
+                        "total": 1,
+                        "workers": [
+                            {
+                                "id": "01927d3b-65e1-7000-8000-000000000003",
+                                "name": "Carlos Valenzuela",
+                                "decision": "REJECTED",
+                                "decided_at": "2026-10-25T14:30:00Z",
+                                "consent_version": 3
+                            }
+                        ]
+                    }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let resp = workers_telemetry_health_with_client(&client, None)
+            .await
+            .unwrap();
+
+        assert_eq!(resp.generated_at, "2026-10-31T22:00:00Z");
+        assert_eq!(resp.stale_hours, 24);
+        assert_eq!(resp.since_days, 7);
+        assert_eq!(resp.active_without_data.total, 2);
+        assert_eq!(resp.active_without_data.workers.len(), 2);
+        assert_eq!(resp.active_without_data.workers[0].name, "Ana Díaz");
+        assert_eq!(
+            resp.active_without_data.workers[0]
+                .last_telemetry_at
+                .as_deref(),
+            Some("2026-10-30T10:00:00Z")
+        );
+        assert_eq!(resp.active_without_data.workers[1].last_telemetry_at, None);
+        assert_eq!(resp.recent_rejections.total, 1);
+        assert_eq!(resp.recent_rejections.workers.len(), 1);
+        assert_eq!(
+            resp.recent_rejections.workers[0].decision,
+            ConsentRejectionDecision::Rejected
+        );
+        assert_eq!(resp.recent_rejections.workers[0].consent_version, 3);
+    }
+
+    #[tokio::test]
+    async fn test_workers_telemetry_health_query_parameters() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/telemetry-health"))
+            .and(query_param("stale_hours", "48"))
+            .and(query_param("since_days", "14"))
+            .and(query_param("limit", "25"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "generated_at": "2026-10-31T22:00:00Z",
+                    "stale_hours": 48,
+                    "since_days": 14,
+                    "active_without_data": { "total": 0, "workers": [] },
+                    "recent_rejections": { "total": 0, "workers": [] }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let q = TelemetryHealthQuery {
+            stale_hours: Some(48),
+            since_days: Some(14),
+            limit: Some(25),
+        };
+        let resp = workers_telemetry_health_with_client(&client, Some(q))
+            .await
+            .unwrap();
+        assert_eq!(resp.stale_hours, 48);
+        assert_eq!(resp.since_days, 14);
+    }
+
+    #[test]
+    fn test_workers_telemetry_health_query_validation() {
+        for bad_hours in [0, 169] {
+            let q = TelemetryHealthQuery {
+                stale_hours: Some(bad_hours),
+                ..Default::default()
+            };
+            assert_eq!(q.to_endpoint().unwrap_err().code, "VALIDATION_ERROR");
+        }
+        for bad_days in [0, 91] {
+            let q = TelemetryHealthQuery {
+                since_days: Some(bad_days),
+                ..Default::default()
+            };
+            assert_eq!(q.to_endpoint().unwrap_err().code, "VALIDATION_ERROR");
+        }
+        for bad_limit in [0, 201] {
+            let q = TelemetryHealthQuery {
+                limit: Some(bad_limit),
+                ..Default::default()
+            };
+            assert_eq!(q.to_endpoint().unwrap_err().code, "VALIDATION_ERROR");
+        }
+
+        let valid = TelemetryHealthQuery {
+            stale_hours: Some(24),
+            since_days: Some(7),
+            limit: Some(50),
+        };
+        assert_eq!(
+            valid.to_endpoint().unwrap(),
+            "/workers/telemetry-health?stale_hours=24&since_days=7&limit=50"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_workers_telemetry_health_extra_fields_tolerated() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/telemetry-health"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "generated_at": "2026-10-31T22:00:00Z",
+                    "stale_hours": 24,
+                    "since_days": 7,
+                    "unknown_server_meta": { "server_build": "v3.5.1" },
+                    "active_without_data": {
+                        "total": 1,
+                        "extra_summary_key": true,
+                        "workers": [
+                            {
+                                "id": "01927d3b-65e1-7000-8000-000000000001",
+                                "name": "Ana Díaz",
+                                "last_telemetry_at": null,
+                                "active_since": "2026-10-20T08:00:00Z",
+                                "unknown_worker_flag": "ignored"
+                            }
+                        ]
+                    },
+                    "recent_rejections": {
+                        "total": 1,
+                        "workers": [
+                            {
+                                "id": "01927d3b-65e1-7000-8000-000000000002",
+                                "name": "Diego Portales",
+                                "decision": "WITHDRAWN",
+                                "decided_at": "2026-10-26T12:00:00Z",
+                                "consent_version": 2,
+                                "extra_details": [1, 2, 3]
+                            }
+                        ]
+                    }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let resp = workers_telemetry_health_with_client(&client, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.active_without_data.workers.len(), 1);
+        assert_eq!(
+            resp.recent_rejections.workers[0].decision,
+            ConsentRejectionDecision::Withdrawn
+        );
+    }
+
+    #[tokio::test]
+    async fn test_workers_telemetry_health_maps_401() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/telemetry-health"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "UNAUTHORIZED",
+                    "message": "Device revoked",
+                    "details": { "reason": "DEVICE_REVOKED" }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = workers_telemetry_health_with_client(&client, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "UNAUTHORIZED");
+        assert!(err.is("DEVICE_REVOKED"));
+    }
+
+    #[tokio::test]
+    async fn test_workers_telemetry_health_maps_403() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/telemetry-health"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "FORBIDDEN",
+                    "message": "Terms not accepted",
+                    "details": { "reason": "TERMS_NOT_ACCEPTED" }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = workers_telemetry_health_with_client(&client, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "FORBIDDEN");
+        assert!(err.is("TERMS_NOT_ACCEPTED"));
+    }
+
+    #[tokio::test]
+    async fn test_workers_telemetry_health_maps_400() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/workers/telemetry-health"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "stale_hours out of range",
+                    "details": { "reason": "OUT_OF_RANGE" }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = workers_telemetry_health_with_client(&client, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "VALIDATION_ERROR");
+        assert!(err.is("OUT_OF_RANGE"));
     }
 }

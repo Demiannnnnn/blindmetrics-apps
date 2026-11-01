@@ -52,6 +52,8 @@ import type {
   PrintedReport,
   ReportFilters,
   ReportKind,
+  TelemetryHealthQuery,
+  TelemetryHealthResponse,
 } from './types';
 
 export * from './types';
@@ -794,6 +796,31 @@ export async function workersRevokePortalAccess(id: string): Promise<void> {
     return;
   }
   throw new Error('workers_revoke_portal_access IPC unavailable outside Tauri');
+}
+
+/** Queries telemetry health for active workers without recent data and recent rejections (TASK-ADMIN-25, API TASK-35). */
+export async function workersTelemetryHealth(
+  query?: TelemetryHealthQuery,
+): Promise<TelemetryHealthResponse> {
+  if (isTauri()) {
+    return await invoke<TelemetryHealthResponse>('workers_telemetry_health', { query });
+  }
+  if (isDemoMode) {
+    return {
+      generated_at: new Date().toISOString(),
+      stale_hours: query?.stale_hours ?? 24,
+      since_days: query?.since_days ?? 7,
+      active_without_data: {
+        total: 0,
+        workers: [],
+      },
+      recent_rejections: {
+        total: 0,
+        workers: [],
+      },
+    };
+  }
+  throw new Error('workers_telemetry_health IPC unavailable outside Tauri');
 }
 
 export async function workersRegenerateToken(id: string, ttlHours?: number): Promise<EnrollmentView> {

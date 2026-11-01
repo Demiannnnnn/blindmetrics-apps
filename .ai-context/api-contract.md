@@ -168,6 +168,7 @@ accepted consent on a device (revoke first, then regenerate). `REVOKED` workers 
 | `DELETE /workers/:id` | 204, soft delete (`REVOKED`). |
 | `POST /workers/:id/portal-access` | **API TASK-27, en implementación.** `{ email }` → `200 WorkerResponse`. Ex-worker portal access (R38 art. 22.1): only `REVOKED` workers; read-only, `portal_access_until = now + 90 días`; replaces a previous one. `400 VALIDATION_ERROR` if not `REVOKED`; `404` worker of another admin; `409` email used by another worker of the admin (`personal_email` or a valid `portal_access_email`). Admin command `workers_grant_portal_access` (TASK-ADMIN-20). |
 | `DELETE /workers/:id/portal-access` | **API TASK-27, en implementación.** `204`; removes it before it expires. Admin command `workers_revoke_portal_access`. |
+| `GET /workers/telemetry-health?stale_hours&since_days&limit` | **API TASK-35 (TASK-ADMIN-25).** Admin endpoint, envelope `{ data }`. Returns `{ generated_at, stale_hours, since_days, active_without_data: { total, workers: [{ id, name, last_telemetry_at, active_since }] }, recent_rejections: { total, workers: [{ id, name, decision, decided_at, consent_version }] } }`. `stale_hours` 1–168 (default 24), `since_days` 1–90 (default 7), `limit` 1–200 (default 50). `400 VALIDATION_ERROR` on out of range query params; `401`/`403`; `403 TERMS_NOT_ACCEPTED`. Admin command `workers_telemetry_health`. |
 
 `WorkerResponse`:
 ```jsonc

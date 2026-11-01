@@ -21,10 +21,19 @@ import {
   workplacesList,
   attendanceBoard,
   attendanceCorrections,
+  workersTelemetryHealth,
+  workersGet,
 } from '../api/tauri-bridge';
-import type { AttendanceState } from '../api/types';
+import type { AttendanceState, TelemetryHealthResponse } from '../api/types';
 import { describeError, errorIs } from '../lib/errors';
 import { boardKpis } from '../lib/attendance';
+import {
+  formatLastTelemetry,
+  formatRejectionDetail,
+  formatRemainingCount,
+  formatWithoutDataAlertLabel,
+  formatRejectionsAlertLabel,
+} from '../lib/telemetryHealth';
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
 import { CreateWorkerModal } from './CreateWorkerModal';
@@ -46,6 +55,7 @@ import {
   Cpu,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Building2,
   Clock,
   AlertTriangle,
@@ -152,6 +162,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [lateStartCount, setLateStartCount] = useState<number>(0);
   const [pendingCorrectionsCount, setPendingCorrectionsCount] = useState<number>(0);
 
+  // Telemetry Health Alerts (RF-ADMIN-25-2, RF-ADMIN-25-3, RF-ADMIN-25-4)
+  const [telemetryHealth, setTelemetryHealth] = useState<TelemetryHealthResponse | null>(null);
+  const [expandedWithoutData, setExpandedWithoutData] = useState<boolean>(false);
+  const [expandedRejections, setExpandedRejections] = useState<boolean>(false);
+
   // Master Crypto Key State (read-only here; managed in Bóveda, TASK-ADMIN-11)
   const [masterPubKey, setMasterPubKey] = useState<string>('Cargando clave...');
   const [copiedKey, setCopiedKey] = useState<boolean>(false);
@@ -197,6 +212,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       attendanceCorrections({ status: 'PENDING' })
         .then(res => setPendingCorrectionsCount(res.pagination?.total ?? res.data.length))
         .catch(e => console.warn('Failed to load pending corrections', e));
+      workersTelemetryHealth()
+        .then(setTelemetryHealth)
+        .catch(e => {
+          console.warn('Failed to load telemetry health', e);
+          setTelemetryHealth(null);
+        });
       const [k, result] = await Promise.all([
         fetchKpiSummary(),
         getWorkersPage({
@@ -286,6 +307,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
     navigator.clipboard.writeText(masterPubKey);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 2000);
+  };
+
+  /** Opens worker detail modal (W4) from an alert list item (RF-ADMIN-25-3). */
+  const handleOpenWorkerFromAlert = async (workerId: string) => {
+    const existing = workers.find(w => w.id === workerId);
+    if (existing) {
+      setDetailWorker(existing);
+      return;
+    }
+    try {
+      const raw = await workersGet(workerId);
+      setDetailWorker(toWorkerItem(raw));
+    } catch (e) {
+      console.warn('Failed to load worker detail from alert', e);
+    }
   };
 
   return (
@@ -488,16 +524,148 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center">
+        <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-start gap-4">
+          <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center shrink-0">
             <ShieldCheck className="w-6 h-6" />
           </div>
-          <div className="text-xs space-y-0.5">
+          <div className="text-xs space-y-1 min-w-0 flex-1">
             <p className="text-muted font-medium">Alertas</p>
             {kpis?.keyMismatch && <p className="text-danger font-semibold">Llave del servidor distinta a la local (K2)</p>}
             <p className={kpis?.expiringCodes ? 'text-warning font-semibold' : 'text-fg'}>
               {kpis?.expiringCodes ?? 0} código(s) por vencer (&lt; 2 h)
             </p>
+
+            {/* RF-ADMIN-25-2, RF-ADMIN-25-3, RF-ADMIN-25-4: Active without data */}
+            {telemetryHealth ? (
+              <div>
+                {telemetryHealth.active_without_data.total > 0 ? (
+                  <button
+                    type="button"
+                    aria-expanded={expandedWithoutData}
+                    onClick={() => setExpandedWithoutData(v => !v)}
+                    className="text-left text-warning font-semibold hover:underline flex items-center gap-1 cursor-pointer w-full"
+                  >
+                    <span>
+                      {formatWithoutDataAlertLabel(
+                        telemetryHealth.active_without_data.total,
+                        telemetryHealth.stale_hours
+                      )}
+                    </span>
+                    {expandedWithoutData ? (
+                      <ChevronDown className="w-3 h-3 shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-3 h-3 shrink-0" />
+                    )}
+                  </button>
+                ) : (
+                  <p className="text-fg">
+                    {formatWithoutDataAlertLabel(0, telemetryHealth.stale_hours)}
+                  </p>
+                )}
+                {expandedWithoutData && telemetryHealth.active_without_data.total > 0 && (
+                  <ul className="mt-1 space-y-1 pl-2 border-l border-default text-[11px] max-h-40 overflow-y-auto">
+                    {telemetryHealth.active_without_data.workers.map(w => (
+                      <li key={w.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenWorkerFromAlert(w.id)}
+                          className="text-left hover:underline text-fg font-medium cursor-pointer"
+                        >
+                          {w.name}
+                          <span className="text-muted font-normal ml-1">
+                            ({formatLastTelemetry(w.last_telemetry_at)})
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                    {formatRemainingCount(
+                      telemetryHealth.active_without_data.total,
+                      telemetryHealth.active_without_data.workers.length
+                    ) && (
+                      <li className="text-muted italic">
+                        {formatRemainingCount(
+                          telemetryHealth.active_without_data.total,
+                          telemetryHealth.active_without_data.workers.length
+                        )}
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <p
+                className="text-fg cursor-help"
+                title="No se pudo cargar la información de salud de telemetría"
+              >
+                {formatWithoutDataAlertLabel(null, 24)}
+              </p>
+            )}
+
+            {/* RF-ADMIN-25-2, RF-ADMIN-25-3, RF-ADMIN-25-4: Recent rejections */}
+            {telemetryHealth ? (
+              <div>
+                {telemetryHealth.recent_rejections.total > 0 ? (
+                  <button
+                    type="button"
+                    aria-expanded={expandedRejections}
+                    onClick={() => setExpandedRejections(v => !v)}
+                    className="text-left text-warning font-semibold hover:underline flex items-center gap-1 cursor-pointer w-full"
+                  >
+                    <span>
+                      {formatRejectionsAlertLabel(
+                        telemetryHealth.recent_rejections.total,
+                        telemetryHealth.since_days
+                      )}
+                    </span>
+                    {expandedRejections ? (
+                      <ChevronDown className="w-3 h-3 shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-3 h-3 shrink-0" />
+                    )}
+                  </button>
+                ) : (
+                  <p className="text-fg">
+                    {formatRejectionsAlertLabel(0, telemetryHealth.since_days)}
+                  </p>
+                )}
+                {expandedRejections && telemetryHealth.recent_rejections.total > 0 && (
+                  <ul className="mt-1 space-y-1 pl-2 border-l border-default text-[11px] max-h-40 overflow-y-auto">
+                    {telemetryHealth.recent_rejections.workers.map(w => (
+                      <li key={w.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenWorkerFromAlert(w.id)}
+                          className="text-left hover:underline text-fg font-medium cursor-pointer"
+                        >
+                          {w.name}
+                          <span className="text-muted font-normal ml-1">
+                            ({formatRejectionDetail(w)})
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                    {formatRemainingCount(
+                      telemetryHealth.recent_rejections.total,
+                      telemetryHealth.recent_rejections.workers.length
+                    ) && (
+                      <li className="text-muted italic">
+                        {formatRemainingCount(
+                          telemetryHealth.recent_rejections.total,
+                          telemetryHealth.recent_rejections.workers.length
+                        )}
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <p
+                className="text-fg cursor-help"
+                title="No se pudo cargar la información de salud de telemetría"
+              >
+                {formatRejectionsAlertLabel(null, 7)}
+              </p>
+            )}
           </div>
         </div>
       </div>

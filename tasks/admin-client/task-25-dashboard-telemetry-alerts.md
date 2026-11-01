@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-25` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Depende de** | API TASK-35 (`GET /workers/telemetry-health`), ADMIN-08 |
 | **Módulos Afectados** | `admin-client/src-tauri/src/commands/` (comando nuevo o en `workers.rs`, registrado en `lib.rs`), `admin-client/src/` (cliente `invoke` tipado, `components/Dashboard.tsx` y su test), `.ai-context/api-contract.md`, `.ai-context/implementation-status.md` |
 | **Prioridad** | P1 |
@@ -62,4 +62,26 @@ AGENTS.md completo. No toques `worker-client/`, solo el admin.
 
 ## Reporte
 
-(pendiente)
+- **Resumen:** Se implementó el comando Tauri `workers_telemetry_health` en el cliente admin para consumir `GET /api/v1/workers/telemetry-health` (API TASK-35) con deserialización tolerante y cliente HTTP autenticado. Se integraron en la tarjeta "Alertas" del Dashboard las dos alertas dinámicas de telemetría ("N trabajador(es) activos sin datos hace más de X h" y "N rechazo(s) o retiro(s) de consentimiento (Y días)") con despliegue accesible de listas, formato R38, enlace directo al detalle W4, y degradación tolerante ("—") ante fallos. Se documentó el contrato en `.ai-context/api-contract.md` y se cerró la brecha 1 en `.ai-context/implementation-status.md`.
+- **Archivos:**
+  - `admin-client/src-tauri/src/commands/workers.rs`: DTOs `TelemetryHealthResponse`, `TelemetryHealthQuery`, comando `workers_telemetry_health` y 7 pruebas unitarias/wiremock.
+  - `admin-client/src-tauri/src/main.rs`: Registro del comando en el handler Tauri.
+  - `admin-client/src/api/types.ts`: Tipos TypeScript para telemetría health DTOs.
+  - `admin-client/src/api/tauri-bridge.ts`: Invocación tipada de `workersTelemetryHealth` con soporte fallback.
+  - `admin-client/src/lib/telemetryHealth.ts`: Funciones auxiliares puras para formato de tiempo relativo, etiquetas R38 y cálculo de alertas.
+  - `admin-client/src/components/Dashboard.tsx`: Carga tolerante de telemetría health, renderizado de alertas, acordeón accesible y apertura de detalle de trabajador W4.
+  - `admin-client/test/telemetry-health.test.mjs`: 9 pruebas unitarias verificando casos N=0, N>0, expansión, "y M más", "nunca envió datos", "—" en fallo y navegación a W4.
+  - `.ai-context/api-contract.md`: Documentación del endpoint `GET /api/v1/workers/telemetry-health`.
+  - `.ai-context/implementation-status.md`: Marcado de "Dashboard KPIs & alerts" como ✅ y cierre de brecha 1 de §5.
+  - `tasks/admin-client/task-25-dashboard-telemetry-alerts.md`: Actualización de estado y reporte final.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ limpio.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 warnings).
+  - `cargo test --workspace`: ✅ pasado (409 pruebas pasadas: 180 admin-client-core, 161 agent, 52 telemetry_crypto_core, 15 agent_ui_core, 1 agent-cli; 0 fallos).
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ pasado (133 pruebas pasadas, 0 fallos; build Vite sin errores).
+- **Decisiones:**
+  - Se modularizó el formato R38 de fechas de manera pura y autocontenida en `telemetryHealth.ts` para garantizar compatibilidad con Node ESM (`--test`) y tsc/Vite sin problemas de resolución de módulos.
+  - El test de error 401 en Rust utiliza el header/motivo `DEVICE_REVOKED` para verificar que el cliente mapea inmediatamente a sesión expirada sin disparar intentos de refresco en casos de revocación.
+  - Si `workers_telemetry_health` falla, se mantiene el principio de fallo tolerante (RF-ADMIN-25-4): el resto del dashboard sigue operando y las alertas muestran "—" con descripción accesible en tooltip.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.
