@@ -198,6 +198,12 @@ Consent record:
   "ip_address", "user_agent", "app_version", "created_at" }
 ```
 
+### Telemetry health — `GET /workers/telemetry-health?stale_hours&since_days&limit` → 200 (API TASK-35, ADMIN-25)
+
+Admin only (`403 TERMS_NOT_ACCEPTED` like other admin routes). Defaults 24 h / 7 days / 50; out of range ⇒ `400`.
+`{data: {generated_at, stale_hours, since_days, active_without_data: {total, workers: [{id, name, last_telemetry_at|null, active_since}]}, recent_rejections: {total, workers: [{id, name, decision: REJECTED|WITHDRAWN, decided_at, consent_version}]}}}`.
+`active_without_data`: `status = ACTIVE`, `telemetry_status = ACCEPTED`, no batch received for `stale_hours` and telemetry active for longer than that. `recent_rejections`: latest consent record is a rejection/withdrawal within `since_days`. Only server timestamps; never telemetry content. Command `workers_telemetry_health`.
+
 ## 6. Workers (agent side)
 
 ### Enroll — `POST /workers/enroll` (public)
