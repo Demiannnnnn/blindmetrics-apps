@@ -21,10 +21,16 @@ import {
   workplacesList,
   attendanceBoard,
   attendanceCorrections,
+  workersTelemetryHealth,
+  workersGet,
 } from '../api/tauri-bridge';
-import type { AttendanceState } from '../api/types';
+import type { AttendanceState, TelemetryHealthResponse } from '../api/types';
 import { describeError, errorIs } from '../lib/errors';
 import { boardKpis } from '../lib/attendance';
+import {
+  TelemetryHealthAlerts,
+  resolveWorkerFromAlert,
+} from '../lib/telemetryHealth';
 import { EmployeeCard } from './EmployeeCard';
 import { EnrollmentModal } from './EnrollmentModal';
 import { CreateWorkerModal } from './CreateWorkerModal';
@@ -152,6 +158,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [lateStartCount, setLateStartCount] = useState<number>(0);
   const [pendingCorrectionsCount, setPendingCorrectionsCount] = useState<number>(0);
 
+  // Telemetry Health Alerts (RF-ADMIN-25-2, RF-ADMIN-25-3, RF-ADMIN-25-4)
+  const [telemetryHealth, setTelemetryHealth] = useState<TelemetryHealthResponse | null>(null);
+  const [expandedWithoutData, setExpandedWithoutData] = useState<boolean>(false);
+  const [expandedRejections, setExpandedRejections] = useState<boolean>(false);
+
   // Master Crypto Key State (read-only here; managed in Bóveda, TASK-ADMIN-11)
   const [masterPubKey, setMasterPubKey] = useState<string>('Cargando clave...');
   const [copiedKey, setCopiedKey] = useState<boolean>(false);
@@ -197,6 +208,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       attendanceCorrections({ status: 'PENDING' })
         .then(res => setPendingCorrectionsCount(res.pagination?.total ?? res.data.length))
         .catch(e => console.warn('Failed to load pending corrections', e));
+      workersTelemetryHealth()
+        .then(setTelemetryHealth)
+        .catch(e => {
+          console.warn('Failed to load telemetry health', e);
+          setTelemetryHealth(null);
+        });
       const [k, result] = await Promise.all([
         fetchKpiSummary(),
         getWorkersPage({
@@ -286,6 +303,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     navigator.clipboard.writeText(masterPubKey);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 2000);
+  };
+
+  /** Opens worker detail modal (W4) from an alert list item (RF-ADMIN-25-3). */
+  const handleOpenWorkerFromAlert = async (workerId: string) => {
+    const worker = await resolveWorkerFromAlert(workerId, workers, async id => {
+      const raw = await workersGet(id);
+      return toWorkerItem(raw);
+    });
+    if (worker) {
+      setDetailWorker(worker);
+    }
   };
 
   return (
@@ -488,16 +516,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center">
+        <div className="bg-surface-subtle border border-default rounded-card p-4 flex items-start gap-4">
+          <div className="w-12 h-12 rounded-card bg-accent-subtle text-accent flex items-center justify-center shrink-0">
             <ShieldCheck className="w-6 h-6" />
           </div>
-          <div className="text-xs space-y-0.5">
+          <div className="text-xs space-y-1 min-w-0 flex-1">
             <p className="text-muted font-medium">Alertas</p>
             {kpis?.keyMismatch && <p className="text-danger font-semibold">Llave del servidor distinta a la local (K2)</p>}
             <p className={kpis?.expiringCodes ? 'text-warning font-semibold' : 'text-fg'}>
               {kpis?.expiringCodes ?? 0} código(s) por vencer (&lt; 2 h)
             </p>
+
+            {/* RF-ADMIN-25-2, RF-ADMIN-25-3, RF-ADMIN-25-4: Telemetry Health Alerts */}
+            <TelemetryHealthAlerts
+              telemetryHealth={telemetryHealth}
+              expandedWithoutData={expandedWithoutData}
+              onToggleWithoutData={() => setExpandedWithoutData(v => !v)}
+              expandedRejections={expandedRejections}
+              onToggleRejections={() => setExpandedRejections(v => !v)}
+              onOpenWorker={handleOpenWorkerFromAlert}
+            />
           </div>
         </div>
       </div>

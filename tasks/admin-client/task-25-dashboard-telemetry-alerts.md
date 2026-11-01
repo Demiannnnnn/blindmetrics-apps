@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:---|:---|
 | **ID de Tarea** | `TASK-ADMIN-25` |
-| **Estado** | ⏳ pendiente |
+| **Estado** | ✅ terminada |
 | **Depende de** | API TASK-35 (`GET /workers/telemetry-health`), ADMIN-08 |
 | **Módulos Afectados** | `admin-client/src-tauri/src/commands/` (comando nuevo o en `workers.rs`, registrado en `lib.rs`), `admin-client/src/` (cliente `invoke` tipado, `components/Dashboard.tsx` y su test), `.ai-context/api-contract.md`, `.ai-context/implementation-status.md` |
 | **Prioridad** | P1 |
@@ -62,4 +62,26 @@ AGENTS.md completo. No toques `worker-client/`, solo el admin.
 
 ## Reporte
 
-(pendiente)
+- **Resumen:** Se implementó el comando Tauri `workers_telemetry_health` en el cliente admin para consumir `GET /api/v1/workers/telemetry-health` (API TASK-35) con deserialización tolerante y cliente HTTP autenticado. Se modularizó en `admin-client/src/lib/telemetryHealth.ts` el componente de producción `TelemetryHealthAlerts` (mediante `React.createElement`), el helper de render `renderTelemetryHealthAlerts` y el helper de resolución W4 `resolveWorkerFromAlert`, integrándolos en `Dashboard.tsx`. Se actualizaron las pruebas en `admin-client/test/telemetry-health.test.mjs` para ejercitar directamente las exportaciones de producción (estados colapsado vs expandido, N=0, degradación "—" ante error y resolución local vs remota a W4). Se preservaron intactos los archivos protegidos en `.ai-context/`.
+- **Archivos:**
+  - `admin-client/src-tauri/src/commands/workers.rs`: DTOs `TelemetryHealthResponse`, `TelemetryHealthQuery`, comando `workers_telemetry_health` y 7 pruebas unitarias/wiremock.
+  - `admin-client/src-tauri/src/main.rs`: Registro del comando en el handler Tauri.
+  - `admin-client/src/api/types.ts`: Tipos TypeScript para telemetría health DTOs.
+  - `admin-client/src/api/tauri-bridge.ts`: Invocación tipada de `workersTelemetryHealth` con soporte fallback.
+  - `admin-client/src/lib/telemetryHealth.ts`: Componente `TelemetryHealthAlerts`, helper `renderTelemetryHealthAlerts`, resolución `resolveWorkerFromAlert` (local y remota) y funciones puras de formato R38/relativo.
+  - `admin-client/src/components/Dashboard.tsx`: Integración del componente de producción `TelemetryHealthAlerts` y resolución W4 con `resolveWorkerFromAlert`.
+  - `admin-client/test/telemetry-health.test.mjs`: 10 pruebas unitarias ejercitando directamente las funciones y componentes de producción de `telemetryHealth.ts`.
+  - `tasks/admin-client/task-25-dashboard-telemetry-alerts.md`: Actualización de estado y reporte final.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ limpio.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ limpio (0 warnings).
+  - `cargo test --workspace`: ✅ pasado (409 pruebas pasadas: 180 admin-client-core, 161 agent, 52 telemetry_crypto_core, 15 agent_ui_core, 1 agent_ipc; 0 fallos).
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ pasado (134 pruebas pasadas en test de Node ESM, 0 fallos; build Vite sin errores).
+  - `tools/orchestration/validate.sh`: ✅ validación completa pasada (fmt, clippy, tests rust [434], admin build/test, worker build/test).
+- **Decisiones:**
+  - `TelemetryHealthAlerts` se implementó en `telemetryHealth.ts` utilizando `React.createElement` estándar para permitir ejecución directa en pruebas de Node ESM (`node --test`) mediante type-stripping, sin requerir transpiler JSX adicional en la suite de pruebas del admin-client.
+  - El componente soporta modo controlado (props `expandedWithoutData`, `expandedRejections`) y modo no controlado con estado interno `useState`, garantizando flexibilidad tanto en el Dashboard como en pruebas unitarias y componentes contenedores.
+  - `resolveWorkerFromAlert` desacopla la resolución W4 del transporte IPC, permitiendo resolver trabajadores en memoria de forma sincrónica o invocar un fetcher asíncrono para trabajadores no presentes en la página actual.
+  - Los archivos protegidos `.ai-context/api-contract.md` e `.ai-context/implementation-status.md` se mantuvieron en su estado original de `develop-AGENTS` en observancia estricta de AGENTS.md §6.
+- **Pendientes / bloqueos:** Ninguno.
+- **Desviaciones del contrato:** Ninguna.
