@@ -94,8 +94,8 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 
 Items 4, 6 and 7 must be fixed before a production release; the rest are limitations.
 
-1. Dashboard alerts for rejections / "ACTIVE without data 24 h" need a `last_seen`/last-decision field in the API (ADMIN-08).
-2. The agent cannot decode a QR from the camera or an image; the payload is pasted (AGENT-08).
+1. Dashboard alerts for rejections / "ACTIVE without data 24 h" need a `last_seen`/last-decision field in the API (ADMIN-08) — in progress: API TASK-35 + ADMIN-25.
+2. ~~The agent cannot decode a QR~~ — image/clipboard decoding closed by AGENT-14 (decoded locally); live camera capture is still not supported.
 3. ~~Google sign-in without cancel~~ — closed by ADMIN-19 (2026-10-20).
 4. ~~Security: unverified biometric unlock~~ — closed by ADMIN-13 (button and command removed).
 5. ~~Admin WebView CSP allowed `unsafe-inline`/`unsafe-eval`~~ — closed by ADMIN-18 (2026-10-19): production `script-src 'self'`, `devCsp` only for `tauri dev`, test scanning `dist/` for `eval`/`new Function`. ADMIN-18 also fixed correction times sent as UTC (`zonedLocalToUtcIso`).
