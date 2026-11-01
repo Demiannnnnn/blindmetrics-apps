@@ -11,6 +11,9 @@ import {
   formatRemainingCount,
   formatWithoutDataAlertLabel,
   formatRejectionsAlertLabel,
+  resolveWorkerFromAlert,
+  TelemetryHealthAlerts,
+  renderTelemetryHealthAlerts,
 } from '../src/lib/telemetryHealth.ts';
 
 test('telemetry health: formatWithoutDataAlertLabel handles counts, dynamic hours and error state (RF-ADMIN-25-2, RF-ADMIN-25-4)', () => {
@@ -102,218 +105,158 @@ test('telemetry health: formatRemainingCount computes "y M más" correctly (RF-A
   assert.equal(formatRemainingCount(0, 0), null);
 });
 
-test('telemetry health: UI markup renders counts > 0 with warning color, accessible buttons, and worker list with "y M más"', () => {
-  const healthData = {
-    generated_at: '2026-10-31T22:00:00Z',
-    stale_hours: 24,
-    since_days: 7,
-    active_without_data: {
-      total: 3,
-      workers: [
-        {
-          id: 'w-1',
-          name: 'Ana Díaz',
-          last_telemetry_at: '2026-10-30T10:00:00Z',
-          active_since: '2026-10-20T08:00:00Z',
-        },
-        {
-          id: 'w-2',
-          name: 'Bernardo O\'Higgins',
-          last_telemetry_at: null,
-          active_since: '2026-10-22T09:00:00Z',
-        },
-      ],
-    },
-    recent_rejections: {
-      total: 1,
-      workers: [
-        {
-          id: 'w-3',
-          name: 'Carlos Valenzuela',
-          decision: 'REJECTED',
-          decided_at: '2026-10-25T14:30:00Z',
-          consent_version: 3,
-        },
-      ],
-    },
-  };
+const sampleHealthData = {
+  generated_at: '2026-10-31T22:00:00Z',
+  stale_hours: 24,
+  since_days: 7,
+  active_without_data: {
+    total: 3,
+    workers: [
+      {
+        id: 'w-1',
+        name: 'Ana Díaz',
+        last_telemetry_at: '2026-10-30T10:00:00Z',
+        active_since: '2026-10-20T08:00:00Z',
+      },
+      {
+        id: 'w-2',
+        name: "Bernardo O'Higgins",
+        last_telemetry_at: null,
+        active_since: '2026-10-22T09:00:00Z',
+      },
+    ],
+  },
+  recent_rejections: {
+    total: 1,
+    workers: [
+      {
+        id: 'w-3',
+        name: 'Carlos Valenzuela',
+        decision: 'REJECTED',
+        decided_at: '2026-10-25T14:30:00Z',
+        consent_version: 3,
+      },
+    ],
+  },
+};
 
-  // Render a simulated alert section to static HTML to verify markup, classes and accessibility.
-  const element = React.createElement(
-    'div',
-    { className: 'alerts-container' },
-    // Active without data line (N > 0)
-    React.createElement(
-      'button',
-      {
-        type: 'button',
-        'aria-expanded': true,
-        className: 'text-warning font-semibold',
-      },
-      formatWithoutDataAlertLabel(
-        healthData.active_without_data.total,
-        healthData.stale_hours,
-      ),
-    ),
-    // Expanded list for active without data
-    React.createElement(
-      'ul',
-      null,
-      ...healthData.active_without_data.workers.map(w =>
-        React.createElement(
-          'li',
-          { key: w.id },
-          React.createElement(
-            'button',
-            { type: 'button', 'data-worker-id': w.id },
-            w.name,
-            ` (${formatLastTelemetry(w.last_telemetry_at)})`,
-          ),
-        ),
-      ),
-      formatRemainingCount(
-        healthData.active_without_data.total,
-        healthData.active_without_data.workers.length,
-      ) &&
-        React.createElement(
-          'li',
-          null,
-          formatRemainingCount(
-            healthData.active_without_data.total,
-            healthData.active_without_data.workers.length,
-          ),
-        ),
-    ),
-    // Recent rejections line (N > 0)
-    React.createElement(
-      'button',
-      {
-        type: 'button',
-        'aria-expanded': true,
-        className: 'text-warning font-semibold',
-      },
-      formatRejectionsAlertLabel(
-        healthData.recent_rejections.total,
-        healthData.since_days,
-      ),
-    ),
-    // Expanded list for recent rejections
-    React.createElement(
-      'ul',
-      null,
-      ...healthData.recent_rejections.workers.map(w =>
-        React.createElement(
-          'li',
-          { key: w.id },
-          React.createElement(
-            'button',
-            { type: 'button', 'data-worker-id': w.id },
-            w.name,
-            ` (${formatRejectionDetail(w)})`,
-          ),
-        ),
-      ),
-    ),
-  );
+test('telemetry health: TelemetryHealthAlerts production component renders counts > 0 in collapsed state (RF-ADMIN-25-2, RF-ADMIN-25-3)', () => {
+  const element = React.createElement(TelemetryHealthAlerts, {
+    telemetryHealth: sampleHealthData,
+    expandedWithoutData: false,
+    expandedRejections: false,
+  });
 
   const html = renderToStaticMarkup(element);
 
-  // Verifications:
-  // 1. Warning colors
-  assert.ok(html.includes('text-warning font-semibold'));
-  // 2. Button accessibility
-  assert.ok(html.includes('aria-expanded="true"'));
-  assert.ok(html.includes('type="button"'));
-  // 3. Dynamic hours and days
+  // Verifications for collapsed state:
+  assert.ok(html.includes('text-warning font-semibold'), 'must use warning color');
+  assert.ok(html.includes('aria-expanded="false"'), 'both buttons must have aria-expanded="false"');
   assert.ok(html.includes('3 trabajador(es) activos sin datos hace más de 24 h'));
   assert.ok(html.includes('1 rechazo(s) o retiro(s) de consentimiento (7 días)'));
-  // 4. "nunca envió datos" and "último dato hace"
-  assert.ok(html.includes('nunca envió datos'));
-  assert.ok(html.includes('último dato hace'));
-  // 5. Worker names
+  // Lists must NOT be rendered when collapsed
+  assert.ok(!html.includes('<ul'), 'worker lists should not be rendered when collapsed');
+  assert.ok(!html.includes('Ana Díaz'), 'worker names should not be visible when collapsed');
+});
+
+test('telemetry health: TelemetryHealthAlerts production component renders counts > 0 in expanded state with worker list and "y M más" (RF-ADMIN-25-2, RF-ADMIN-25-3)', () => {
+  const element = renderTelemetryHealthAlerts({
+    telemetryHealth: sampleHealthData,
+    expandedWithoutData: true,
+    expandedRejections: true,
+  });
+
+  const html = renderToStaticMarkup(element);
+
+  // Verifications for expanded state:
+  assert.ok(html.includes('text-warning font-semibold'), 'must use warning color');
+  assert.ok(html.includes('aria-expanded="true"'), 'buttons must have aria-expanded="true"');
+  assert.ok(html.includes('type="button"'), 'must use accessible buttons');
+  // Dynamic hours and days
+  assert.ok(html.includes('3 trabajador(es) activos sin datos hace más de 24 h'));
+  assert.ok(html.includes('1 rechazo(s) o retiro(s) de consentimiento (7 días)'));
+  // Worker names and status
   assert.ok(html.includes('Ana Díaz'));
   assert.ok(html.includes('Bernardo O&#x27;Higgins') || html.includes("Bernardo O'Higgins"));
   assert.ok(html.includes('Carlos Valenzuela'));
-  // 6. "y M más" when total (3) > length (2)
+  assert.ok(html.includes('nunca envió datos'));
+  assert.ok(html.includes('último dato hace'));
+  // "y M más"
   assert.ok(html.includes('y 1 más'));
-  // 7. Rejection detail: Rechazó, date, version
+  // Rejection detail
   assert.ok(html.includes('Rechazó'));
   assert.ok(html.includes('25/10/26'));
   assert.ok(html.includes('v3'));
 });
 
-test('telemetry health: UI markup renders counts = 0 with normal color and no expandable button', () => {
-  const element = React.createElement(
-    'div',
-    null,
-    React.createElement(
-      'p',
-      { className: 'text-fg' },
-      formatWithoutDataAlertLabel(0, 24),
-    ),
-    React.createElement(
-      'p',
-      { className: 'text-fg' },
-      formatRejectionsAlertLabel(0, 7),
-    ),
-  );
+test('telemetry health: TelemetryHealthAlerts renders counts = 0 with normal color and no expandable button (RF-ADMIN-25-2)', () => {
+  const zeroHealthData = {
+    generated_at: '2026-10-31T22:00:00Z',
+    stale_hours: 24,
+    since_days: 7,
+    active_without_data: { total: 0, workers: [] },
+    recent_rejections: { total: 0, workers: [] },
+  };
+
+  const element = React.createElement(TelemetryHealthAlerts, {
+    telemetryHealth: zeroHealthData,
+  });
 
   const html = renderToStaticMarkup(element);
 
-  assert.ok(!html.includes('text-warning'));
-  assert.ok(!html.includes('aria-expanded'));
-  assert.ok(html.includes('text-fg'));
+  assert.ok(!html.includes('text-warning'), 'must not use warning color when count is 0');
+  assert.ok(!html.includes('aria-expanded'), 'must not render expandable button when count is 0');
+  assert.ok(html.includes('text-fg'), 'must use normal text color');
   assert.ok(html.includes('0 trabajador(es) activos sin datos hace más de 24 h'));
   assert.ok(html.includes('0 rechazo(s) o retiro(s) de consentimiento (7 días)'));
 });
 
-test('telemetry health: UI markup renders "—" with descriptive title when API call fails (RF-ADMIN-25-4)', () => {
-  const titleText = 'No se pudo cargar la información de salud de telemetría';
-  const element = React.createElement(
-    'div',
-    null,
-    React.createElement(
-      'p',
-      { className: 'text-fg cursor-help', title: titleText },
-      formatWithoutDataAlertLabel(null, 24),
-    ),
-    React.createElement(
-      'p',
-      { className: 'text-fg cursor-help', title: titleText },
-      formatRejectionsAlertLabel(null, 7),
-    ),
-  );
+test('telemetry health: TelemetryHealthAlerts renders "—" with descriptive title when API call fails (RF-ADMIN-25-4)', () => {
+  const element = React.createElement(TelemetryHealthAlerts, {
+    telemetryHealth: null,
+  });
 
   const html = renderToStaticMarkup(element);
 
   assert.ok(html.includes('title="No se pudo cargar la información de salud de telemetría"'));
   assert.ok(html.includes('— trabajador(es) activos sin datos hace más de 24 h'));
   assert.ok(html.includes('— rechazo(s) o retiro(s) de consentimiento (7 días)'));
-  assert.ok(!html.includes('0 trabajador(es)'));
-  assert.ok(!html.includes('0 rechazo(s)'));
+  assert.ok(!html.includes('0 trabajador(es)'), 'must not display false 0');
+  assert.ok(!html.includes('0 rechazo(s)'), 'must not display false 0');
+  assert.ok(!html.includes('text-warning'), 'must not use warning color on error');
 });
 
-test('telemetry health: W4 navigation mechanism opens local or remote worker detail', async () => {
+test('telemetry health: resolveWorkerFromAlert resolves local worker directly and fetches remote worker if absent (RF-ADMIN-25-3)', async () => {
   const localWorkers = [
-    { id: 'w-local', name: 'Local Worker', status: 'ACTIVE' },
+    { id: 'w-local-1', name: 'Ana Díaz Local', status: 'ACTIVE' },
   ];
-  let selectedDetail = null;
-
-  const handleOpenWorkerFromAlert = async (workerId) => {
-    const existing = localWorkers.find(w => w.id === workerId);
-    if (existing) {
-      selectedDetail = existing;
-      return;
+  let remoteFetchCalls = 0;
+  const fetchRemote = async (id) => {
+    remoteFetchCalls++;
+    if (id === 'w-remote-2') {
+      return { id: 'w-remote-2', name: 'Carlos Valenzuela Remote', status: 'ACTIVE' };
     }
-    // Simulation of remote workersGet
-    selectedDetail = { id: workerId, name: 'Remote Worker', status: 'ACTIVE' };
+    throw new Error('Worker not found');
   };
 
-  await handleOpenWorkerFromAlert('w-local');
-  assert.equal(selectedDetail?.id, 'w-local');
-  assert.equal(selectedDetail?.name, 'Local Worker');
+  // 1. Local resolution: found in localWorkers, remote fetch NOT invoked
+  const localResult = await resolveWorkerFromAlert('w-local-1', localWorkers, fetchRemote);
+  assert.equal(localResult?.id, 'w-local-1');
+  assert.equal(localResult?.name, 'Ana Díaz Local');
+  assert.equal(remoteFetchCalls, 0, 'remote fetcher must not be called when worker exists locally');
 
-  await handleOpenWorkerFromAlert('w-remote');
-  assert.equal(selectedDetail?.id, 'w-remote');
-  assert.equal(selectedDetail?.name, 'Remote Worker');
+  // 2. Remote resolution: missing from localWorkers, calls remote fetcher
+  const remoteResult = await resolveWorkerFromAlert('w-remote-2', localWorkers, fetchRemote);
+  assert.equal(remoteResult?.id, 'w-remote-2');
+  assert.equal(remoteResult?.name, 'Carlos Valenzuela Remote');
+  assert.equal(remoteFetchCalls, 1, 'remote fetcher must be called when worker is absent locally');
+
+  // 3. Graceful error handling: remote fetcher fails, returns null
+  const missingResult = await resolveWorkerFromAlert('w-nonexistent', localWorkers, fetchRemote);
+  assert.equal(missingResult, null, 'returns null when remote fetcher fails');
+  assert.equal(remoteFetchCalls, 2);
+
+  // 4. Missing remote fetcher: returns null without throwing
+  const noFetcherResult = await resolveWorkerFromAlert('w-absent', localWorkers);
+  assert.equal(noFetcherResult, null, 'returns null if fetchRemote is omitted');
 });

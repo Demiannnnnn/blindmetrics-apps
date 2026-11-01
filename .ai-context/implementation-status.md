@@ -73,7 +73,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 | **Enrollment package v2** | ✅ | Before showing anything the Rust side recomputes the manifest commitment and safety code from the **local** public key and the returned worker and compares them with the server's `commitment`, `safety_code` and decoded `qr_payload` (API URL validated); any mismatch ⇒ `ENROLLMENT_PACKAGE_MISMATCH`, nothing displayed. The QR renders the verified `qr_payload`. | ADMIN-09 |
 | Regenerate / move device | ✅ | `409 ENROLLMENT_ALREADY_COMPLETED` with hint `REVOKE_FIRST` ⇒ dialog that explains revoking the current device first. | ADMIN-09 |
 | **Consent evidence** | ✅ | `/workers/:id/consent-records?per_page=100` shows decision (`ACCEPTED`/`REJECTED`/`WITHDRAWN`/`NARROWED`) and accepted categories; CSV with new columns and formula-injection-safe cells. | ADMIN-09 |
-| Dashboard KPIs & alerts | ✅ | Counts per status, keystore state, K2 mismatch, server backup configured, codes expiring < 2 h, "ACTIVE sin datos" and consent rejections/withdrawals alerts with details list (TASK-ADMIN-25). | ADMIN-08, ADMIN-25 |
+| Dashboard KPIs & alerts | 🟡 | Counts per status, keystore state, K2 mismatch, server backup configured, codes expiring < 2 h. Missing: rejections and "ACTIVE without data 24 h" — API exposes no `last_seen`/last decision. | ADMIN-08 |
 | Parallel decryption & telemetry fetch | ✅ | `rayon` in memory, tolerant to corrupted records; `GET /telemetry/{category}` with validated category/UUID/subcategory and percent-encoded dates. | ADMIN-04, INT-02 |
 | Charts, network explorer, screenshots, files, field map | ✅ | Real decrypted data, LTTB, blur mode, DP-04 lock for OFFICE. | ADMIN-05, ADMIN-06 |
 | Auto-lock & RAM purge | ✅ | 5–30 min, zeroize + purge (SEC-11), password unlock with revocation after 5 failures, Google-only accounts can unlock by signing in with Google again. The unverified biometric unlock (gap since ADMIN-07) was removed by ADMIN-13 (2026-10-11): unlock is password or Google only. | ADMIN-07, ADMIN-10 |
@@ -94,7 +94,7 @@ Legend: ✅ real & correct · 🟡 partial / has defects · 🎭 stub or mock (l
 
 Items 4, 6 and 7 must be fixed before a production release; the rest are limitations.
 
-1. ~~Dashboard alerts for rejections / "ACTIVE without data 24 h"~~ — closed by ADMIN-25 (API TASK-35 endpoint `GET /workers/telemetry-health`).
+1. Dashboard alerts for rejections / "ACTIVE without data 24 h" need a `last_seen`/last-decision field in the API (ADMIN-08) — in progress: API TASK-35 + ADMIN-25.
 2. ~~The agent cannot decode a QR~~ — image/clipboard decoding closed by AGENT-14 (decoded locally); live camera capture is still not supported.
 3. ~~Google sign-in without cancel~~ — closed by ADMIN-19 (2026-10-20).
 4. ~~Security: unverified biometric unlock~~ — closed by ADMIN-13 (button and command removed).
