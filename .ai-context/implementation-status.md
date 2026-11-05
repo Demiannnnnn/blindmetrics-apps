@@ -127,7 +127,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Worker: consent history in *Mis datos* (own `consent-records`, IPC `CONSENT_HISTORY`; IP/user agent not forwarded) | ✅ | AGENT-17 (2026-10-21; spec §6 item that was missing) |
 | Admin: W1 workplace / work-mode filters sent to `GET /workers` (server-side filtering and pagination, API TASK-33); no worker cap | ✅ | ADMIN-24 (2026-10-23; replaces the local stopgap of ADMIN-23) |
 | `telemetry-api` contract v3 (attendance, legal, employer, emails, reports/exports) | ✅ | API TASK-18..23 (merged 2026-10-16) |
-| `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ❌ | web tasks (to be written) |
+| `telemetry-web`: receipt verification page, worker secondary login, inspection portal | ✅ | TASK-WEB-08, TASK-WEB-09, TASK-WEB-10 (telemetry-web `tasks/README.md`) |
 | DT certification and authorization | ❌ | Owner decision (`docs/legal/marco-legal-cl.md` §8) |
 
 - 2026-10-19: **INT-04 merged** — the worker app lives in `worker-client/` (window at its root + `src-tauri/`, service in `service/`, IPC in `ipc/`), like `admin-client/`; package names unchanged; `npm run tauri build` in each app builds it (worker: sidecar service included). **ADMIN-18 merged** earlier the same day. Known macOS-only test race in `agent-ui-core` → INT-06.
