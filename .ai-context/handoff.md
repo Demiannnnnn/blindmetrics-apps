@@ -51,6 +51,7 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
 - Whether/when to start DT certification + authorization (R38 arts. 64–69).
 - System email account (non-personal sender) and SMTP for receipts and alerts (API `MAIL_FROM`, `SMTP_URL`).
 - Review the Chilean holiday list 2024–2028 seeded by API TASK-21 (review flagged: Pueblos Indígenas day is solstice-based; election and ad-hoc holidays must be added when enacted).
+- Open risk accepted for now, API TASK-37 (2026-11-05): anyone who knows an inspector's `@dt.gob.cl` address can keep that email's login locked by repeating 5 failed attempts, 1 hour at a time. Keys and active sessions survive, but a new login does not. Decide whether this needs a further mitigation.
 - Decide anonymization of marks older than 5 years (API `ATTENDANCE.md` §9). API TASK-23 only purges personal email/location cause of revoked workers after 90 days; marks are never touched.
 
 ## 5. How to resume on another machine
