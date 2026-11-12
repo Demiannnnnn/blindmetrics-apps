@@ -119,7 +119,7 @@ Items 4, 6 and 7 must be fixed before a production release; the rest are limitat
 | Admin: workers v3 (legal data, agreed schedule, optional telemetry, telemetry pause) | ✅ | ADMIN-14 |
 | Admin: attendance board, days/marks, corrections | ✅ | ADMIN-15 |
 | Admin: R38 reports, exports, read-only reports while blocked | ✅ | ADMIN-16 (2026-10-15; server computes and exports, app validates art. 25 filters, previews and saves; not tested against the real API — v3 not implemented there yet) |
-| Admin: absence qualification + `effective_ts` display (contract v3.1) | ✅ | ADMIN-17 (2026-10-15; removing a qualification needs `absence_id` in `DaySummary`, see handoff) |
+| Admin: absence qualification + `effective_ts` display (contract v3.1) | ✅ | ADMIN-17 (2026-10-15; complete — removal uses `DaySummary.absence_id` from the server, with the session-saved id as fallback) |
 | Admin + worker: every board alert / day anomaly code of the API in words, with tone and explanation (`NO_RECEIPT_EMAIL` = worker gets no emailed receipts); `attendance_marks` filters validated in Rust | ✅ | ADMIN-21 (2026-10-21; before it, 6 codes reached the screen raw and every board alert was red) |
 | Admin: board state "Sin marcar hoy" derived from `OFF` without marks today (API `DayState` has no `UNMARKED`); dashboard KPI with late starts | ✅ | ADMIN-22 (2026-10-21; before it the filter and KPI were always empty/0) |
 | Worker + admin: location-at-mark notice tells the truth — no OS geolocation backend yet, so `location_available = false` and both apps say marks go without location | ✅ | AGENT-15 (2026-10-21; real backend still pending) |
