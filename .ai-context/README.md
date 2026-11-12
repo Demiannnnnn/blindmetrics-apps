@@ -14,6 +14,7 @@ Read this directory before touching code. It is the source of truth for *what th
 | 6 | [`conventions.md`](conventions.md) | Writing code, tests, commits. |
 | 7 | [`implementation-status.md`](implementation-status.md) | Planning work. What is real, stubbed, mocked or missing — and which task fixes it. |
 | 8 | [`handoff.md`](handoff.md) | Resuming the work in a new session or machine: state, open decisions, how the orchestrator works. |
+| 9 | [`pre-merge-review-develop-AGENTS.md`](pre-merge-review-develop-AGENTS.md) | Before merging `develop-AGENTS`: review summary, accepted risks, open decisions, manual checks. |
 
 ## Related documents
 
