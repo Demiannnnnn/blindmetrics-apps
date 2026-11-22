@@ -17,7 +17,7 @@ Guía de implementación de las apps desktop del ecosistema Telemetry: **Admin**
 4. **Recolección solo en `ACTIVE`** y solo de categorías aceptadas en el dispositivo (DP-06, DP-07).
 5. **Sin datos falsos en producción:** nada de mocks silenciosos ni valores hardcodeados que parezcan reales (PLAT-02).
 6. **Sin panics:** cero `unwrap`/`expect` fuera de tests (release usa `panic = "abort"`).
-7. **Contratos explícitos:** HTTP según [`.ai-context/api-contract.md`](../.ai-context/api-contract.md) (contrato v2 de `telemetry-api` TASK-13..17); payloads en claro según [`docs/telemetry-payloads.md`](../docs/telemetry-payloads.md).
+7. **Contratos explícitos:** HTTP según [`.ai-context/api-contract.md`](../.ai-context/api-contract.md) (contrato v2 de `telemetry-api` TASK-13..17); payloads en claro según [`docs/md/telemetry-payloads.md`](../docs/md/telemetry-payloads.md).
 8. **La llave del admin es custodiada, no confiada:** respaldos solo cifrados con Master Password + Argon2id en el cliente; el servidor nunca ve la contraseña ni la llave en claro (SEC-12, SEC-13).
 9. **La facturación nunca es excusa para perder datos ni derechos:** la app admin se bloquea y manda al portal; el agent deja de recolectar pero conserva lo ya cifrado y los derechos del trabajador (BILL-01..03).
 
@@ -185,8 +185,8 @@ Decisión del dueño (2026-10-11): el uso principal pasa a ser el **registro de 
 jornada** según la ley chilena (Código del Trabajo art. 33, Res. Ex. N°38/2024 de la DT); la telemetría
 queda como módulo opcional; términos y condiciones robustos en ambas apps; la app del trabajador se
 porta de egui a **Tauri** con **procesos separados** (servicio en segundo plano + ventana). Base:
-[`docs/legal/marco-legal-cl.md`](../docs/legal/marco-legal-cl.md), [`docs/worker-app-spec.md`](../docs/worker-app-spec.md),
-[`docs/admin-app-spec.md`](../docs/admin-app-spec.md) §5, `.ai-context/*` (ATT-*, PROC-*, LEG-04..07,
+[`docs/md/legal/marco-legal-cl.md`](../docs/md/legal/marco-legal-cl.md), [`docs/md/worker-app-spec.md`](../docs/md/worker-app-spec.md),
+[`docs/md/admin-app-spec.md`](../docs/md/admin-app-spec.md) §5, `.ai-context/*` (ATT-*, PROC-*, LEG-04..07,
 contrato v3 en `api-contract.md` §9–§12).
 
 ### 6.1 Tareas

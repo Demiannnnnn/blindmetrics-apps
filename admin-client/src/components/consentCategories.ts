@@ -16,7 +16,7 @@ export interface ConsentCategory {
   template: string;
 }
 
-// Order and wording follow docs/admin-app-spec.md §W2 and the agent C1 screen.
+// Order and wording follow docs/md/admin-app-spec.md §W2 and the agent C1 screen.
 export const CONSENT_CATEGORIES: ConsentCategory[] = [
   {
     key: 'system_activity',

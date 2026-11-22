@@ -38,7 +38,7 @@ The only change was a stale status note. No security or contract defect was conf
 ## 5. Open decisions for the owner (not decided here)
 
 - Inspector temporary lockout policy (API TASK-37; see `handoff.md` §4).
-- Legal text placeholders and provider data (`docs/legal/README.md`).
+- Legal text placeholders and provider data (`docs/md/legal/README.md`).
 - Google OAuth client configuration, Flow credentials, release asset names and code signing.
 - Where `develop-AGENTS` is merged, since there is no `develop` branch here.
 

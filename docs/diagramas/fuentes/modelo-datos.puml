@@ -1,0 +1,72 @@
+@startuml modelo-datos
+!include ../../plantilla/estilo.puml
+title Modelo de Datos Local y Almacenamiento Seguro — BlindMetrics Apps
+
+package "SQLite Local del Servicio (worker-client)" {
+  class attendance_marks_queue {
+    +id : INTEGER PRIMARY KEY AUTOINCREMENT
+    +client_mark_id : TEXT [UUID único]
+    +worker_id : TEXT [UUID]
+    +mark_type : TEXT [WorkdayStart | WorkdayEnd | BreakStart | BreakEnd]
+    +timestamp : TEXT [RFC3339 local]
+    +pin_hash : TEXT [Argon2id de verificación]
+    +prev_hash : TEXT [SHA-256 marca anterior]
+    +hash : TEXT [SHA-256 canónico encadenado]
+    +status : TEXT [PENDING | SENT | FAILED]
+    +retry_count : INTEGER
+    +created_at : TEXT
+    +sent_at : TEXT
+  }
+
+  class telemetry_offline_queue {
+    +id : INTEGER PRIMARY KEY AUTOINCREMENT
+    +category : TEXT [system | window | network | etc]
+    +payload : BLOB [Sobre X25519 + AES-256-GCM]
+    +attempts : INTEGER
+    +status : TEXT [QUEUED | IN_TRANSIT | QUARANTINE]
+    +created_at : TEXT
+  }
+
+  class agent_config {
+    +device_identifier : TEXT PRIMARY KEY
+    +enrolled_worker_id : TEXT
+    +pinned_admin_key_hash : TEXT
+    +run_mode : TEXT
+    +terms_version : TEXT
+    +terms_hash : TEXT
+  }
+}
+
+package "Keystore Seguro del SO (Keychain / Credential Manager / SecretService)" {
+  class worker_keystore {
+    +device_auth_token : String [Bearer JWT]
+    +refresh_token : String
+    +pin_salt_argon2 : String
+    +device_private_key : [u8; 32] [X25519]
+    +ipc_session_token : String
+  }
+
+  class admin_keystore {
+    +admin_auth_token : String [Bearer JWT]
+    +refresh_token : String
+    +k_admin_priv_encrypted : [u8; 32] [Cifrada con Master Password]
+    +master_password_salt : [u8; 16]
+  }
+}
+
+package "Bóveda de Respaldo (.tkb)" {
+  class backup_container {
+    +magic_bytes : [4]u8 ["TKBF"]
+    +format_version : u8 [2]
+    +argon2_salt : [16]u8
+    +argon2_iterations : u32
+    +argon2_memory_kb : u32
+    +aes_gcm_nonce : [12]u8
+    +k_admin_priv_ciphertext : [48]u8 [incl. tag de 16 bytes]
+  }
+}
+
+agent_config --> worker_keystore : asocia secretos
+attendance_marks_queue ..> worker_keystore : valida con salt PIN
+admin_keystore ..> backup_container : exporta / importa llave maestra
+@enduml

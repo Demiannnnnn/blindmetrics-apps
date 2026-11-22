@@ -6,7 +6,7 @@
 | **Módulos Afectados** | `agent/src/enrollment.rs` (nuevo, reemplaza `ui/onboarding.rs`), `agent/src/credentials.rs` (nuevo), `agent/src/state.rs` (nuevo), `agent/src/api/` (extiende INT-01), `agent/src/background/`, `agent/src/ui/` (pantallas E1–E3, C1, I, M, W, R, H), `agent/src/config.rs`, `agent/src/ui/settings.rs` (se elimina) |
 | **Dependencias** | [`TASK-CRYPTO-02`](../crypto-core/task-02-enrollment-manifest-commitment.md), [`TASK-INT-01`](../integration/task-01-api-contract-alignment.md), `telemetry-api` **TASK-12** |
 | **Reemplaza** | Enrollment por JSON de [`TASK-AGENT-01`](task-01-agent-foundations-and-device-id.md) RF-2 y toggles por categoría de [`TASK-AGENT-06`](task-06-egui-transparency-ui-and-consent.md) RF-1/RF-2 |
-| **Especificación funcional** | [`docs/worker-app-spec.md`](../../docs/worker-app-spec.md) |
+| **Especificación funcional** | [`docs/md/worker-app-spec.md`](../../docs/md/worker-app-spec.md) |
 | **Prioridad** | Crítica / P0 |
 
 
@@ -144,7 +144,7 @@ La UI egui nunca hace `await`: envía `UiCommand::{Enroll, ConfirmSafetyCode, Ac
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [x] Escenarios 1–8 de [`docs/worker-app-spec.md` §7](../../docs/worker-app-spec.md) verificados contra la API con TASK-12.
+1. [x] Escenarios 1–8 de [`docs/md/worker-app-spec.md` §7](../../docs/md/worker-app-spec.md) verificados contra la API con TASK-12.
 2. [x] `config.json` ya no contiene tokens ni llaves; se migran las instalaciones existentes.
 3. [x] No quedan toggles por categoría ni defaults en `true`.
 4. [x] Los collectors se detienen ≤ 1 s después de `WITHDRAW`, `PAUSED` o `REVOKED`.

@@ -112,10 +112,10 @@ pub fn find_placeholders(text: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    const WORKER_TERMS: &str = include_str!("../../docs/legal/terminos-trabajador.md");
-    const EMPLOYER_TERMS: &str = include_str!("../../docs/legal/terminos-empleador.md");
-    const PRIVACY_POLICY: &str = include_str!("../../docs/legal/politica-privacidad.md");
-    const LEGAL_README: &str = include_str!("../../docs/legal/README.md");
+    const WORKER_TERMS: &str = include_str!("../../docs/md/legal/terminos-trabajador.md");
+    const EMPLOYER_TERMS: &str = include_str!("../../docs/md/legal/terminos-empleador.md");
+    const PRIVACY_POLICY: &str = include_str!("../../docs/md/legal/politica-privacidad.md");
+    const LEGAL_README: &str = include_str!("../../docs/md/legal/README.md");
 
     #[test]
     fn test_legal_document_hash_is_sha256() {

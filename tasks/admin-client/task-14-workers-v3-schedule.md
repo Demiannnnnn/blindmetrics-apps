@@ -13,7 +13,7 @@
 
 ## 1. Contexto
 
-Leer `docs/admin-app-spec.md` §5.3 (W1, W2, W4, D), §5.4 (workers v3); `domain.md` §3.1, §4, §5,
+Leer `docs/md/admin-app-spec.md` §5.3 (W1, W2, W4, D), §5.4 (workers v3); `domain.md` §3.1, §4, §5,
 §6, §7, §10; `api-contract.md` §11 (worker create/update, `ScheduleInput`, warnings), §12 (estados);
 `constraints.md` ATT-11, ATT-12, DP-04/05/12 v3. API v3 aún no existe: wiremock con los JSON exactos.
 

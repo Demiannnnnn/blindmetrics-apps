@@ -1,0 +1,123 @@
+@startuml clases-dominio
+!include ../../plantilla/estilo.puml
+title Clases y Módulos del Dominio — BlindMetrics Apps
+
+package "telemetry-crypto-core (Rust Crate)" {
+  class AttendanceMark {
+    +worker_id: String
+    +mark_type: MarkType
+    +timestamp: DateTime<Utc>
+    +pin_hash: String
+    +prev_hash: String
+    +hash: String
+    +calculate_hash(): String
+    +verify_chain(prev: &AttendanceMark): bool
+  }
+
+  enum MarkType {
+    WorkdayStart
+    WorkdayEnd
+    BreakStart
+    BreakEnd
+  }
+
+  class PinVerifier {
+    +salt: [u8; 16]
+    +argon2_hash: String
+    +verify(pin: &str): bool
+    +hash_pin(pin: &str): (String, [u8; 16])
+  }
+
+  class Rut {
+    +number: u32
+    +dv: char
+    +parse(raw: &str): Result<Rut, RutError>
+    +format(): String
+    +is_valid(): bool
+  }
+
+  class LegalDocument {
+    +document_kind: String
+    +version: String
+    +hash: String
+    +content: String
+    +verify_integrity(): bool
+  }
+
+  class EnrollmentManifest {
+    +worker_id: String
+    +admin_public_key: [u8; 32]
+    +allowed_categories: u32
+    +commitment(): [u8; 32]
+    +verification_code(): String
+  }
+
+  class BackupV2 {
+    +version: u8
+    +argon2_params: Argon2Params
+    +nonce: [u8; 12]
+    +ciphertext: Vec<u8>
+    +export(key: &[u8; 32], pass: &str): Vec<u8>
+    +import(tkb: &[u8], pass: &str): Result<[u8; 32], CryptoError>
+  }
+}
+
+package "agent-ipc (Rust Crate)" {
+  enum IpcCommand {
+    MarkAttendance(MarkType, String)
+    GetAttendanceSnapshot
+    SetConsent(u32)
+    GetSchedule
+    ProposeCorrection(String, DateTime<Utc>, String)
+  }
+
+  enum IpcResponse {
+    AttendanceMarked(AttendanceReceipt)
+    Snapshot(AttendanceSnapshot)
+    ConsentUpdated
+    Schedule(WorkSchedule)
+    Error(String)
+  }
+
+  class AttendanceSnapshot {
+    +current_state: WorkerStatus
+    +last_mark: Option<AttendanceMark>
+    +today_marks: Vec<AttendanceMark>
+    +location_available: bool
+  }
+}
+
+package "admin-client-core (Rust Crate)" {
+  class WorkerProfile {
+    +id: String
+    +rut: Rut
+    +full_name: String
+    +workplace_id: String
+    +work_mode: String
+    +schedule: WorkSchedule
+    +telemetry_status: String
+  }
+
+  class WorkSchedule {
+    +weekly_hours: u32
+    +workdays: Vec<WorkdaySchedule>
+    +lunch_minutes: u32
+    +mandatory_rest_hours: u32
+  }
+
+  class AttendanceReceipt {
+    +mark_id: String
+    +server_ts: DateTime<Utc>
+    +hash: String
+    +worker_rut: String
+  }
+}
+
+AttendanceMark --> MarkType : tipo
+AttendanceMark ..> PinVerifier : verifica PIN
+WorkerProfile --> Rut : identificador legal
+WorkerProfile --> WorkSchedule : jornada pactada
+IpcCommand ..> MarkType
+IpcResponse ..> AttendanceSnapshot
+AttendanceSnapshot ..> AttendanceMark
+@enduml

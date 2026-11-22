@@ -19,7 +19,7 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
    module with the same guarantees. Don't change the admin palette or layout.
 2. Port the worker app to **Tauri** with **separate processes** (closing the window keeps a background
    service running). The service keeps a visible tray icon (no invisible monitoring).
-3. Robust **terms and conditions** in both apps, plus privacy policy (`docs/legal/`).
+3. Robust **terms and conditions** in both apps, plus privacy policy (`docs/md/legal/`).
 4. Order: `telemetry-apps` first (fully working), then `telemetry-api` (contract v3), then explain it
    on `telemetry-web` (low priority).
 5. Working method: Claude documents and approves/rejects; agy implements; frequent commits; merge to
@@ -46,8 +46,8 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
 
 ## 4. Pending owner input
 
-- Provider data for the legal texts (`docs/legal/README.md` "Pendientes del dueño").
-- Legal review of `docs/legal/*` and of telemetry `location`/`productivity_screenshots` under R38.
+- Provider data for the legal texts (`docs/md/legal/README.md` "Pendientes del dueño").
+- Legal review of `docs/md/legal/*` and of telemetry `location`/`productivity_screenshots` under R38.
 - Whether/when to start DT certification + authorization (R38 arts. 64–69).
 - System email account (non-personal sender) and SMTP for receipts and alerts (API `MAIL_FROM`, `SMTP_URL`).
 - Review the Chilean holiday list 2024–2028 seeded by API TASK-21 (review flagged: Pueblos Indígenas day is solstice-based; election and ad-hoc holidays must be added when enacted).

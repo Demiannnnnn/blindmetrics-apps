@@ -14,7 +14,7 @@
 
 El pivote a registro de asistencia (`.ai-context/domain.md` §1, §10) necesita piezas compartidas,
 puras y sin I/O. Leer: `security-model.md` §9.2–9.3, `constraints.md` ATT-03, SEC-19, SEC-20,
-LEG-04, LEG-06, `api-contract.md` §9.3, `docs/legal/README.md`.
+LEG-04, LEG-06, `api-contract.md` §9.3, `docs/md/legal/README.md`.
 
 ## 2. Requerimientos Funcionales
 
@@ -48,8 +48,8 @@ LEG-04, LEG-06, `api-contract.md` §9.3, `docs/legal/README.md`.
 - **RF-CRYPTO-04-8:** `pub fn find_placeholders(text: &str) -> Vec<String>`: devuelve los marcadores
   entre corchetes que empiezan con mayúscula o con `MIENTRAS` (p. ej. `[RAZÓN SOCIAL DEL PROVEEDOR]`,
   `[RUT]`, `[N]`, `[MIENTRAS NO EXISTA AUTORIZACIÓN:]`) **excluyendo** los enlaces Markdown
-  (`[texto](url)`) y las casillas `[ ]`/`[x]`. Tests con los cuatro archivos reales de `docs/legal/`
-  (vía `include_str!("../../docs/legal/…")`) verificando que hoy **sí** contienen marcadores.
+  (`[texto](url)`) y las casillas `[ ]`/`[x]`. Tests con los cuatro archivos reales de `docs/md/legal/`
+  (vía `include_str!("../../docs/md/legal/…")`) verificando que hoy **sí** contienen marcadores.
 
 ### `pin.rs` (SEC-19, SEC-20)
 

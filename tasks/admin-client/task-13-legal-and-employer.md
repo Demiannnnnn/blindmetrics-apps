@@ -13,16 +13,16 @@
 
 ## 1. Contexto
 
-Leer `docs/admin-app-spec.md` §5.1–5.2 (T1, P1), §5.3 (S, L), §5.4 (legal, employer);
-`docs/legal/*`; `constraints.md` LEG-04..07, BILL-04; `api-contract.md` §10, §11 (employer,
+Leer `docs/md/admin-app-spec.md` §5.1–5.2 (T1, P1), §5.3 (S, L), §5.4 (legal, employer);
+`docs/md/legal/*`; `constraints.md` LEG-04..07, BILL-04; `api-contract.md` §10, §11 (employer,
 workplaces, `PUT /attendance/settings`, incidents de §9.4). La API aún no implementa v3: prueba con
 `wiremock`. **No cambies la paleta ni la distribución** del admin (decisión del dueño); los
 componentes nuevos usan los mismos tokens, cards, tablas y botones.
 
 ## 2. Requerimientos Funcionales
 
-- **RF-ADMIN-13-1 (textos embebidos):** el backend Rust embebe `docs/legal/terminos-empleador.md` y
-  `docs/legal/politica-privacidad.md` (`include_str!`), calcula versión y hash con
+- **RF-ADMIN-13-1 (textos embebidos):** el backend Rust embebe `docs/md/legal/terminos-empleador.md` y
+  `docs/md/legal/politica-privacidad.md` (`include_str!`), calcula versión y hash con
   `telemetry_crypto_core::legal`. `build.rs` falla en `release` si hay marcadores (LEG-06), igual que
   en AGENT-12 (misma regla; test que compara con `find_placeholders`).
 - **RF-ADMIN-13-2 (comandos legal):** `legal_documents()`, `legal_status()` (de `GET /admins/me`:

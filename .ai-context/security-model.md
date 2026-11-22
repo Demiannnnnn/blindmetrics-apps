@@ -35,7 +35,7 @@ Admin:
   check pt.worker_id == record.worker_id && pt.category == record category   (SEC-09)
 ```
 
-`PlaintextBatch` binds `worker_id` and `category` inside the ciphertext so a malicious server cannot move a record between workers or categories undetected. Schema: `docs/telemetry-payloads.md`.
+`PlaintextBatch` binds `worker_id` and `category` inside the ciphertext so a malicious server cannot move a record between workers or categories undetected. Schema: `docs/md/telemetry-payloads.md`.
 
 ## 3. Enrollment integrity (TASK-CRYPTO-02 / ADMIN-08 / AGENT-08)
 
@@ -171,7 +171,7 @@ old key before replacing it.
 ### 9.1 Why it is not zero-knowledge
 
 R38 requires the server to email a receipt per mark, verify marks by hash on a public page, compute
-reports and give labour inspectors permanent read access (`docs/legal/marco-legal-cl.md` §1). The
+reports and give labour inspectors permanent read access (`docs/md/legal/marco-legal-cl.md` §1). The
 server therefore stores attendance **in plaintext**. Mitigations: attendance contains no telemetry and
 no secrets (SEC-21); minimal fields (R38 art. 13); access by role with audit (admin, worker, inspector,
 read-only third parties); 5-year retention then destruction; extra personal data destroyed 90–120

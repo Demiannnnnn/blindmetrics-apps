@@ -13,7 +13,7 @@
 
 ## 1. Contexto
 
-Leer `docs/admin-app-spec.md` §5.1 (riel), AS1, AS2, §5.3 (D, W1, W4); `domain.md` §10;
+Leer `docs/md/admin-app-spec.md` §5.1 (riel), AS1, AS2, §5.3 (D, W1, W4); `domain.md` §10;
 `api-contract.md` §9.1, §9.4 (board, marks, days, corrections), §9.5; `constraints.md` ATT-03,
 ATT-05, ATT-09. Wiremock con los JSON exactos.
 

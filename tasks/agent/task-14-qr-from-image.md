@@ -98,7 +98,7 @@ Se conserva la opción de pegar el texto/base64 manualmente.
     o de fingerprint de la llave pública), `worker-client/service/src/ipc_server.rs` debe responder con
     `code: "ENROLLMENT_TAMPERED"` (en lugar de `ENROLLMENT_ERROR` genérico) y `EnrollmentView.tsx` debe
     transicionar a `setEnrollmentStep('tamper')` (pantalla E3 `TamperingAlertView`, según
-    `docs/worker-app-spec.md` §1–§2 y `SEC-07`).
+    `docs/md/worker-app-spec.md` §1–§2 y `SEC-07`).
 
 ## 3. Reglas
 

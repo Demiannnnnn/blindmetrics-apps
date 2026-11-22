@@ -1,0 +1,56 @@
+@startuml despliegue
+!include ../../plantilla/estilo.puml
+title Diagrama de Despliegue — BlindMetrics Apps
+
+node "Equipo del Trabajador\n[macOS / Windows / Linux x86_64 o aarch64]" as worker_node {
+  node "Espacio de Usuario" as worker_user {
+    artifact "Ventana Trabajador\n[agent-ui]\n(Tauri 2 + WebKit/WebView2)" as worker_ui_bin
+  }
+  
+  node "Sesión en Segundo Plano" as worker_daemon {
+    artifact "Servicio Background\n[telemetry-agent]\n(Rust Binario Nativo)" as worker_svc_bin
+    database "SQLite Local (WAL)\n[queue.db]" as worker_sqlite
+  }
+  
+  node "Almacenamiento Seguro SO" as worker_sec {
+    component "Keystore Nativo del SO\n(macOS Keychain / Windows CredMan / SecretService)\nTokens JWT, Salt PIN Argon2id, Llave X25519" as worker_ks_sec
+  }
+}
+
+node "Equipo del Administrador\n[macOS / Windows / Linux]" as admin_node {
+  node "Espacio de Aplicación" as admin_app_space {
+    artifact "App Administrador\n[admin-client]\n(Tauri 2 + React + admin-client-core)" as admin_bin
+    file "Respaldo Bóveda\n[backup.tkb]\n(Argon2id + AES-256-GCM)" as tkb_file
+  }
+  
+  node "Almacenamiento Seguro SO " as admin_sec {
+    component "Keystore Nativo del SO\nTokens JWT, Llave K_admin_priv cifrada" as admin_ks_sec
+  }
+}
+
+cloud "Infraestructura Servidor\n[Fly.io / AWS]" as cloud_node {
+  node "telemetry-api\n(Rust Axum)" as api_node
+  database "PostgreSQL\n(BD Asistencia y Cuentas)" as pg_node
+}
+
+cloud "telemetry-web\n[Vercel / Cloudflare]" as web_cloud {
+  node "Portal Web\n(Next.js / React)" as web_node
+}
+
+cloud "Google OAuth 2.0" as google_cloud {
+  node "OAuth Endpoint" as oauth_node
+}
+
+worker_ui_bin <--> worker_svc_bin : IPC Local Autenticado\n(Named Pipe / Unix Domain Socket)
+worker_svc_bin --> worker_sqlite : Lectura/escritura SQLite
+worker_svc_bin --> worker_ks_sec : Operaciones criptográficas y claves
+worker_svc_bin --> api_node : HTTPS / TLS 1.3\n(JSON REST API v3)
+
+admin_bin --> admin_ks_sec : Gestión de llave maestra
+admin_bin ..> tkb_file : Exporta / Importa respaldo v2
+admin_bin --> api_node : HTTPS / TLS 1.3\n(JSON REST API v3)
+admin_bin ..> oauth_node : Loopback HTTP 127.0.0.1 (PKCE)
+
+api_node --> pg_node : TCP / SSL (Pool SQLx)
+web_node --> api_node : HTTPS (Verificación de comprobantes)
+@enduml

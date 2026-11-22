@@ -1,6 +1,6 @@
 //! Legal texts embedded at compile time and the worker's terms acceptance (LEG-04..07).
 //!
-//! The texts come only from `docs/legal/` (LEG-04) and are shown in full by the window. Their
+//! The texts come only from `docs/md/legal/` (LEG-04) and are shown in full by the window. Their
 //! version and hash are computed with `telemetry_crypto_core::legal`, the same functions the API
 //! uses, so the acceptance evidence matches byte for byte. `build.rs` refuses a `release` build
 //! while these texts still contain owner placeholders (LEG-06).
@@ -8,10 +8,10 @@
 use agent_ipc::{LegalDocument, LegalDocumentKind};
 use telemetry_crypto_core::legal::{document_hash, parse_version};
 
-/// Worker terms (`docs/legal/terminos-trabajador.md`).
-pub const WORKER_TERMS: &str = include_str!("../../../docs/legal/terminos-trabajador.md");
-/// Privacy policy (`docs/legal/politica-privacidad.md`).
-pub const PRIVACY_POLICY: &str = include_str!("../../../docs/legal/politica-privacidad.md");
+/// Worker terms (`docs/md/legal/terminos-trabajador.md`).
+pub const WORKER_TERMS: &str = include_str!("../../../docs/md/legal/terminos-trabajador.md");
+/// Privacy policy (`docs/md/legal/politica-privacidad.md`).
+pub const PRIVACY_POLICY: &str = include_str!("../../../docs/md/legal/politica-privacidad.md");
 
 /// Wire name of the worker terms in `POST /workers/me/terms-acceptance`.
 pub const WORKER_TERMS_DOCUMENT: &str = "WORKER_TERMS";

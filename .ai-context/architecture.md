@@ -60,7 +60,7 @@ telemetry-apps/
 ├── admin-client/              # admin app (Tauri 2 + Vite/React)
 │   ├── src/                   # UI
 │   └── src-tauri/             # Rust backend (package admin-client-core)
-├── docs/                      # functional specs, payload schemas, legal texts (docs/legal)
+├── docs/                      # functional specs, payload schemas, legal texts (docs/md/legal)
 ├── tasks/                     # implementation tasks
 ├── tools/orchestration/       # orchestrator scripts (Claude + agy), not part of the product
 └── .ai-context/               # this folder
@@ -145,14 +145,14 @@ worker-client/service/src/
 ├── state.rs                 # AgentState, AttendanceMode, RunMode, ServerView
 ├── config.rs · credentials.rs · device.rs · enrollment.rs · consent.rs · session.rs · errors.rs
 ├── attendance/              # (new, AGENT-12) marks, local queue, today view, corrections, PIN, alerts
-├── legal.rs                 # embedded docs/legal texts + acceptance (new)
+├── legal.rs                 # embedded docs/md/legal texts + acceptance (new)
 ├── api/                     # typed client (contract v3)
 ├── core/ · pipeline/ · io/  # telemetry (unchanged)
 ├── background/              # runtime tasks
 └── ui/tray.rs               # tray only (egui removed)
 
 worker-client/
-├── src/                     # React: screens of docs/worker-app-spec.md
+├── src/                     # React: screens of docs/md/worker-app-spec.md
 └── src-tauri/src/           # commands = thin wrappers over agent_ipc::IpcClient; starts the service if absent
 ```
 
@@ -168,7 +168,7 @@ worker-client/
 
 `<runtime_dir>` = `$XDG_RUNTIME_DIR` (Linux), `$TMPDIR` per user (macOS), `%LOCALAPPDATA%\Temp` (Windows).
 
-### 4.4 IPC (summary, full list in `docs/worker-app-spec.md` §8)
+### 4.4 IPC (summary, full list in `docs/md/worker-app-spec.md` §8)
 
 - Connect → `Hello { protocol_version, token }` → `Welcome { service_version }` or error.
 - Request/response with `id`; one subscription channel pushes `Event::Snapshot(AppSnapshot)` on every
@@ -203,7 +203,7 @@ worker-client/
 | Keystore | `src-tauri/src/keystore.rs` | `K_admin_priv`, refresh token, installation id. |
 | Decryption | `src-tauri/src/commands/telemetry.rs` | Fetch pages → `rayon` parallel decrypt in `spawn_blocking` → verify inner `worker_id`/`category` → return typed items. |
 
-### 5.2 Screens (details in `docs/admin-app-spec.md`)
+### 5.2 Screens (details in `docs/md/admin-app-spec.md`)
 
 Auth (password or Google) → **Employer terms (T1)** → Subscription check (lock screen if suspended, with read-only attendance reports) → **Employer legal profile (P1)** → Key state (K1 create · K2 mismatch · K3 recover) → **Asistencia** (live board, marks, corrections, reports) → Workers (list, create with legal data + agreed schedule + optional telemetry, enrollment modal, detail) → Telemetry views → Bóveda & Cumplimiento (key, devices, subscription, legal documents) → Auto-lock screen.
 

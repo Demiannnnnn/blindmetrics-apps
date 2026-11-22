@@ -14,7 +14,7 @@
 ## 1. Contexto
 
 La app del trabajador pasa de una ventana egui con el motor dentro a **dos procesos**
-(`.ai-context/architecture.md` §4, `docs/worker-app-spec.md` §0 y §9, `constraints.md` PROC-01..05,
+(`.ai-context/architecture.md` §4, `docs/md/worker-app-spec.md` §0 y §9, `constraints.md` PROC-01..05,
 SEC-18): un **servicio** (`telemetry-agent`, crate `agent`) con bandeja, motor, API y secretos, y una
 **ventana** Tauri (`agent-ui`, tarea AGENT-11) que habla con el servicio por un socket local.
 

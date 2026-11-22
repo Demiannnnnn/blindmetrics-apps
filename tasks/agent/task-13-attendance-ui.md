@@ -14,7 +14,7 @@
 ## 1. Contexto
 
 Con el servicio de AGENT-12 listo, la ventana muestra la función principal. Leer
-`docs/worker-app-spec.md` §1–§4, §6 (PIN y términos), §11; `docs/legal/terminos-trabajador.md`;
+`docs/md/worker-app-spec.md` §1–§4, §6 (PIN y términos), §11; `docs/md/legal/terminos-trabajador.md`;
 `constraints.md` ATT-*, LEG-04/05/07, SEC-19/20; el design system.
 
 ## 2. Requerimientos Funcionales

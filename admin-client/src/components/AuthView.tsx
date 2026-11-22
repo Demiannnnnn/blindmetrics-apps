@@ -95,7 +95,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, expiredReaso
     }
   };
 
-  // Only reachable in VITE_DEMO_MODE builds (docs/admin-app-spec.md §A1).
+  // Only reachable in VITE_DEMO_MODE builds (docs/md/admin-app-spec.md §A1).
   const handleDemoAccess = async () => {
     setLoading(true);
     setErrorMessage(null);

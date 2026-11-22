@@ -8,7 +8,7 @@
 | **Prioridad** | Media / P2 |
 
 
-> ⚠️ **Ajuste (2026-09-28).** Se elimina la acción de bandeja *Pausar Monitoreo (15 min)* del trabajador: pausar es una acción del admin (`PATCH /workers/:id/status`); el control del trabajador es *Retirar consentimiento* (DP-10). La bandeja hoy no existe (`ui/tray.rs` es solo un struct de estado): implementarla con `tray-icon`. Ver [`docs/worker-app-spec.md` §3–4](../../docs/worker-app-spec.md) para el menú y el catálogo de notificaciones.
+> ⚠️ **Ajuste (2026-09-28).** Se elimina la acción de bandeja *Pausar Monitoreo (15 min)* del trabajador: pausar es una acción del admin (`PATCH /workers/:id/status`); el control del trabajador es *Retirar consentimiento* (DP-10). La bandeja hoy no existe (`ui/tray.rs` es solo un struct de estado): implementarla con `tray-icon`. Ver [`docs/md/worker-app-spec.md` §3–4](../../docs/md/worker-app-spec.md) para el menú y el catálogo de notificaciones.
 
 ---
 

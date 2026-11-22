@@ -3,7 +3,7 @@
 **Versión:** 2026-10-11 · **Estado:** borrador pendiente de revisión legal
 
 > Los textos entre corchetes (`[…]`) los completa el dueño del producto antes de publicar
-> (ver `docs/legal/README.md`). La app muestra este texto completo, sin resumir, antes de vincular el
+> (ver `docs/md/legal/README.md`). La app muestra este texto completo, sin resumir, antes de vincular el
 > equipo y cada vez que cambia la versión.
 
 ## 1. Quiénes participan

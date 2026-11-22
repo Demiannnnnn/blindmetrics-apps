@@ -37,7 +37,7 @@ purpose is the **legal attendance record** (Chile, R38) with **optional** zero-k
 2. [`.ai-context/README.md`](.ai-context/README.md) and **every** file it lists (domain,
    architecture, constraints, security-model, api-contract, conventions, implementation-status).
 3. [`tasks/README.md`](tasks/README.md) and **your** task file.
-4. The `docs/` your task references — always `docs/legal/marco-legal-cl.md` for attendance work.
+4. The `docs/` your task references — always `docs/md/legal/marco-legal-cl.md` for attendance work.
    If you touch UI: `.claude/skills/enterprise-design-system/SKILL.md`.
 5. Resuming in a new session/machine: [`.ai-context/handoff.md`](.ai-context/handoff.md).
 
@@ -50,7 +50,7 @@ conservative option that satisfies `.ai-context/` and report it under "Decisione
   **never blocked** (not by subscription, telemetry, key, terms update, location, admin); server
   timestamp + chained SHA-256 hash; offline marks queued and sent automatically; corrections only via
   the 48 h procedure; attendance never depends on telemetry.
-- **Legal (LEG-*):** legal texts only from `docs/legal/`, shown in full, accepted with
+- **Legal (LEG-*):** legal texts only from `docs/md/legal/`, shown in full, accepted with
   `{document, version, hash}`; never claim DT authorization.
 - **Worker app processes (PROC-*):** service + window; closing the window never stops the service; the
   tray is always visible while the service runs; the window never calls the API nor holds secrets.
@@ -63,6 +63,7 @@ conservative option that satisfies `.ai-context/` and report it under "Decisione
 - **Refresh is single-flight**; `DEVICE_REVOKED` never triggers a refresh (SEC-14).
 - **No fake data in production paths** (PLAT-02). Unimplemented ⇒ "unsupported".
 - **No `unwrap`/`expect`/`panic!` outside tests** — release builds abort on panic.
+- **Documentation maintenance:** every task that changes behaviour, API, data model or deployment updates the affected `.puml` diagrams in `docs/diagramas/fuentes/` and reports in `docs/informes/`, and runs `docs/build-docs.sh`. `docs/` contains no `.md` outside `docs/md/` (`.ai-context/docs-standard.md` §6).
 
 ## 4. Scope — do ONLY your task
 
@@ -134,6 +135,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cd admin-client && npm ci && npm run build && npm test     # if admin-client touched
 cd worker-client && npm ci && npm run build && npm test         # if worker-client touched
+docs/build-docs.sh --check                                 # if docs or diagrams touched
 ```
 
 Plus every acceptance criterion and test of the task, and `git status` clean (everything committed on

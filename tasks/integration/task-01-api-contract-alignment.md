@@ -5,7 +5,7 @@
 | **ID de Tarea** | `TASK-INT-01` |
 | **Módulos Afectados** | `agent/src/io/transport.rs`, `agent/src/background/worker.rs`, `agent/src/io/encryption.rs`, `agent/src/core/metrics.rs`, `agent/src/main.rs`, `agent/src/config.rs`, `agent/src/ui/mod.rs`, `admin-client/src-tauri/src/client.rs`, `admin-client/src-tauri/src/commands.rs`, `admin-client/src/api/tauri-bridge.ts` |
 | **Dependencias** | Ninguna (funciona contra la API actual) |
-| **Referencias** | [`.ai-context/api-contract.md`](../../.ai-context/api-contract.md), [`.ai-context/implementation-status.md`](../../.ai-context/implementation-status.md), [`docs/telemetry-payloads.md`](../../docs/telemetry-payloads.md) |
+| **Referencias** | [`.ai-context/api-contract.md`](../../.ai-context/api-contract.md), [`.ai-context/implementation-status.md`](../../.ai-context/implementation-status.md), [`docs/md/telemetry-payloads.md`](../../docs/md/telemetry-payloads.md) |
 | **Prioridad** | Crítica / P0 — sin esto ninguna app funciona contra el servidor real |
 
 ---
@@ -39,7 +39,7 @@ flowchart LR
 
 ## 2. Requerimientos Funcionales y Reglas de Negocio
 
-- **RF-INT-01-1 (Tipos de payload compartidos):** usar `PlaintextBatch<T>` y los items de [`docs/telemetry-payloads.md`](../../docs/telemetry-payloads.md) desde `telemetry-crypto-core::payloads` (si CRYPTO-02 no los movió, moverlos aquí). Eliminar el enum etiquetado `MetricPayload` como formato de cable.
+- **RF-INT-01-1 (Tipos de payload compartidos):** usar `PlaintextBatch<T>` y los items de [`docs/md/telemetry-payloads.md`](../../docs/md/telemetry-payloads.md) desde `telemetry-crypto-core::payloads` (si CRYPTO-02 no los movió, moverlos aquí). Eliminar el enum etiquetado `MetricPayload` como formato de cable.
 - **RF-INT-01-2 (Agrupación):** el flush agrupa por categoría (y subcategoría) y produce **un sobre por grupo**, con `worker_id`, `window_start` y `window_end`.
 - **RF-INT-01-3 (Cliente HTTP tipado del agent):** nuevo módulo `agent/src/api/` con DTOs de request/response según `api-contract.md`, desempaquetado de `{ data }` y parseo de `{ error }` a `AgentError::Api { status, code, reason }`. Métodos: `ingest(category, records)`, `refresh()`, `health()`.
 - **RF-INT-01-4 (Semántica de errores de ingesta):** 5xx, 429 y errores de red → encolar. 401 → refresh y reintento una vez. **403 → descartar el sobre** (no reintentar datos no consentidos) y marcar "necesita sincronizar estado". 400/413 → descartar y loguear `error`.

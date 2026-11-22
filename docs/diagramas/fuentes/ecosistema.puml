@@ -1,0 +1,42 @@
+@startuml ecosistema
+!include ../../plantilla/estilo.puml
+title Integración con el Ecosistema BlindMetrics / raysac
+
+package "blindmetrics-apps (Este Repositorio)" {
+  component "telemetry-crypto-core\n(Crate puro compartido)" as crypto_pkg
+  component "worker-client\n(App trabajador: asistencia R38 + telemetría)" as worker_pkg
+  component "admin-client\n(App admin: consola asistencia, reportes R38, descifrado)" as admin_pkg
+}
+
+package "telemetry-api (Sibling Repo)" {
+  component "API REST v3\n(Ingesta de marcas, validación de hashes,\ngestión de jornada y trabajadores)" as api_pkg
+  database "PostgreSQL\n(Persistencia central inmutable)" as api_db
+}
+
+package "telemetry-web (Sibling Repo)" {
+  component "Portal de Verificación\n(Verificación pública de comprobantes QR)" as web_receipts
+  component "Portal Fiscalizador DT\n(Acceso a libros de asistencia según R38)" as web_dt
+  component "Portal Trabajador Web\n(Acceso secundario para trabajadores sin app)" as web_worker
+}
+
+package "Estándares y Marcos Normativos" {
+  component "Dirección del Trabajo (DT)\nRes. Ex. N°38/2024 y Código del Trabajo art. 33" as legal_norm
+  component "Protección de Datos Personales\nLey 19.628 y Ley 21.719 (Chile)" as privacy_norm
+  component "Criptografía Servidor Ciego\n(Zero-Knowledge Telemetry, X25519, AES-256-GCM)" as zk_norm
+}
+
+worker_pkg --> crypto_pkg : Usa para hashes, PIN y cifrado
+admin_pkg --> crypto_pkg : Usa para respaldo .tkb y descifrado
+worker_pkg --> api_pkg : Envía marcas y consulta jornada
+admin_pkg --> api_pkg : Administra asistencia y descarga reportes
+
+api_pkg --> api_db : Almacena marcas con timestamp oficial
+web_receipts --> api_pkg : Consulta validez de hash
+web_dt --> api_pkg : Consulta libros de asistencia
+web_worker --> api_pkg : Consulta registros personales
+
+crypto_pkg ..> zk_norm : Implementa
+worker_pkg ..> legal_norm : Cumple estrictamente
+admin_pkg ..> legal_norm : Cumple estrictamente
+worker_pkg ..> privacy_norm : Minimización y consentimiento
+@enduml

@@ -1,0 +1,48 @@
+@startuml secuencia-enrolamiento-trabajador
+!include ../../plantilla/estilo.puml
+title Secuencia: Enrolamiento de Trabajador e Integridad de Llaves (Flujo Crítico 2)
+
+actor "Administrador" as admin
+participant "admin-client\n(Tauri React)" as admin_app
+participant "telemetry-api\n(Servidor)" as api
+actor "Trabajador" as worker
+participant "worker-client (UI)\n(agent-ui)" as worker_ui
+participant "Servicio Background\n(telemetry-agent)" as worker_svc
+participant "telemetry-crypto-core" as crypto
+
+admin -> admin_app : 1. Da de alta trabajador (RUT, nombre, jornada)
+admin_app -> crypto : 2. Genera manifiesto y calcula compromiso SHA-256
+crypto --> admin_app : commitment_hash + verification_code
+
+admin_app -> api : 3. POST /workers {rut, commitment, allowed_categories}
+api --> admin_app : 201 Created {worker_id, qr_payload}
+
+admin_app -> admin : 4. Muestra QR y código de enrolamiento (6 caracteres)
+admin -> worker : 5. Entrega código o QR al trabajador
+
+worker -> worker_ui : 6. Inicia app e ingresa código o carga QR
+worker_ui -> worker_svc : 7. IPC: StartEnrollment(code_or_qr)
+activate worker_svc
+
+worker_svc -> crypto : 8. Valida compromiso contra clave pública admin
+crypto --> worker_svc : Compromiso verificado
+
+worker_svc -> worker_ui : 9. Solicita aceptación de términos legales
+worker_ui -> worker : 10. Muestra términos completos (LEG-04)
+worker -> worker_ui : 11. Acepta términos y define PIN de 4 dígitos
+
+worker_ui -> worker_svc : 12. IPC: SubmitTermsAndPin(version, hash, pin)
+worker_svc -> crypto : 13. Hashea PIN con Argon2id + salt aleatorio
+worker_svc -> crypto : 14. Genera par de llaves X25519 del dispositivo
+crypto --> worker_svc : {device_pub, device_priv}
+
+worker_svc -> api : 15. POST /workers/enroll {worker_id, code, device_pub, terms_acceptance}
+api --> worker_svc : 200 OK {device_token, refresh_token}
+
+worker_svc -> worker_svc : 16. Guarda device_priv, PIN salt y tokens en Keystore OS
+worker_svc -> worker_svc : 17. Fija clave pública de admin (pinned key)
+
+worker_svc --> worker_ui : 18. IPC: Enrolamiento completado con éxito
+deactivate worker_svc
+worker_ui -> worker : 19. Despliega pantalla principal de asistencia
+@enduml
