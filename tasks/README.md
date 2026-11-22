@@ -247,3 +247,13 @@ secundario del trabajador, portal de fiscalización).
 | 4 — biometría sin verificación del SO | ADMIN-13 (se quita el botón) |
 | 6 — retiro offline no reenviado | AGENT-10 |
 | 7 — `--headless` sin bandeja | AGENT-10 (se elimina; sin bandeja no hay telemetría) |
+
+
+## Documentación para humanos (estándar del ecosistema, 2026-11-22)
+
+| ID | Tarea | Depende de | Estado |
+|:--|:--|:--|:--|
+| [HDOC-01](hdoc/task-01-estructura-diagramas-readme.md) | Estructura de docs para humanos, diagramas y README robusto | — | ⬜ |
+| [HDOC-02](hdoc/task-02-informe-tecnico.md) | Informe técnico e informe de diagramas | HDOC-01 | ⬜ |
+| [HDOC-03](hdoc/task-03-legal-seguridad.md) | Informe legal e informe de seguridad | HDOC-01 | ⬜ |
+| [HDOC-04](hdoc/task-04-despliegue-pruebas-usuario.md) | Despliegue/integración, pruebas y manual de usuario | HDOC-01 | ⬜ |
