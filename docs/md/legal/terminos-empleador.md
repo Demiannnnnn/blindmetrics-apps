@@ -3,7 +3,7 @@
 **Versión:** 2026-10-11 · **Estado:** borrador pendiente de revisión legal
 
 > Los textos entre corchetes los completa el dueño del producto antes de publicar
-> (`docs/md/legal/README.md`). La app de administración muestra este texto completo antes de usar la
+> (`docs/legal/README.md`). La app de administración muestra este texto completo antes de usar la
 > consola y cada vez que cambia la versión.
 
 ## 1. Partes
@@ -85,7 +85,7 @@ asistencia se conservan 5 años por obligación legal.
 - Si la suscripción se suspende o cancela: la consola de administración se bloquea y la telemetría se
   detiene, pero **las personas trabajadoras siguen pudiendo marcar asistencia y consultar sus
   registros**, y el cliente conserva el acceso a los reportes de asistencia exigidos por ley durante
-  [PLAZO A DEFINIR POR EL DUEÑO] (ver `docs/md/legal/README.md`).
+  [PLAZO A DEFINIR POR EL DUEÑO] (ver `docs/legal/README.md`).
 
 ## 8. Disponibilidad
 
