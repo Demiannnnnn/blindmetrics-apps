@@ -253,7 +253,7 @@ secundario del trabajador, portal de fiscalización).
 
 | ID | Tarea | Depende de | Estado |
 |:--|:--|:--|:--|
-| [HDOC-01](hdoc/task-01-estructura-diagramas-readme.md) | Estructura de docs para humanos, diagramas y README robusto | — | ⬜ |
+| [HDOC-01](hdoc/task-01-estructura-diagramas-readme.md) | Estructura de docs para humanos, diagramas y README robusto | — | ✅ |
 | [HDOC-02](hdoc/task-02-informe-tecnico.md) | Informe técnico e informe de diagramas | HDOC-01 | ⬜ |
 | [HDOC-03](hdoc/task-03-legal-seguridad.md) | Informe legal e informe de seguridad | HDOC-01 | ⬜ |
 | [HDOC-04](hdoc/task-04-despliegue-pruebas-usuario.md) | Despliegue/integración, pruebas y manual de usuario | HDOC-01 | ⬜ |
