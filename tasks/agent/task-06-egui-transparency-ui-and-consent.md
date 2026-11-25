@@ -8,7 +8,7 @@
 | **Prioridad** | Alta / P1 |
 
 
-> ⚠️ **Parcialmente reemplazada (2026-09-28).** Los *toggles granulares por categoría* (RF-AGENT-06-1/2) y el `PATCH /consent` con la matriz de flags quedan **obsoletos**: el trabajador acepta o rechaza el paquete completo definido por el admin y puede retirarlo → ver [`TASK-AGENT-08`](task-08-enrollment-consent-and-lifecycle.md) y [`docs/worker-app-spec.md`](../../docs/worker-app-spec.md).
+> ⚠️ **Parcialmente reemplazada (2026-09-28).** Los *toggles granulares por categoría* (RF-AGENT-06-1/2) y el `PATCH /consent` con la matriz de flags quedan **obsoletos**: el trabajador acepta o rechaza el paquete completo definido por el admin y puede retirarlo → ver [`TASK-AGENT-08`](task-08-enrollment-consent-and-lifecycle.md) y [`docs/md/worker-app-spec.md`](../../docs/md/worker-app-spec.md).
 >
 > **Actualización 2026-09-30:** la elección por categoría **vuelve**, pero con otro diseño ([`TASK-AGENT-09`](task-09-granular-consent-and-billing-pause.md), DP-11): casillas desmarcadas por defecto limitadas a lo que el admin pidió, decisión enviada a `PATCH /workers/me/consent` con la versión y el hash del manifiesto mostrado, y guardada localmente solo tras la confirmación del servidor. Los toggles locales de esta tarea (que no se enviaban a nadie) siguen obsoletos. El portal ARCO y el semáforo siguen vigentes. Esta tarea conserva el semáforo, el horario y el portal ARCO (que hoy **no llama a la API**; debe usar `POST /workers/me/data-request` y `/data-deletion`).
 

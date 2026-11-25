@@ -1,7 +1,7 @@
 # Worker App (`agent` + `agent-ui`) — Functional Specification
 
 > v3 (2026-10-11). Replaces the egui app. Domain: `.ai-context/domain.md` §1, §4, §5, §10.
-> Legal basis: `docs/legal/marco-legal-cl.md`. Rules: `ATT-*`, `PROC-*`, `DP-*`, `LEG-*`.
+> Legal basis: `docs/md/legal/marco-legal-cl.md`. Rules: `ATT-*`, `PROC-*`, `DP-*`, `LEG-*`.
 
 The app installed on the employee's computer. In order of importance:
 1. Let the worker **mark attendance** reliably, with their PIN, always (ATT-01, ATT-02), and see every

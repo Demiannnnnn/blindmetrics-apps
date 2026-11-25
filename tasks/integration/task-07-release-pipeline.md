@@ -30,7 +30,7 @@ que impide que `worker-client/service/build.rs` falle por falta de URL explícit
 `release` (a diferencia de `admin-client/src-tauri/build.rs`, que sí exige `TELEMETRY_API_URL` en
 release según `SEC-10`). Ambos builds de release deben reutilizar las validaciones en tiempo de
 compilación existentes en `admin-client/src-tauri/build.rs` y `worker-client/service/build.rs` para
-bloquear cualquier release mientras `docs/legal/*.md` contengan marcadores `[…]` sin completar (`LEG-06`)
+bloquear cualquier release mientras `docs/md/legal/*.md` contengan marcadores `[…]` sin completar (`LEG-06`)
 o `TELEMETRY_API_URL` no sea `https://` (`SEC-10`).
 
 ## 2. Requerimientos Funcionales
@@ -74,8 +74,8 @@ o `TELEMETRY_API_URL` no sea `https://` (`SEC-10`).
     `DEBUG_DEFAULT_API_URL`.
   - El workflow de release reutiliza el chequeo en tiempo de compilación existente en
     `admin-client/src-tauri/build.rs` y `worker-client/service/build.rs` (`find_placeholders` sobre
-    `docs/legal/{terminos-empleador,terminos-trabajador,politica-privacidad}.md`), de modo que mientras
-    existan marcadores `[…]` sin completar en `docs/legal/`, cualquier compilación `release` falla
+    `docs/md/legal/{terminos-empleador,terminos-trabajador,politica-privacidad}.md`), de modo que mientras
+    existan marcadores `[…]` sin completar en `docs/md/legal/`, cualquier compilación `release` falla
     automáticamente (`LEG-06`). Adicionalmente, incluir un paso temprano de verificación en
     `release.yml` (p. ej. `cargo test -p telemetry-crypto-core` o chequeo de `TELEMETRY_API_URL`) para
     fallar rápido antes de compilar toda la matriz si falta `TELEMETRY_API_URL`.
@@ -103,7 +103,7 @@ o `TELEMETRY_API_URL` no sea `https://` (`SEC-10`).
 
 ## 3. Reglas
 
-- **LEG-06:** nunca modificar ni borrar los marcadores `[…]` de `docs/legal/` para hacer pasar un build
+- **LEG-06:** nunca modificar ni borrar los marcadores `[…]` de `docs/md/legal/` para hacer pasar un build
   release (`docs/` es protegido según AGENTS.md §6). El bloqueo de release mientras existan placeholders
   es el comportamiento esperado y requerido.
 - **SEC-10:** `TELEMETRY_API_URL` en release debe ser `https://` y no tener un valor falso hardcodeado en
@@ -127,7 +127,7 @@ o `TELEMETRY_API_URL` no sea `https://` (`SEC-10`).
   1. Verificar la compuerta `LEG-06`: ejecutar en `worker-client/` `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npm run sidecar`
      y en `admin-client/` `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npx tauri build --no-bundle`,
      comprobando que **ambos fallan inmediatamente** reportando los placeholders pendientes de
-     `docs/legal/*.md` (`LEG-06`).
+     `docs/md/legal/*.md` (`LEG-06`).
   2. Verificar la compuerta `SEC-10`: ejecutar `env -u TELEMETRY_API_URL npm run sidecar` en
      `worker-client/` (sin `.env` con URL) y comprobar que falla exigiendo `TELEMETRY_API_URL` en release.
   3. Verificar el pipeline de empaquetado en modo debug (`--debug --no-bundle`):
@@ -160,13 +160,13 @@ o `TELEMETRY_API_URL` no sea `https://` (`SEC-10`).
   - `cd worker-client && npm ci && npm run build && npm test` ✅ (35 tests pasaron, build de producción exitoso)
   - Dry runs locales:
     - Compuerta `SEC-10`: `env -u TELEMETRY_API_URL npm --prefix worker-client run sidecar` ❌ falló con salida 101 (`TELEMETRY_API_URL is required for release builds: set it in worker-client/service/.env or the environment`), verificado.
-    - Compuerta `LEG-06`: `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npm --prefix worker-client run sidecar` ❌ falló con salida 101 (`LEG-06: docs/legal/terminos-trabajador.md still contains owner placeholders`), verificado; `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npx --prefix admin-client tauri build --no-bundle` ❌ falló con salida 101 (`Release build blocked by unpopulated legal placeholders in docs/legal/terminos-empleador.md`), verificado.
+    - Compuerta `LEG-06`: `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npm --prefix worker-client run sidecar` ❌ falló con salida 101 (`LEG-06: docs/md/legal/terminos-trabajador.md still contains owner placeholders`), verificado; `TELEMETRY_API_URL=https://api.telemetry.cl/api/v1 npx --prefix admin-client tauri build --no-bundle` ❌ falló con salida 101 (`Release build blocked by unpopulated legal placeholders in docs/md/legal/terminos-empleador.md`), verificado.
     - Compilación debug: `cd worker-client && npx tauri build --debug --no-bundle` ✅ código 0 (`target/debug/telemetry-worker`), `cd admin-client && npx tauri build --debug --no-bundle` ✅ código 0 (`target/debug/admin-client-core`).
 - **Decisiones:**
-  - En `worker-client/scripts/prepare-sidecar.mjs` se pasa `process.env` tal cual en modo release para que `worker-client/service/build.rs` exija `TELEMETRY_API_URL` explícita con `https://` y valide los placeholders de `docs/legal/` (`LEG-06`), manteniendo el fallback `http://localhost:8080/api/v1` únicamente cuando `profile === 'debug'`.
+  - En `worker-client/scripts/prepare-sidecar.mjs` se pasa `process.env` tal cual en modo release para que `worker-client/service/build.rs` exija `TELEMETRY_API_URL` explícita con `https://` y valide los placeholders de `docs/md/legal/` (`LEG-06`), manteniendo el fallback `http://localhost:8080/api/v1` únicamente cuando `profile === 'debug'`.
   - En `.github/workflows/release.yml` se incorporó un job temprano `pre-check` que valida el formato HTTPS de `TELEMETRY_API_URL` y ejecuta las pruebas de `telemetry-crypto-core` antes de disparar la matriz multiplataforma.
   - Para macOS se crearon dos entradas de matriz (`aarch64-apple-darwin` y `x86_64-apple-darwin`) y en el staging de artefactos se añade el sufijo del target triple a los `.app.tar.gz` si no lo tienen para evitar colisión de nombres al consolidar en `all-artifacts/`.
 - **Pendientes / bloqueos:**
-  - Ninguno. Workflows y pruebas completos. Compilar releases de producción reales en GitHub Actions requerirá que el dueño complete los placeholders pendientes en `docs/legal/` y configure `TELEMETRY_API_URL`.
+  - Ninguno. Workflows y pruebas completos. Compilar releases de producción reales en GitHub Actions requerirá que el dueño complete los placeholders pendientes en `docs/md/legal/` y configure `TELEMETRY_API_URL`.
 - **Desviaciones del contrato:**
   - Ninguna.

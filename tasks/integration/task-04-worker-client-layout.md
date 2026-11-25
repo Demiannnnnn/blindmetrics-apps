@@ -4,7 +4,7 @@
 |:---|:---|
 | **ID de Tarea** | `TASK-INT-04` |
 | **Estado** | ✅ terminada |
-| **Módulos Afectados** | `agent/` → `worker-client/service/`, `agent-ipc/` → `worker-client/ipc/`, `agent-ui/` → `worker-client/` (raíz de la carpeta, igual que `admin-client/`), `Cargo.toml` raíz, `worker-client/scripts/prepare-sidecar.mjs`, `worker-client/src-tauri/{build.rs,tauri.conf.json,src/client.rs}`, rutas `include_str!`/`build.rs` hacia `docs/legal`, `README.md`, `.gitignore`; borrar `admin-client/api/a.txt` |
+| **Módulos Afectados** | `agent/` → `worker-client/service/`, `agent-ipc/` → `worker-client/ipc/`, `agent-ui/` → `worker-client/` (raíz de la carpeta, igual que `admin-client/`), `Cargo.toml` raíz, `worker-client/scripts/prepare-sidecar.mjs`, `worker-client/src-tauri/{build.rs,tauri.conf.json,src/client.rs}`, rutas `include_str!`/`build.rs` hacia `docs/md/legal`, `README.md`, `.gitignore`; borrar `admin-client/api/a.txt` |
 | **Dependencias** | — |
 | **Prioridad** | P1 (pedido del dueño, 2026-10-18) |
 
@@ -37,7 +37,7 @@ con un comando. Es una tarea de **estructura**: el comportamiento no cambia.
 - **RF-INT-04-2 (workspace):** `Cargo.toml` raíz con los miembros nuevos
   (`worker-client/ipc`, `worker-client/service`, `worker-client/src-tauri`) y
   `agent-ipc = { path = "worker-client/ipc" }`. Corregir toda ruta relativa que se rompa:
-  `include_str!` y `build.rs` hacia `docs/legal/` (servicio), mensajes que mencionan `agent-ui/`,
+  `include_str!` y `build.rs` hacia `docs/md/legal/` (servicio), mensajes que mencionan `agent-ui/`,
   `prepare-sidecar.mjs` (la raíz del repo sigue a `../..` de `worker-client/scripts`; confirmarlo y
   corregir si no), `src-tauri/build.rs` (mensaje del sidecar). El `target/` del workspace sigue en la raíz.
 - **RF-INT-04-3 (un comando para compilar):** dentro de `worker-client/`, igual que en `admin-client/`:
@@ -102,12 +102,12 @@ con un comando. Es una tarea de **estructura**: el comportamiento no cambia.
 
 ## Reporte
 
-- **Resumen:** Se consolidó la estructura de la aplicación del trabajador en una única carpeta raíz (`worker-client/`) análoga a `admin-client/`, conteniendo `service/` (antiguo `agent/`), `ipc/` (antiguo `agent-ipc/`) y `src-tauri/` con el frontend React en la raíz de `worker-client/`. Se conservó el historial de git usando `git mv`. Se actualizaron los miembros del workspace en `Cargo.toml`, los scripts de sidecar, las rutas de compilación y verificación de textos legales hacia `docs/legal/`, `.gitignore` y `README.md`. No se renombraron paquetes ni binarios (`agent`, `agent-ipc`, `agent-ui-core`, `telemetry-agent`, `com.telemetry.worker`). En `prepare-sidecar.mjs`, se eliminó el fallback automático a debug para garantizar el estricto cumplimiento de los gates de release (LEG-06, SEC-10 y RF-INT-04-3); el perfil debug solo se compila cuando se solicita explícitamente (`TAURI_ENV_DEBUG === 'true'` o `--debug`).
+- **Resumen:** Se consolidó la estructura de la aplicación del trabajador en una única carpeta raíz (`worker-client/`) análoga a `admin-client/`, conteniendo `service/` (antiguo `agent/`), `ipc/` (antiguo `agent-ipc/`) y `src-tauri/` con el frontend React en la raíz de `worker-client/`. Se conservó el historial de git usando `git mv`. Se actualizaron los miembros del workspace en `Cargo.toml`, los scripts de sidecar, las rutas de compilación y verificación de textos legales hacia `docs/md/legal/`, `.gitignore` y `README.md`. No se renombraron paquetes ni binarios (`agent`, `agent-ipc`, `agent-ui-core`, `telemetry-agent`, `com.telemetry.worker`). En `prepare-sidecar.mjs`, se eliminó el fallback automático a debug para garantizar el estricto cumplimiento de los gates de release (LEG-06, SEC-10 y RF-INT-04-3); el perfil debug solo se compila cuando se solicita explícitamente (`TAURI_ENV_DEBUG === 'true'` o `--debug`).
 - **Archivos:**
   - `Cargo.toml`: miembros del workspace (`worker-client/ipc`, `worker-client/service`, `worker-client/src-tauri`) y dependencia `agent-ipc = { path = "worker-client/ipc" }`.
   - `.gitignore`: ruta del binario sidecar actualizada a `worker-client/src-tauri/binaries/`.
   - `worker-client/scripts/prepare-sidecar.mjs`: ajuste de `repoRoot`, soporte explícito de perfil debug (`TAURI_ENV_DEBUG === 'true'` o `--debug`) y salida con código de error inmediato sin fallback en release si fallan los gates de `build.rs` (LEG-06 / SEC-10).
-  - `worker-client/service/build.rs`, `worker-client/service/build_support/placeholders.rs`, `worker-client/service/src/{config,legal}.rs`: rutas relativas a `docs/legal/` (`../../docs/legal/` y `../../../docs/legal/`).
+  - `worker-client/service/build.rs`, `worker-client/service/build_support/placeholders.rs`, `worker-client/service/src/{config,legal}.rs`: rutas relativas a `docs/md/legal/` (`../../docs/md/legal/` y `../../../docs/md/legal/`).
   - `worker-client/ipc/src/transport.rs`: fix de clippy para tests de Linux en macOS (`#[cfg(target_os = "linux")]`).
   - `worker-client/src-tauri/{build.rs,tauri.conf.json,src/client.rs}`: comandos `beforeDevCommand`/`beforeBuildCommand`, mensaje descriptivo y resolución de binario en `target/debug`.
   - `worker-client/package.json`, `admin-client/package.json`: alias simétricos `app:dev` y `app:build`.
@@ -135,5 +135,5 @@ con un comando. Es una tarea de **estructura**: el comportamiento no cambia.
   - `.ai-context/conventions.md`: referencias a `agent-ui`.
   - `.ai-context/implementation-status.md`: referencias a carpetas históricas `agent/`, `agent-ui/`.
   - `tasks/README.md`: descripciones de módulos afectados y diagramas.
-  - `docs/worker-app-spec.md`: rutas de archivos en especificación de la app del trabajador.
+  - `docs/md/worker-app-spec.md`: rutas de archivos en especificación de la app del trabajador.
   - `tools/orchestration/agy-note.txt`: referencia a `agent-ui/`.

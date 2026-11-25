@@ -6,7 +6,7 @@
 | **Módulos Afectados** | `admin-client/src-tauri/src/commands/{keys,workers}.rs` (nuevos, extraídos de `commands.rs`), `admin-client/src-tauri/src/client.rs`, `admin-client/src/api/tauri-bridge.ts`, `admin-client/src/api/types.ts` (nuevo), `admin-client/src/components/` (`WorkerForm`, `ConsentEditor`, `ConsentPreview`, `EnrollmentModal`, `WorkerDetail`, `ConsentHistory`, `EmployeeCard`, `Dashboard`) |
 | **Dependencias** | [`TASK-CRYPTO-02`](../crypto-core/task-02-enrollment-manifest-commitment.md), [`TASK-INT-01`](../integration/task-01-api-contract-alignment.md), [`TASK-ADMIN-02`](task-02-auth-session-and-api-client.md), `telemetry-api` **TASK-12** |
 | **Reemplaza** | RF-2/RF-3 de [`TASK-ADMIN-03`](task-03-worker-management-and-enrollment.md) (paquete JSON con `worker_id` + llave) |
-| **Especificación funcional** | [`docs/admin-app-spec.md`](../../docs/admin-app-spec.md) (pantallas K1, K2, W1–W4) |
+| **Especificación funcional** | [`docs/md/admin-app-spec.md`](../../docs/md/admin-app-spec.md) (pantallas K1, K2, W1–W4) |
 | **Prioridad** | Crítica / P0 |
 
 
@@ -134,7 +134,7 @@ export interface EnrollmentView { qr_payload: string; code: string; safety_code:
 
 ## 7. Criterios de Aceptación y Definición de Terminado (DoD)
 
-1. [x] Escenarios 1–5 de [`docs/admin-app-spec.md` §4](../../docs/admin-app-spec.md) verificados contra la API con TASK-12.
+1. [x] Escenarios 1–5 de [`docs/md/admin-app-spec.md` §4](../../docs/md/admin-app-spec.md) verificados contra la API con TASK-12.
 2. [x] Un QR generado por el admin es aceptado por el agent (AGENT-08) y un QR con la llave alterada es rechazado.
 3. [x] No quedan workers mock en builds sin `VITE_DEMO_MODE`.
 4. [x] Comandos divididos en `commands/{auth,keys,workers,telemetry,session}.rs` con `CommandError`.

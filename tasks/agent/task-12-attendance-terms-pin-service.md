@@ -17,7 +17,7 @@ Implementa en el servicio todo el módulo de asistencia y la aceptación de tér
 **contrato v3** (`.ai-context/api-contract.md` §9, §10, §12). La API todavía no lo implementa: todo se
 prueba con `wiremock` reproduciendo **exactamente** esos JSON. Leer `domain.md` §4, §5, §10, §11,
 `constraints.md` ATT-01..12, LEG-04..07, SEC-19/20, PROC-*, `security-model.md` §9,
-`architecture.md` §4.1, §4.3, §4.5, `docs/worker-app-spec.md` §2, §3, §4, §6, §7, §8, §9, §10.
+`architecture.md` §4.1, §4.3, §4.5, `docs/md/worker-app-spec.md` §2, §3, §4, §6, §7, §8, §9, §10.
 
 ## 2. Requerimientos Funcionales
 
@@ -36,8 +36,8 @@ prueba con `wiremock` reproduciendo **exactamente** esos JSON. Leer `domain.md` 
 
 ### Términos (LEG-04..07)
 
-- **RF-AGENT-12-3:** `legal.rs` embebe con `include_str!` `docs/legal/terminos-trabajador.md` y
-  `docs/legal/politica-privacidad.md`; expone versión (`legal::parse_version`) y hash
+- **RF-AGENT-12-3:** `legal.rs` embebe con `include_str!` `docs/md/legal/terminos-trabajador.md` y
+  `docs/md/legal/politica-privacidad.md`; expone versión (`legal::parse_version`) y hash
   (`legal::document_hash`). `build.rs`: en `release`, falla si `find_placeholders` encuentra algo en
   esos textos (LEG-06) — implementa la detección en `build.rs` con una copia mínima de la regla (el
   build script no puede depender del crate) **y** un test que compare ambas implementaciones con los

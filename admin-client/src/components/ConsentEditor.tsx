@@ -144,7 +144,7 @@ interface ConsentPreviewProps {
   descriptions: ConsentDescriptions;
 }
 
-/** Live preview of the worker's C1 consent screen (docs/worker-app-spec.md §C1). */
+/** Live preview of the worker's C1 consent screen (docs/md/worker-app-spec.md §C1). */
 export const ConsentPreview: React.FC<ConsentPreviewProps> = ({
   organization,
   flags,

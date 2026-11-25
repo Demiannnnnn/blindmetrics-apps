@@ -55,7 +55,7 @@
 
 - Conventional commits: `feat(agent): …`, `feat(agent-ui): …`, `fix(admin): …`, `docs(ai-context): …`, `feat(crypto-core): …`, with `Refs: TASK-…` in the body.
 - Branches (since 2026-10-11, AGENTS.md §5): `main`/`dev`/`develop` untouchable; `develop-AGENTS` = orchestrator integration; implementers work on `dev/<task-topic>` created from `develop-AGENTS`. Older branches (`dev-admin/*`, `dev-agent/*`, `dev-ecosystem/*`) are history.
-- A PR that changes behaviour updates the relevant task checkbox, `implementation-status.md`, and — if it changes a contract — `api-contract.md` / `docs/telemetry-payloads.md`.
+- A PR that changes behaviour updates the relevant task checkbox, `implementation-status.md`, and — if it changes a contract — `api-contract.md` / `docs/md/telemetry-payloads.md`.
 
 ## Definition of Done (every task)
 

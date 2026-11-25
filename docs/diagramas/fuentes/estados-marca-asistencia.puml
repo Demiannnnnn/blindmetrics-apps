@@ -1,0 +1,56 @@
+@startuml estados-marca-asistencia
+!include ../../plantilla/estilo.puml
+title Ciclo de Vida: Estado de una Marca de Asistencia (Chile R38)
+
+[*] --> GeneradaLocal : Trabajador presiona botón + PIN válido
+
+state GeneradaLocal {
+  GeneradaLocal : Hash SHA-256 encadenado calculado localmente
+  GeneradaLocal : Almacenada en SQLite local (offline-first)
+}
+
+GeneradaLocal --> EncoladaOffline : Falla de red o servidor inaccesible
+GeneradaLocal --> Enviando : Conectividad disponible inmediata
+
+state EncoladaOffline {
+  EncoladaOffline : Reintentos periódicos con backoff exponencial
+  EncoladaOffline : Marcaje del trabajador nunca bloqueado (ATT-01)
+}
+
+EncoladaOffline --> Enviando : Conexión restaurada
+
+state Enviando {
+  Enviando : POST /attendance/marks a telemetry-api
+}
+
+Enviando --> EncoladaOffline : Error 5xx o timeout
+Enviando --> RegistradaServidor : HTTP 201 Created (Hash validado)
+
+state RegistradaServidor {
+  RegistradaServidor : Timestamp legal de servidor asignado
+  RegistradaServidor : Comprobante oficial emitido y verificable
+}
+
+RegistradaServidor --> SolicitudCorreccion : Trabajador solicita corrección (≤ 48 h)
+RegistradaServidor --> InmutableDefinitiva : Plazo 48 h transcurrido sin solicitud
+
+state SolicitudCorreccion {
+  SolicitudCorreccion : En revisión por empleador según R38 art. 40
+}
+
+SolicitudCorreccion --> Corregida : Empleador aprueba corrección
+SolicitudCorreccion --> RegistradaServidor : Empleador rechaza corrección
+
+state Corregida {
+  Corregida : Marca original preservada con trazabilidad completa
+  Corregida : Nueva marca rectificatoria encadenada
+}
+
+Corregida --> InmutableDefinitiva : Cierre del período / reporte mensual
+
+state InmutableDefinitiva {
+  InmutableDefinitiva : Intocable; disponible para auditoría DT
+}
+
+InmutableDefinitiva --> [*]
+@enduml

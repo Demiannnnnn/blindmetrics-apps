@@ -55,7 +55,7 @@ flowchart LR
 - **RF-CRYPTO-02-5 (Fingerprint):** `public_key_fingerprint(pub_b64) -> Result<String, CryptoError>` = hex de `SHA-256(32 bytes crudos)`. Debe coincidir con el que calcula el servidor (`admins.public_key_fingerprint`).
 - **RF-CRYPTO-02-6 (Comparación):** `verify_commitment(manifest, expected_hex) -> bool` en tiempo constante (`subtle::ConstantTimeEq` o comparación manual sin cortocircuito).
 - **RF-CRYPTO-02-7 (QR):** `EnrollmentQr { t: "telemetry-enroll", v: 1, api_url, code, commitment }` con `to_json()` y `parse(json) -> Result<_, CryptoError>` (valida `t`, `v`, formato del código y 64 hex).
-- **RF-CRYPTO-02-8 (Payloads compartidos):** mover las estructuras de texto plano de `agent/src/core/metrics.rs` a `telemetry-crypto-core/src/payloads.rs` según [`docs/telemetry-payloads.md`](../../docs/telemetry-payloads.md) (`PlaintextBatch<T>`, `Category` e items), para que agent y admin usen los mismos tipos. *Puede hacerse en INT-01 si se prefiere; no debe duplicarse.*
+- **RF-CRYPTO-02-8 (Payloads compartidos):** mover las estructuras de texto plano de `agent/src/core/metrics.rs` a `telemetry-crypto-core/src/payloads.rs` según [`docs/md/telemetry-payloads.md`](../../docs/md/telemetry-payloads.md) (`PlaintextBatch<T>`, `Category` e items), para que agent y admin usen los mismos tipos. *Puede hacerse en INT-01 si se prefiere; no debe duplicarse.*
 
 ---
 
