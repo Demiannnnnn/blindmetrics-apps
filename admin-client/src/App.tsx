@@ -72,7 +72,7 @@ export type MainTab =
   | 'employer'
   | 'compliance';
 
-/** What stands between a signed-in admin and the console (docs/admin-app-spec.md §1, §5.2). */
+/** What stands between a signed-in admin and the console (docs/md/admin-app-spec.md §1, §5.2). */
 type Gate =
   | { kind: 'checking' }
   | { kind: 'terms'; status: LegalStatus }
@@ -101,7 +101,7 @@ export const App: React.FC = () => {
   const [customTo, setCustomTo] = useState<string>('');
 
   /**
-   * Gates sequencing (docs/admin-app-spec.md §5.2):
+   * Gates sequencing (docs/md/admin-app-spec.md §5.2):
    * T1 terms → subscription (L2) → organization (O1) → key state (K*).
    * Only a green gate mounts the console.
    */

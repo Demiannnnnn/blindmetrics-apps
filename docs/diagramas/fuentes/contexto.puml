@@ -1,0 +1,38 @@
+@startuml contexto
+!include ../../plantilla/estilo.puml
+title Contexto del sistema — BlindMetrics Apps (C4 nivel 1)
+
+actor "Trabajador\n[usuario final]" as trabajador
+actor "Administrador / Empleador\n[gestor RRHH / TI]" as admin
+actor "Fiscalizador DT\n[auditor laboral]" as fiscalizador
+
+rectangle "BlindMetrics Apps\n[sistema desktop]\nApps de escritorio para registro legal de asistencia (Chile, R38)\ny telemetría zero-knowledge opcional" as apps {
+  rectangle "worker-client\n[app trabajador]\nServicio tray en segundo plano\ny ventana de marcaje e información" as app_worker
+  rectangle "admin-client\n[app administrador]\nConsola de asistencia, gestión de trabajadores,\nreportes R38 y descifrado de telemetría" as app_admin
+}
+
+rectangle "telemetry-api\n[sistema externo - sibling repo]\nAPI REST central, base de datos de asistencia\ny almacenamiento ciego de sobres cifrados" as api
+rectangle "telemetry-web\n[sistema externo - sibling repo]\nPortal web de verificación de comprobantes\ny acceso de fiscalización" as web
+rectangle "Google Identity Services\n[sistema externo]\nProveedor OAuth 2.0 PKCE para inicio admin" as google
+rectangle "Servicio Notificaciones SMS\n[sistema externo]" as sms <<planificado>>
+
+node "Sistema Operativo Local\n[host macOS / Windows / Linux]" as so {
+  rectangle "Llavero / Keystore seguro\n(Keychain / Credential Manager / SecretService)" as keystore
+  rectangle "Bandeja del sistema (Tray)\ny notificaciones nativas" as tray
+}
+
+trabajador --> app_worker : Registra asistencia (PIN),\nconsulta comprobantes y jornada,\ngestiona consentimiento
+admin --> app_admin : Monitorea marcas en vivo,\ngestiona trabajadores y reportes R38,\ncustodia llave maestra
+fiscalizador ..> web : Consulta libros de asistencia\ny verifica comprobantes
+
+app_worker --> api : Envía marcas firmadas,\nconsulta jornada y sincroniza cola (HTTPS)
+app_admin --> api : Autenticación, gestión de trabajadores,\nconsulta de marcas y reportes (HTTPS)
+app_admin ..> google : Autenticación OAuth 2.0 PKCE
+
+app_worker --> tray : Muestra estado en bandeja\ny emite avisos de jornada
+app_worker --> keystore : Almacena tokens, PIN y llave de dispositivo
+app_admin --> keystore : Almacena tokens de sesión y llave K_admin_priv
+
+api ..> web : Datos verificables de comprobantes
+api ..> sms : Notificaciones a trabajadores (planificado)
+@enduml

@@ -35,7 +35,7 @@ fn main() {
     println!("cargo:rustc-env={API_URL_KEY}={url}");
 
     // LEG-06: A release build fails if any legal document still contains unpopulated placeholders.
-    let legal_dir = Path::new(&manifest_dir).join("../../docs/legal");
+    let legal_dir = Path::new(&manifest_dir).join("../../docs/md/legal");
     let employer_terms = legal_dir.join("terminos-empleador.md");
     let privacy_policy = legal_dir.join("politica-privacidad.md");
     println!("cargo:rerun-if-changed={}", employer_terms.display());

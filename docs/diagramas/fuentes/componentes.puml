@@ -1,0 +1,60 @@
+@startuml componentes
+!include ../../plantilla/estilo.puml
+title Contenedores y Componentes — BlindMetrics Apps (C4 nivel 2-3)
+
+package "worker-client (Equipo del Trabajador)" {
+  component "Ventana Trabajador\n(Tauri 2 + React UI)\n[agent-ui-core]" as worker_ui
+  component "Servicio Background\n[agent / telemetry-agent]\n(Rust daemon + Tray)" as worker_svc {
+    component "Servidor IPC Local\n[agent-ipc]\n(Named Pipe / Unix Domain Socket)" as ipc_server
+    component "Motor de Asistencia\n(Marcaje con PIN, hash encadenado SHA-256)" as att_engine
+    component "Cola Local SQLite\n(Marcas pendientes y telemetría)" as local_queue
+    component "Motor de Telemetría Opcional\n(Colectores nativos + cifrado)" as telem_engine
+    component "Gestor de Keystore OS\n(Tokens, salt PIN, llave X25519)" as worker_ks
+    component "Cliente HTTP\n(reqwest + single-flight refresh)" as worker_http
+  }
+}
+
+package "admin-client (Equipo del Administrador)" {
+  component "Consola de Administración\n(Tauri 2 + React UI)\n[admin-client]" as admin_ui
+  component "Backend Core Admin\n[admin-client-core]\n(Rust)" as admin_core {
+    component "Cliente HTTP API\n(Autenticación, refresh, gestión trabajadores)" as admin_http
+    component "Bóveda de Llave Maestra\n(K_admin_priv, backup .tkb Argon2id)" as admin_vault
+    component "Motor de Descifrado Paralelo\n(rayon: AES-256-GCM en memoria)" as decrypt_engine
+    component "Generador de Reportes R38\n(Excel, PDF, Word)" as report_gen
+    component "Gestor de Keystore OS\n(Credenciales admin)" as admin_ks
+  }
+}
+
+package "telemetry-crypto-core (Librería Compartida Rust)" {
+  component "Criptografía Pura\n(Hash R38, PIN Argon2id, RUT,\nsobres X25519/AES-GCM, .tkb)" as crypto_core
+}
+
+cloud "telemetry-api (Servidor Remoto)" {
+  component "Endpoints Asistencia v3\n(/attendance/marks, /schedule)" as api_att
+  component "Endpoints Admin v3\n(/workers, /reports, /org)" as api_admin
+  component "Búfer Ciego de Telemetría\n(Sobres cifrados en reposo)" as api_telem
+}
+
+worker_ui --> ipc_server : Comandos y consultas IPC\n(autenticado con token)
+ipc_server --> att_engine : Invoca marcado de asistencia
+ipc_server --> telem_engine : Configura consentimiento granular
+att_engine --> crypto_core : Valida PIN y calcula hash SHA-256
+att_engine --> local_queue : Encola marcas (offline first)
+local_queue --> worker_http : Envía marcas pendientes
+worker_http --> api_att : POST /attendance/marks (HTTPS)
+telem_engine --> crypto_core : Cifra métricas con llave admin fijada
+telem_engine --> local_queue : Encola sobres de telemetría
+worker_http --> api_telem : POST /telemetry/records (HTTPS)
+worker_svc --> worker_ks : Lee/escribe secretos locales
+
+admin_ui --> admin_core : Comandos Tauri (IPC nativo)
+admin_http --> api_admin : Consulta trabajadores y reportes (HTTPS)
+admin_vault --> crypto_core : Respaldo v2 .tkb y derivación
+decrypt_engine --> crypto_core : Descifrado en memoria (servidor ciego)
+admin_http --> api_telem : Descarga sobres cifrados
+api_telem --> decrypt_engine : Sobres cifrados
+decrypt_engine --> admin_ui : Métricas descifradas en claro
+admin_core --> report_gen : Exporta datos R38
+report_gen --> admin_ui : Archivo Excel/PDF generado
+admin_core --> admin_ks : Custodia llave y tokens
+@enduml

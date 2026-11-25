@@ -13,7 +13,7 @@
 
 ## 1. Contexto
 
-Leer `docs/admin-app-spec.md` AS3 y §5.3 (L2); `docs/legal/marco-legal-cl.md` §3.2 (art. 25) y
+Leer `docs/md/admin-app-spec.md` AS3 y §5.3 (L2); `docs/md/legal/marco-legal-cl.md` §3.2 (art. 25) y
 §3.3 (arts. 27–28); `api-contract.md` §9.4 (`/attendance/reports/{report}` y `/export`);
 `constraints.md` ATT-09, BILL-04. El **servidor** calcula y exporta; la app filtra, muestra y guarda.
 

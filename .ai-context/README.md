@@ -20,10 +20,10 @@ Read this directory before touching code. It is the source of truth for *what th
 
 | Document | Location |
 |:---------|:---------|
-| Functional spec — Admin app (screens, flows, states) | [`docs/admin-app-spec.md`](../docs/admin-app-spec.md) |
-| Functional spec — Worker app (screens, flows, states) | [`docs/worker-app-spec.md`](../docs/worker-app-spec.md) |
-| **Legal framework (Chile), terms, privacy policy** | [`docs/legal/`](../docs/legal/README.md) — start with `marco-legal-cl.md` |
-| Plaintext telemetry payload schemas (agent ⇄ admin contract) | [`docs/telemetry-payloads.md`](../docs/telemetry-payloads.md) |
+| Functional spec — Admin app (screens, flows, states) | [`docs/md/admin-app-spec.md`](../docs/md/admin-app-spec.md) |
+| Functional spec — Worker app (screens, flows, states) | [`docs/md/worker-app-spec.md`](../docs/md/worker-app-spec.md) |
+| **Legal framework (Chile), terms, privacy policy** | [`docs/md/legal/`](../docs/md/legal/README.md) — start with `marco-legal-cl.md` |
+| Plaintext telemetry payload schemas (agent ⇄ admin contract) | [`docs/md/telemetry-payloads.md`](../docs/md/telemetry-payloads.md) |
 | Task roadmap | [`tasks/README.md`](../tasks/README.md) |
 | Server: enrollment & consent lifecycle design (v1 + v2) | `telemetry-api/ENROLLMENT.md` |
 | Server: design of contract v2 (hardening, enrollment v2, Google, devices, vault, subscriptions) | `telemetry-api/ARCHITECTURE-CHANGES.md` and `telemetry-api/tasks/task-13..17` |

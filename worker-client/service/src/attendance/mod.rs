@@ -78,7 +78,7 @@ impl AttendanceNotice {
         }
     }
 
-    /// Exact copy of `docs/worker-app-spec.md` §8.
+    /// Exact copy of `docs/md/worker-app-spec.md` §8.
     pub fn body(&self) -> String {
         match self {
             AttendanceNotice::MissingMark { r#type, agreed } => {

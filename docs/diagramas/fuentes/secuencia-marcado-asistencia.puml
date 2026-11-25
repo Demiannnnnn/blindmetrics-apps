@@ -1,0 +1,54 @@
+@startuml secuencia-marcado-asistencia
+!include ../../plantilla/estilo.puml
+title Secuencia: Marcado de Asistencia y Encadenamiento Criptográfico (Flujo Crítico 1)
+
+actor "Trabajador" as user
+participant "Ventana Trabajador\n(agent-ui React)" as ui
+participant "Servicio Background\n(telemetry-agent)" as svc
+participant "telemetry-crypto-core" as crypto
+database "SQLite Local\n(attendance_marks_queue)" as db
+participant "telemetry-api\n(Servidor)" as api
+
+user -> ui : 1. Pulsa botón "Marcar entrada/salida"
+ui -> user : 2. Solicita PIN de 4 dígitos
+user -> ui : 3. Ingresa PIN
+ui -> svc : 4. IPC: MarkAttendance(type, pin)
+activate svc
+
+svc -> crypto : 5. Valida PIN (Argon2id + salt en Keystore)
+crypto --> svc : PIN válido
+
+svc -> db : 6. Consulta hash de última marca (prev_hash)
+db --> svc : prev_hash
+
+svc -> crypto : 7. calculate_mark_hash(worker_id, type, ts, prev_hash)
+crypto --> svc : mark_hash (SHA-256 encadenado)
+
+svc -> db : 8. Inserta marca (estado PENDING)
+db --> svc : OK
+
+svc --> ui : 9. Evento IPC: Marcado preliminar aceptado
+deactivate svc
+
+opt Conectividad activa (Online)
+  svc -> api : 10. POST /attendance/marks {client_mark_id, type, ts, hash, prev_hash}
+  activate api
+  api -> api : 11. Valida prev_hash y calcula hash servidor
+  api --> svc : 12. 201 Created {server_mark_id, server_ts, receipt_hash}
+  deactivate api
+
+  svc -> db : 13. Actualiza marca a estado SENT (sent_at = now)
+  svc -> ui : 14. Evento IPC: Comprobante oficial recibido
+  ui -> user : 15. Muestra comprobante con hash y fecha de servidor
+end
+
+opt Sin conectividad (Offline)
+  svc -> svc : Marca permanece PENDING en cola local
+  svc -> ui : 16. Evento IPC: Marca guardada localmente (offline)
+  ui -> user : 17. Notifica "Marca guardada offline; se enviará al reconectar"
+  note over svc, db
+    El marcado nunca se bloquea por red o servidor (ATT-01).
+    Al restaurar conexión, el scheduler reenvía las marcas en orden.
+  end note
+end
+@enduml

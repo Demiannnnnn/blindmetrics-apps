@@ -5,8 +5,8 @@ include!("build_support/placeholders.rs");
 /// Legal texts embedded by `src/legal.rs` (LEG-04). A release build fails while they still contain
 /// owner placeholders (LEG-06).
 const LEGAL_TEXTS: [&str; 2] = [
-    "../../docs/legal/terminos-trabajador.md",
-    "../../docs/legal/politica-privacidad.md",
+    "../../docs/md/legal/terminos-trabajador.md",
+    "../../docs/md/legal/politica-privacidad.md",
 ];
 
 /// Server URL the agent is built for. The agent only talks to the owner's server, so the URL is
@@ -50,7 +50,7 @@ fn main() {
     check_legal_texts(Path::new(&manifest_dir), release);
 }
 
-/// LEG-06: never ship legal texts with `[RUT]`-style placeholders of `docs/legal/README.md`.
+/// LEG-06: never ship legal texts with `[RUT]`-style placeholders of `docs/md/legal/README.md`.
 fn check_legal_texts(manifest_dir: &Path, release: bool) {
     for relative in LEGAL_TEXTS {
         let path = manifest_dir.join(relative);
@@ -65,7 +65,7 @@ fn check_legal_texts(manifest_dir: &Path, release: bool) {
         let placeholders = find_placeholders(&text);
         if !placeholders.is_empty() {
             panic!(
-                "LEG-06: {} still contains owner placeholders {:?}; complete docs/legal before a release build",
+                "LEG-06: {} still contains owner placeholders {:?}; complete docs/md/legal before a release build",
                 path.display(),
                 placeholders
             );

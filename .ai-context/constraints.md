@@ -19,7 +19,7 @@ Every rule has an ID. Cite it in code review, commits and tests (`// DP-01`). A 
 | **DP-12** | Telemetry never runs during a `REMOTE`/`HYBRID` worker's disconnection window nor outside the agreed schedule for time-bound categories. |
 | **DP-11** | Granular consent: the worker may accept any **non-empty subset of the requested categories** and change it later; the agent never sends a category the admin did not request and never offers one. |
 
-## Attendance (ATT) — source: `docs/legal/marco-legal-cl.md`
+## Attendance (ATT) — source: `docs/md/legal/marco-legal-cl.md`
 
 | ID | Rule |
 |:---|:-----|
@@ -108,7 +108,7 @@ Every rule has an ID. Cite it in code review, commits and tests (`// DP-01`). A 
 | **LEG-01** | The consent screen shows, per category, the admin's description verbatim, plus the fixed rights text and the organization name. |
 | **LEG-02** | The agent sends `manifest_hash` (commitment of the **full** manifest displayed, including categories the worker did not choose) with every consent decision so the server evidence matches what was displayed. |
 | **LEG-03** | Data-subject requests (export, deletion) are available from the worker UI at all times while enrolled. |
-| **LEG-04** | Legal texts come only from `docs/legal/*.md`, embedded at compile time and shown in full. Acceptance sends `{document, version, hash}` with `hash = telemetry-crypto-core::legal::document_hash(text)`. |
+| **LEG-04** | Legal texts come only from `docs/md/legal/*.md`, embedded at compile time and shown in full. Acceptance sends `{document, version, hash}` with `hash = telemetry-crypto-core::legal::document_hash(text)`. |
 | **LEG-05** | Worker: the worker terms must be accepted before the first mark and before any telemetry; a later version shows a non-blocking banner (attendance keeps working, ATT-02) but blocks new telemetry decisions until read. Admin: the employer terms must be accepted before using the console (attendance reports read-only remain reachable, BILL-04). |
-| **LEG-06** | A `release` build fails if a legal text still contains a `[` placeholder of `docs/legal/README.md`. |
+| **LEG-06** | A `release` build fails if a legal text still contains a `[` placeholder of `docs/md/legal/README.md`. |
 | **LEG-07** | No UI, text or document claims the system is authorized or certified by the Dirección del Trabajo until an authorization Ordinario exists; the fixed notice of `marco-legal-cl.md` §7 is shown in the admin app and in the worker terms. |

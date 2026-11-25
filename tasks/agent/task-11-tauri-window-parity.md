@@ -15,7 +15,7 @@
 
 La ventana del trabajador se rehace en **Tauri 2 + React 18 + TypeScript + Tailwind 4**, con el mismo
 sistema de diseño que `admin-client` (tokens de `admin-client/src/index.css`, IBM Plex vía
-`@fontsource`, `lucide-react`, sin emojis, es-CL, tú). Leer `docs/worker-app-spec.md` completo (§0,
+`@fontsource`, `lucide-react`, sin emojis, es-CL, tú). Leer `docs/md/worker-app-spec.md` completo (§0,
 §1, §2 E1–E3, §5 Telemetría, §6 Mis datos/Ajustes sin PIN ni términos, §7, §9),
 `.claude/skills/enterprise-design-system/SKILL.md`, `constraints.md` PROC-*, DP-08/10/11, LEG-01..03.
 

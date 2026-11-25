@@ -1,0 +1,54 @@
+@startuml casos-de-uso
+!include ../../plantilla/estilo.puml
+title Casos de Uso por Actor — BlindMetrics Apps
+
+actor "Trabajador\n(Empleado)" as trabajador
+actor "Administrador / Empleador" as admin
+actor "Fiscalizador DT" as fiscalizador
+
+rectangle "App del Trabajador (worker-client)" {
+  usecase "Marcar Asistencia\n(Entrada / Salida / Colación con PIN)" as UC_Marcar
+  usecase "Consultar Comprobantes\ny Verificar Hash SHA-256" as UC_Comprobantes
+  usecase "Solicitar Corrección de Marca\n(Procedimiento 48h R38)" as UC_Correccion
+  usecase "Consultar Jornada Pactada\ny Descansos Legales" as UC_Jornada
+  usecase "Aceptar Términos Legales\ny Fijar PIN (Argon2id)" as UC_Terminos
+  usecase "Gestionar Consentimiento\nGranular de Telemetría (DP-08/10)" as UC_Consentimiento
+  usecase "Ejercer Derechos ARCO\n(Descarga / Supresión)" as UC_Arco
+}
+
+rectangle "App del Administrador (admin-client)" {
+  usecase "Iniciar Sesión\n(Email o Google OAuth PKCE)" as UC_AuthAdmin
+  usecase "Enrolar Trabajador\n(Alta, RUT, QR con Compromiso)" as UC_Enrolar
+  usecase "Monitorear Asistencia en Vivo\n(Tablero y Días R38)" as UC_Tablero
+  usecase "Aprobar / Rechazar Solicitudes\nde Corrección (48h)" as UC_GestionCorreccion
+  usecase "Generar Reportes Legales R38\n(Filtros art. 25, Excel/PDF/Word)" as UC_Reportes
+  usecase "Custodiar Llave Maestra\ny Respaldar Bóveda (.tkb)" as UC_Vault
+  usecase "Descifrar Telemetría en Memoria\n(Zero-Knowledge / Servidor Ciego)" as UC_Descifrado
+  usecase "Configurar / Pausar Telemetría" as UC_ConfigTelem
+}
+
+rectangle "Portal Web y Verificación Externa" {
+  usecase "Auditar Registro Inmutable\ny Encadenamiento de Hashes" as UC_AuditarDT
+}
+
+trabajador --> UC_Marcar
+trabajador --> UC_Comprobantes
+trabajador --> UC_Correccion
+trabajador --> UC_Jornada
+trabajador --> UC_Terminos
+trabajador --> UC_Consentimiento
+trabajador --> UC_Arco
+
+admin --> UC_AuthAdmin
+admin --> UC_Enrolar
+admin --> UC_Tablero
+admin --> UC_GestionCorreccion
+admin --> UC_Reportes
+admin --> UC_Vault
+admin --> UC_Descifrado
+admin --> UC_ConfigTelem
+
+fiscalizador --> UC_AuditarDT
+UC_Comprobantes ..> UC_AuditarDT : Valida autenticidad
+UC_Correccion ..> UC_GestionCorreccion : Tramita en 48h
+@enduml

@@ -3,7 +3,7 @@
 | Atributo | Detalle |
 |:--|:--|
 | **ID** | `HDOC-01` |
-| **Estado** | ⬜ pendiente |
+| **Estado** | 🟡 parcial |
 | **Depende de** | — |
 | **Rama** | `dev/hdoc-01` |
 | **Prioridad** | P1 |
@@ -53,4 +53,29 @@ Repositorio: `blindmetrics-apps` (tipo: apps; API HTTP: no; interfaz de usuario:
 
 ## Reporte
 
-_(lo completa agy)_
+- **Resumen:** Implementada la estructura completa del estándar de documentación para personas (`docs/md/`, `docs/plantilla/`, `docs/informes/`, `docs/diagramas/{fuentes,svg,png}`). Generados y versionados 11 diagramas PlantUML en SVG y PNG fieles al código. Reescrito `README.md` exhaustivo y profesional según §5 del estándar. Incorporada regla de mantenimiento de documentación a `AGENTS.md`. Todas las referencias actualizadas sin rutas rotas.
+- **Archivos:**
+  - `README.md`
+  - `AGENTS.md`
+  - `docs/build-docs.sh`, `docs/.build-hashes`
+  - `docs/plantilla/*` (`estilo.puml`, `pandoc-filtro.lua`, `pandoc-macros.tex`, `raysac-informe.cls`, `referencia.docx`)
+  - `docs/informes/.gitkeep`
+  - `docs/diagramas/fuentes/*.puml` (11 diagramas)
+  - `docs/diagramas/svg/*.svg` (11 diagramas vectoriales)
+  - `docs/diagramas/png/*.png` (11 diagramas mapa de bits)
+  - `docs/md/*` (8 documentos reubicados sin pérdida de contenido)
+  - Actualización de referencias de rutas en código (`admin-client/`, `worker-client/`, `telemetry-crypto-core/`), `.ai-context/` y `tasks/`.
+- **Comandos:**
+  - `cargo fmt --all --check`: ✅ Verde (cero diferencias).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: ✅ Verde (cero advertencias).
+  - `cd admin-client && npm ci && npm run build && npm test`: ✅ Verde (134 pruebas pasadas, 0 fallos; build completado en 1.04s).
+  - `cd worker-client && npm ci && npm run build && npm test`: ✅ Verde (47 pruebas pasadas, 0 fallos; build completado en 456ms).
+  - `cargo test --workspace`: 🟡 395 pasadas, 1 fallo (`core::collectors::tests::test_system_collector_performance` tardó ~3.89s superando el límite de 500ms al intentar conectar con display server inexistente en entorno Linux headless; `telemetry-crypto-core`: 51/51, `agent-ipc`: 21/21, `agent-ui-core`: 9/9, `admin-client-core`: 154/154, `agent`: 160/161).
+  - `docs/build-docs.sh --check`: ⛔ Bloqueado (código de salida 3: `falta una herramienta`; `plantuml`, `dot`, `tectonic` y `pandoc` no están instalados en este host Linux).
+- **Decisiones:**
+  - Se mantuvieron las versiones generadas de diagramas (SVG y PNG) producidas previamente en macOS y sus hashes en `docs/.build-hashes`, sin alterar las fuentes ni inventar salidas de compilación en Linux donde falta el ejecutable de `plantuml`.
+  - No se modificó el código de producción ni se debilitó el test de rendimiento `test_system_collector_performance` para forzar su paso en headless, respetando rigurosamente AGENTS.md §7 y el principio de no alterar código de producto en tareas de documentación.
+- **Pendientes / bloqueos:**
+  - Instalación de herramientas en el host (`plantuml`, `graphviz`, `tectonic`, `pandoc`) para permitir la ejecución autónoma de `docs/build-docs.sh --check` en Linux.
+  - La compilación de informes PDF/DOCX corresponde a las tareas posteriores HDOC-02, HDOC-03 y HDOC-04 (esta tarea HDOC-01 solo abarca estructura, kit, diagramas y README).
+- **Desviaciones del contrato:** Ninguna.

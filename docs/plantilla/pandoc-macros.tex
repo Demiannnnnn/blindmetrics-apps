@@ -1,0 +1,30 @@
+% pandoc-macros.tex — Equivalentes de las macros de raysac-informe.cls para pandoc.
+% build-docs.sh lo pasa a pandoc ANTES del .tex del informe, de modo que los comandos
+% propios de la clase (\producto, \titulo, controlversiones, avisos, glosario...) se
+% conviertan a metadatos y contenido normales en el DOCX. No se usa al compilar el PDF.
+\author{raysac}
+\newcommand{\producto}[1]{\subtitle{#1}}
+\newcommand{\titulo}[1]{\title{#1}}
+\newcommand{\titulocorto}[1]{}
+\newcommand{\fecha}[1]{\date{#1}}
+\newcommand{\autor}[1]{\author{#1}}
+\newcommand{\rscversion}{}
+\newcommand{\rsccls}{}
+\newcommand{\version}[1]{\renewcommand{\rscversion}{#1}}
+\newcommand{\clasificacion}[1]{\renewcommand{\rsccls}{#1}}
+\newcommand{\portada}{\par\textbf{Versión:} \rscversion{} \textbullet{} \textbf{Clasificación:} \rsccls\par}
+\newcommand{\preliminares}{}
+\newcommand{\cvfila}[4]{#1 & #2 & #3 & #4 \\}
+\newenvironment{controlversiones}{\section*{Control de versiones del documento}
+\begin{longtable}[]{@{}p{0.12\linewidth}p{0.18\linewidth}p{0.18\linewidth}p{0.42\linewidth}@{}}
+\toprule
+Versión & Fecha & Autor & Descripción del cambio \\
+\midrule
+\endhead
+}{\bottomrule
+\end{longtable}}
+\newenvironment{avisolegal}{\par\textbf{Aviso legal.} }{\par}
+\newenvironment{nota}{\par\textbf{Nota.} }{\par}
+\newcommand{\avisolegalestandar}{\begin{avisolegal}Este documento es de carácter técnico e informativo y \textbf{no constituye asesoría legal}. Las referencias normativas deben ser validadas por un abogado antes de tomar decisiones jurídicas o de cumplimiento. Las cifras, tasas y topes citados indican su fuente y fecha de consulta; pueden haber cambiado desde entonces.\end{avisolegal}}
+\newenvironment{glosario}{\begin{description}}{\end{description}}
+\newcommand{\termino}[2]{\item[#1] #2}

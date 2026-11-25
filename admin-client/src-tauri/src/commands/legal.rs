@@ -9,9 +9,11 @@ use crate::client::{get_api_client, AdminApiClient};
 use crate::commands::CommandError;
 use serde::{Deserialize, Serialize};
 
-/// Embedded raw texts from docs/legal/ (LEG-04).
-pub const EMPLOYER_TERMS_TEXT: &str = include_str!("../../../../docs/legal/terminos-empleador.md");
-pub const PRIVACY_POLICY_TEXT: &str = include_str!("../../../../docs/legal/politica-privacidad.md");
+/// Embedded raw texts from docs/md/legal/ (LEG-04).
+pub const EMPLOYER_TERMS_TEXT: &str =
+    include_str!("../../../../docs/md/legal/terminos-empleador.md");
+pub const PRIVACY_POLICY_TEXT: &str =
+    include_str!("../../../../docs/md/legal/politica-privacidad.md");
 
 /// Information for a single legal document.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

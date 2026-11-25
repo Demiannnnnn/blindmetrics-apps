@@ -95,7 +95,7 @@ fn is_main_thread() -> bool {
 /// Builds the tray and its menu on the calling thread.
 fn build_tray() -> Option<(TrayIcon, MenuIds)> {
     let menu = Menu::new();
-    // Labels of docs/worker-app-spec.md §7.
+    // Labels of docs/md/worker-app-spec.md §7.
     let open_item = MenuItem::new("Abrir", true, None);
     let mark_item = MenuItem::new("Marcar asistencia…", true, None);
     let whats_collected_item = MenuItem::new("Qué se recolecta", true, None);

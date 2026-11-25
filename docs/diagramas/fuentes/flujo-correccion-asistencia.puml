@@ -1,0 +1,48 @@
+@startuml flujo-correccion-asistencia
+!include ../../plantilla/estilo.puml
+title Flujo de Proceso: Procedimiento de Corrección de Asistencia (R38 art. 40)
+
+start
+
+:Trabajador detecta omisión o error en marca de asistencia;
+
+if (¿Transcurrieron menos de 48 horas desde la marca o fin de jornada?) then (sí (≤ 48 h))
+  :Trabajador ingresa solicitud en worker-client
+  (marca afectada, tipo, nueva hora propuesta y justificación);
+  
+  :Servicio envía solicitud a la API
+  POST /attendance/corrections;
+  
+  :API registra solicitud en estado PENDING y
+  alerta al empleador en la consola;
+  
+  :Empleador revisa antecedentes en admin-client
+  (jornada pactada, justificación, hora propuesta);
+  
+  if (¿Empleador aprueba la corrección?) then (sí)
+    :Empleador autoriza la solicitud
+    POST /attendance/corrections/:id/approve;
+    
+    :API genera marca rectificatoria encadenada
+    (mantiene marca original y nuevo registro corregido);
+    
+    :API notifica resolución favorable a ambas partes;
+    :Comprobante actualizado disponible para el trabajador;
+  else (no)
+    :Empleador rechaza solicitud indicando fundamento legal;
+    :API registra rechazo y mantiene marca original inalterada;
+    :Trabajador visualiza motivo de rechazo en su historial;
+  endif
+
+else (no (> 48 h))
+  :worker-client bloquea solicitud
+  (plazo legal de 48 horas vencido según Res. Ex. N°38/2024);
+  :Trabajador informado de que debe recurrir
+  a las vías administrativas ordinarias;
+endif
+
+:Registro y bitácora quedan disponibles
+para fiscalización de la Dirección del Trabajo;
+
+stop
+@enduml
