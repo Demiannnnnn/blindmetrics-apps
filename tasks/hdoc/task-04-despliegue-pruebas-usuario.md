@@ -43,3 +43,5 @@ Repositorio: `blindmetrics-apps` (tipo: apps; API HTTP: no; interfaz de usuario:
 ## Reporte
 
 _(lo completa agy)_
+
+> **Trabajo previo (2026-11-23, interrumpido por cuota):** rama `wip/hdoc-04-old` (`git log -p develop-AGENTS..wip/hdoc-04-old`). Reutiliza lo que siga siendo correcto respecto del código actual; no lo copies a ciegas.

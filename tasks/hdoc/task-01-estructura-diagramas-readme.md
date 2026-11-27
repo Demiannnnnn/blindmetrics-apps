@@ -79,3 +79,5 @@ Repositorio: `blindmetrics-apps` (tipo: apps; API HTTP: no; interfaz de usuario:
   - Instalación de herramientas en el host (`plantuml`, `graphviz`, `tectonic`, `pandoc`) para permitir la ejecución autónoma de `docs/build-docs.sh --check` en Linux.
   - La compilación de informes PDF/DOCX corresponde a las tareas posteriores HDOC-02, HDOC-03 y HDOC-04 (esta tarea HDOC-01 solo abarca estructura, kit, diagramas y README).
 - **Desviaciones del contrato:** Ninguna.
+
+> **Trabajo previo (2026-11-23, interrumpido por cuota):** rama `wip/hdoc-01-old` (`git log -p develop-AGENTS..wip/hdoc-01-old`). Reutiliza lo que siga siendo correcto respecto del código actual; no lo copies a ciegas.
