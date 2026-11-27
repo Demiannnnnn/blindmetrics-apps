@@ -79,3 +79,17 @@ Last update: 2026-10-16 08:00 — **telemetry-apps v3 and telemetry-api v3 compl
 > **2026-10-18 (MacBook, after a reformat):** repos and worktrees live in `~/Documents/Github/` (`ta-wt-orch`, `ta-wt-pro`, `ta-wt-plus`). Builds and tests run inside the `agy-pro` / `agy-plus` containers (Rust stable, Node 24); the shared compile lock is `/locks/telemetry-heavy.lock`.
 
 > **2026-10-19:** native mode is the default (host `agy` with the owner's main account; Plus quota too small). Containers are optional; Colima keeps only `telemetry-pg` for the API. State left on 2026-10-18 (unmerged branches in the slots) is in the orchestrator's notes; check each `*-wt-pro|plus` worktree before reusing it.
+
+## Cierre por orden del dueño (2026-11-27 18:30) — trabajo a medias
+
+Todos los agentes (agy, Kiro) y cadenas se detuvieron. Nada de lo siguiente está en `develop-AGENTS`.
+Las cadenas eran **apiladas**: cada rama sale de la anterior, así que se integran en el orden listado.
+Veredicto = revisión automática de `run_chain3.sh` (`_sii/orch/logs/_summary.txt`); UNKNOWN = la revisión
+no llegó a completarse. **Nada de esto lo revisó Claude todavía**: revisar diff + Reporte + `test_guard` y
+correr `_sii/orch/integrate_locked.sh <repo> <rama> --merge` antes de integrar.
+
+| Rama | Commits sobre develop-AGENTS | Estado |
+|:--|:--|:--|
+| `dev/docops-01` | +2 | PASS |
+| `dev/hdoc-02` | +3 | PASS |
+| `dev/hdoc-03` | +3 | UNKNOWN |
